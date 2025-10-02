@@ -3,202 +3,427 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Person Detection with YOLOv8n</title>
+    <title>Dress Code Detection System</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <link href="{{ url_for('static', filename='style.css') }}" rel="stylesheet">
     <style>
+        :root {
+            --primary-gradient: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            --secondary-gradient: linear-gradient(45deg, #667eea, #764ba2);
+            --success-color: #28a745;
+            --warning-color: #ffc107;
+            --danger-color: #dc3545;
+            --info-color: #17a2b8;
+            --light-bg: #f8f9fa;
+            --card-shadow: 0 10px 30px rgba(0, 0, 0, 0.1);
+            --border-radius: 15px;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
         body {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            background: var(--primary-gradient);
             min-height: 100vh;
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            color: #333;
         }
         
         .main-container {
-            background: rgba(255, 255, 255, 0.95);
-            border-radius: 20px;
-            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.1);
+            background: rgba(255, 255, 255, 0.98);
+            border-radius: 25px;
+            box-shadow: 0 25px 50px rgba(0, 0, 0, 0.15);
+            padding: 3rem;
             margin: 2rem auto;
-            padding: 2rem;
-            max-width: 1400px;
+            max-width: 1600px;
+            backdrop-filter: blur(10px);
+        }
+        
+        .header-section {
+            text-align: center;
+            margin-bottom: 3rem;
+            padding-bottom: 2rem;
+            border-bottom: 3px solid transparent;
+            background: var(--secondary-gradient);
+            background-clip: text;
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .header-section h1 {
+            font-size: 3rem;
+            font-weight: 700;
+            margin-bottom: 1rem;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.1);
+        }
+
+        .header-section p {
+            font-size: 1.2rem;
+            color: #666;
+            font-weight: 400;
         }
         
         .main-content {
-            display: flex;
-            gap: 2rem;
+            display: grid;
+            grid-template-columns: 2fr 1fr;
+            gap: 2.5rem;
             margin-top: 2rem;
         }
         
         .webcam-section {
-            flex: 2;
-            min-width: 0;
-        }
-        
-        .upload-section {
-            flex: 1;
-            min-width: 0;
-        }
-        
-        .upload-area {
-            border: 3px dashed #667eea;
-            border-radius: 15px;
-            padding: 3rem;
-            text-align: center;
-            background: #f8f9ff;
-            transition: all 0.3s ease;
-            cursor: pointer;
-        }
-        
-        .upload-area:hover {
-            border-color: #764ba2;
-            background: #f0f2ff;
-            transform: translateY(-2px);
-        }
-        
-        .upload-area.dragover {
-            border-color: #28a745;
-            background: #d4edda;
-        }
-        
-        .result-container {
-            margin-top: 2rem;
-            display: none;
-        }
-        
-        .detection-info {
-            background: #e3f2fd;
-            border-radius: 10px;
-            padding: 1rem;
-            margin-bottom: 1rem;
-        }
-        
-        .image-container {
-            text-align: center;
-            margin: 1rem 0;
-        }
-        
-        .result-image {
-            max-width: 100%;
-            border-radius: 10px;
-            box-shadow: 0 10px 20px rgba(0, 0, 0, 0.1);
-        }
-        
-        .loading {
-            display: none;
-            text-align: center;
+            background: white;
+            border-radius: var(--border-radius);
             padding: 2rem;
+            box-shadow: var(--card-shadow);
+            border: 1px solid rgba(102, 126, 234, 0.1);
         }
         
-        .spinner {
-            border: 4px solid #f3f3f3;
-            border-top: 4px solid #667eea;
-            border-radius: 50%;
-            width: 40px;
-            height: 40px;
-            animation: spin 1s linear infinite;
-            margin: 0 auto;
+        .rfid-section {
+            display: flex;
+            flex-direction: column;
+            gap: 1.5rem;
         }
         
-        @keyframes spin {
-            0% { transform: rotate(0deg); }
-            100% { transform: rotate(360deg); }
-        }
-        
-        .detection-count {
-            font-size: 1.5rem;
-            font-weight: bold;
-            color: #28a745;
-        }
-        
-        .btn-custom {
-            background: linear-gradient(45deg, #667eea, #764ba2);
-            border: none;
-            color: white;
-            padding: 12px 30px;
-            border-radius: 25px;
+        .section-title {
+            font-size: 1.4rem;
             font-weight: 600;
-            transition: all 0.3s ease;
+            color: #333;
+            margin-bottom: 1.5rem;
+            padding-bottom: 0.8rem;
+            border-bottom: 3px solid #667eea;
+            position: relative;
         }
-        
-        .btn-custom:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
-            color: white;
-        }
-        
-        .alert-custom {
-            border-radius: 10px;
-            border: none;
+
+        .section-title::after {
+            content: '';
+            position: absolute;
+            bottom: -3px;
+            left: 0;
+            width: 50px;
+            height: 3px;
+            background: var(--secondary-gradient);
+            border-radius: 2px;
         }
         
         .webcam-container {
-            background: #f8f9ff;
-            border-radius: 15px;
-            padding: 2rem;
+            background: var(--light-bg);
+            border-radius: 12px;
+            padding: 1.5rem;
             border: 2px solid #e9ecef;
-            height: fit-content;
+            transition: all 0.3s ease;
+        }
+
+        .webcam-container:hover {
+            border-color: #667eea;
+            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.1);
         }
         
         .video-container {
-            text-align: center;
+            position: relative;
             background: #000;
-            border-radius: 10px;
+            border-radius: 12px;
             overflow: hidden;
-            width: 100%;
+            margin-bottom: 1.5rem;
+            box-shadow: 0 8px 25px rgba(0, 0, 0, 0.2);
+            min-height: 300px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
         }
         
         .video-container img {
             width: 100%;
             height: auto;
-            max-height: 500px;
-            object-fit: contain;
+            display: block;
+            transition: transform 0.3s ease;
         }
-        
-        .section-title {
-            font-size: 1.5rem;
-            font-weight: 600;
-            color: #667eea;
-            margin-bottom: 1rem;
+
+        .video-container:hover img {
+            transform: scale(1.02);
+        }
+
+        .camera-off-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 12px;
+            z-index: 10;
+            min-height: 300px;
+        }
+
+        .camera-off-content {
             text-align: center;
+            padding: 2rem;
+            max-width: 300px;
         }
-        
-        @media (max-width: 768px) {
-            .main-content {
-                flex-direction: column;
-            }
-            
-            .webcam-section, .upload-section {
-                flex: none;
-            }
+
+        .camera-off-content i {
+            opacity: 0.6;
+            animation: pulse 2s infinite;
+            color: #6c757d;
+        }
+
+        .camera-off-content h4 {
+            margin-bottom: 0.5rem;
+            font-weight: 600;
+            color: #495057;
+        }
+
+        .camera-off-content p {
+            margin-bottom: 0;
+            opacity: 0.8;
+            color: #6c757d;
+        }
+
+        /* Ensure camera off overlay is always visible when shown */
+        .camera-off-overlay.show {
+            display: flex !important;
+        }
+
+        /* Add subtle border to camera off overlay */
+        .camera-off-overlay {
+            border: 2px solid #dee2e6;
         }
         
         .webcam-controls {
-            margin: 1rem 0;
+            display: flex;
+            justify-content: center;
+            gap: 1rem;
+            margin-bottom: 1rem;
+            flex-wrap: wrap;
         }
-        
-        .webcam-controls .btn {
-            margin: 0.25rem;
+
+        .form-select {
+            border-radius: 8px;
+            border: 2px solid #e9ecef;
+            padding: 0.75rem;
+            font-size: 1rem;
+            transition: all 0.3s ease;
         }
-        
-        .detection-status {
-            font-size: 1.1rem;
-        }
-        
-        .btn-group .btn.active {
-            background-color: #667eea;
+
+        .form-select:focus {
             border-color: #667eea;
+            box-shadow: 0 0 0 0.2rem rgba(102, 126, 234, 0.25);
+        }
+
+        .form-label {
+            font-weight: 600;
+            color: #555;
+            margin-bottom: 0.5rem;
+        }
+        
+        .btn {
+            border-radius: 8px;
+            font-weight: 600;
+            padding: 0.75rem 1.5rem;
+            transition: all 0.3s ease;
+            border: none;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .btn::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: -100%;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(90deg, transparent, rgba(255,255,255,0.2), transparent);
+            transition: left 0.5s;
+        }
+
+        .btn:hover::before {
+            left: 100%;
+        }
+
+        .btn-success {
+            background: var(--success-color);
+            box-shadow: 0 4px 15px rgba(40, 167, 69, 0.3);
+        }
+
+        .btn-success:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(40, 167, 69, 0.4);
+        }
+
+        .btn-danger {
+            background: var(--danger-color);
+            box-shadow: 0 4px 15px rgba(220, 53, 69, 0.3);
+        }
+
+        .btn-danger:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(220, 53, 69, 0.4);
+        }
+
+        .btn-secondary {
+            background: #6c757d;
+            box-shadow: 0 4px 15px rgba(108, 117, 125, 0.3);
+        }
+
+        .btn-secondary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(108, 117, 125, 0.4);
+        }
+
+        .btn-outline-primary {
+            border: 2px solid #667eea;
+            color: #667eea;
+            background: transparent;
+        }
+
+        .btn-outline-primary:hover {
+            background: #667eea;
             color: white;
+            transform: translateY(-2px);
+        }
+        
+        .rfid-status {
+            text-align: center;
+            margin-bottom: 1rem;
+        }
+
+        .test-mode-indicator {
+            margin-top: 0.5rem;
+            animation: pulse 2s infinite;
+        }
+
+        .test-mode-indicator .badge {
+            font-size: 0.8rem;
+            padding: 0.5rem 0.75rem;
+        }
+
+        .badge {
+            font-size: 1rem;
+            padding: 0.75rem 1.25rem;
+            border-radius: 25px;
+            font-weight: 600;
+            letter-spacing: 0.5px;
+        }
+
+        .alert {
+            border-radius: 12px;
+            border: none;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
+            backdrop-filter: blur(10px);
+        }
+
+        .alert-info {
+            background: linear-gradient(135deg, rgba(23, 162, 184, 0.1), rgba(23, 162, 184, 0.05));
+            border-left: 4px solid var(--info-color);
+        }
+        
+        .font-monospace {
+            font-family: 'Courier New', monospace;
+            font-weight: bold;
+            color: #495057;
+            background: linear-gradient(135deg, #f8f9fa, #e9ecef);
+            padding: 0.5rem 1rem;
+            border-radius: 8px;
+            border: 1px solid #dee2e6;
+            display: inline-block;
+            min-width: 120px;
+            text-align: center;
+        }
+
+        .rfid-data-content {
+            display: flex;
+            flex-direction: column;
+            gap: 0.75rem;
+        }
+
+        .rfid-data-content div {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .rfid-data-content strong {
+            color: #495057;
+            font-weight: 600;
+            min-width: 50px;
+        }
+
+        /* Responsive Design */
+        @media (max-width: 1200px) {
+            .main-content {
+                grid-template-columns: 1fr;
+                gap: 2rem;
+            }
+            
+            .main-container {
+                padding: 2rem;
+                margin: 1rem;
+            }
+        }
+        
+        @media (max-width: 768px) {
+            .header-section h1 {
+                font-size: 2rem;
+            }
+            
+            .webcam-controls {
+                flex-direction: column;
+                align-items: center;
+            }
+            
+            .webcam-controls .btn {
+                width: 100%;
+                max-width: 200px;
+            }
+        }
+
+        /* Loading Animation */
+        @keyframes pulse {
+            0% { opacity: 1; }
+            50% { opacity: 0.5; }
+            100% { opacity: 1; }
+        }
+
+        .loading {
+            animation: pulse 2s infinite;
+        }
+
+        /* Custom Scrollbar */
+        ::-webkit-scrollbar {
+            width: 8px;
+        }
+
+        ::-webkit-scrollbar-track {
+            background: #f1f1f1;
+            border-radius: 4px;
+        }
+
+        ::-webkit-scrollbar-thumb {
+            background: var(--secondary-gradient);
+            border-radius: 4px;
+        }
+
+        ::-webkit-scrollbar-thumb:hover {
+            background: #667eea;
         }
     </style>
 </head>
 <body>
-    <div class="container">
+    <div class="container-fluid">
         <div class="main-container">
-            <div class="text-center mb-4">
-                <h1 class="display-4 text-primary">
+            <div class="header-section">
+                <h1>
                     <i class="fas fa-user-check me-3"></i>
-                    Person Detection & Dress Code Analysis
+                    Dress Code Detection System
                 </h1>
-                <p class="lead text-muted">Real-time person detection, tracking, and dress code analysis using YOLOv8n and Bot-SORT</p>
+                <p>RFID-controlled person detection and dress code analysis</p>
             </div>
             
             <!-- Main Content Layout -->
@@ -206,218 +431,90 @@
                 <!-- Webcam Section (Left - Bigger) -->
                 <div class="webcam-section">
                     <div class="section-title">
-                        <i class="fas fa-video me-2"></i>Live Webcam Feed
+                        <i class="fas fa-video me-2"></i>Live Camera Feed
                     </div>
                     <div class="webcam-container">
-                        <div class="mb-3">
-                            <label for="cameraSelect" class="form-label">Select Camera:</label>
+                        <div class="mb-4">
+                            <label for="cameraSelect" class="form-label">
+                                <i class="fas fa-camera me-2"></i>Select Camera
+                            </label>
                             <select class="form-select" id="cameraSelect" onchange="changeCamera()">
-                                <option value="0">Loading cameras...</option>
+                                <option value="0">Camera 0</option>
                             </select>
                         </div>
-                        <div class="video-container mb-3">
-                            <img id="videoFeed" src="/video_feed" alt="Video Feed">
+                        <div class="video-container">
+                            <img id="videoFeed" src="/video_feed" alt="Video Feed" class="loading">
+                            <div id="cameraOffOverlay" class="camera-off-overlay" style="display: none;">
+                                <div class="camera-off-content">
+                                    <i class="fas fa-video-slash fa-4x mb-3"></i>
+                                    <h4>Camera Turned Off</h4>
+                                    <p class="small">Click "Turn On Camera" to resume live feed</p>
+                                    <div class="mt-3">
+                                        <div class="spinner-border text-muted" role="status" style="width: 2rem; height: 2rem;">
+                                            <span class="visually-hidden">Loading...</span>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
                         </div>
-                        <div class="webcam-controls text-center">
-                            <button class="btn btn-success me-2" id="toggleCameraBtn" onclick="toggleCamera()">
+                        <div class="webcam-controls">
+                            <button class="btn btn-success" id="toggleCameraBtn" onclick="toggleCamera()">
                                 <i class="fas fa-video me-2"></i>Turn Off Camera
-                            </button>
-                            <button class="btn btn-warning me-2" id="toggleDetectionBtn" onclick="toggleDetection()" disabled>
-                                <i class="fas fa-eye me-2"></i>Enable Detection
-                            </button>
-                            <button class="btn btn-info me-2" id="captureBtn" onclick="captureFrame()" disabled>
-                                <i class="fas fa-camera me-2"></i>Capture Frame
                             </button>
                             <button class="btn btn-secondary" id="resetTrackerBtn" onclick="resetTracker()" disabled>
                                 <i class="fas fa-refresh me-2"></i>Reset Tracker
                             </button>
-                        </div>
-                        <div class="detection-status mt-3 text-center">
-                            <span id="cameraStatus" class="badge bg-success me-2">Camera: On</span>
-                            <span id="detectionStatus" class="badge bg-secondary">Detection: Disabled</span>
-                        </div>
-                    </div>
-                </div>
-                
-                <!-- Upload Section (Right - Smaller) -->
-                <div class="upload-section">
-                    <div class="section-title">
-                        <i class="fas fa-upload me-2"></i>Upload Image
-                    </div>
-                    <div class="upload-area" id="uploadArea">
-                        <i class="fas fa-cloud-upload-alt fa-2x text-primary mb-3"></i>
-                        <h5>Drag & Drop Image Here</h5>
-                        <p class="text-muted small">or click to browse files</p>
-                        <input type="file" id="fileInput" accept="image/*" style="display: none;">
-                        <div class="mt-3">
-                            <button class="btn btn-custom btn-sm" onclick="document.getElementById('fileInput').click()">
-                                <i class="fas fa-folder-open me-2"></i>Choose File
+                            <button class="btn btn-info" id="testModeBtn" onclick="toggleTestMode()">
+                                <i class="fas fa-flask me-2"></i>Test Mode
                             </button>
                         </div>
                     </div>
                 </div>
-            </div>
-            
-            <div class="loading" id="loading">
-                <div class="spinner"></div>
-                <p class="mt-3 text-muted">Processing image...</p>
-            </div>
-            
-            <div class="result-container" id="resultContainer">
-                <div class="detection-info">
-                    <h5><i class="fas fa-info-circle me-2"></i>Detection Results</h5>
-                    <div class="detection-count" id="detectionCount">0 persons detected</div>
-                    <div id="detectionDetails"></div>
-                </div>
                 
-                <div class="image-container">
-                    <img id="resultImage" class="result-image" alt="Detection Result">
+                <!-- Right Column with RFID -->
+                <div class="rfid-section">
+                    <!-- RFID Display Section -->
+                    <div class="section-title">
+                        <i class="fas fa-id-card me-2"></i>RFID Scanner
+                    </div>
+                    <div class="webcam-container">
+                        <div class="rfid-status">
+                            <span id="rfidStatus" class="badge bg-secondary">
+                                <i class="fas fa-clock me-2"></i>RFID: Waiting
+                            </span>
+                            <div id="testModeStatus" class="test-mode-indicator" style="display: none;">
+                                <span class="badge bg-warning">
+                                    <i class="fas fa-flask me-2"></i>Test Mode Active
+                                </span>
+                            </div>
+                        </div>
+                        
+                        <div id="rfidDataDisplay" class="alert alert-info" style="display: none;">
+                            <div class="mb-3">
+                                <strong>
+                                    <i class="fas fa-credit-card me-2"></i>Current Card
+                                </strong>
+                            </div>
+                            <div class="rfid-data-content">
+                                <div>
+                                    <strong><i class="fas fa-fingerprint me-2"></i>UID:</strong>
+                                    <span id="rfidUid" class="font-monospace">N/A</span>
+                                </div>
+                                <div>
+                                    <strong><i class="fas fa-tag me-2"></i>Type:</strong>
+                                    <span id="rfidType">Mifare Classic 1K</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
                 </div>
-                
-                <div class="text-center mt-3">
-                    <button class="btn btn-custom" onclick="resetUpload()">
-                        <i class="fas fa-redo me-2"></i>Upload Another Image
-                    </button>
-                </div>
-            </div>
-            
-            <div class="alert alert-info alert-custom mt-4">
-                <h6><i class="fas fa-lightbulb me-2"></i>Tips:</h6>
-                <ul class="mb-0">
-                    <li>Supported formats: JPG, PNG, GIF, BMP</li>
-                    <li>For best results, use clear images with good lighting</li>
-                    <li>Detection confidence threshold: 50%</li>
-                </ul>
             </div>
         </div>
     </div>
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
     <script>
-        const uploadArea = document.getElementById('uploadArea');
-        const fileInput = document.getElementById('fileInput');
-        const loading = document.getElementById('loading');
-        const resultContainer = document.getElementById('resultContainer');
-        const detectionCount = document.getElementById('detectionCount');
-        const detectionDetails = document.getElementById('detectionDetails');
-        const resultImage = document.getElementById('resultImage');
-
-        // Drag and drop functionality
-        uploadArea.addEventListener('dragover', (e) => {
-            e.preventDefault();
-            uploadArea.classList.add('dragover');
-        });
-
-        uploadArea.addEventListener('dragleave', () => {
-            uploadArea.classList.remove('dragover');
-        });
-
-        uploadArea.addEventListener('drop', (e) => {
-            e.preventDefault();
-            uploadArea.classList.remove('dragover');
-            const files = e.dataTransfer.files;
-            if (files.length > 0) {
-                handleFile(files[0]);
-            }
-        });
-
-        uploadArea.addEventListener('click', () => {
-            fileInput.click();
-        });
-
-        fileInput.addEventListener('change', (e) => {
-            if (e.target.files.length > 0) {
-                handleFile(e.target.files[0]);
-            }
-        });
-
-        function handleFile(file) {
-            if (!file.type.startsWith('image/')) {
-                alert('Please select an image file.');
-                return;
-            }
-
-            const formData = new FormData();
-            formData.append('file', file);
-
-            // Show loading
-            loading.style.display = 'block';
-            resultContainer.style.display = 'none';
-
-            fetch('/upload', {
-                method: 'POST',
-                body: formData
-            })
-            .then(response => response.json())
-            .then(data => {
-                loading.style.display = 'none';
-                
-                if (data.success) {
-                    displayResults(data);
-                } else {
-                    alert('Error: ' + data.error);
-                }
-            })
-            .catch(error => {
-                loading.style.display = 'none';
-                alert('Error uploading file: ' + error.message);
-            });
-        }
-
-        function displayResults(data) {
-            // Update detection count
-            const count = data.count;
-            detectionCount.textContent = `${count} person${count !== 1 ? 's' : ''} detected`;
-
-            // Display detection details
-            if (data.detections.length > 0) {
-                let detailsHtml = '<div class="mt-2"><strong>Detection Details:</strong><ul class="mt-2">';
-                data.detections.forEach((detection, index) => {
-                    const trackId = detection.track_id ? `ID: ${detection.track_id}` : 'No ID';
-                    const dressSummary = detection.dress_summary || 'No dress items detected';
-                    detailsHtml += `<li>Person ${index + 1} (${trackId}): Confidence ${(detection.confidence * 100).toFixed(1)}%<br>
-                                   <small class="text-muted">Dress Items: ${dressSummary}</small></li>`;
-                });
-                detailsHtml += '</ul></div>';
-                detectionDetails.innerHTML = detailsHtml;
-            } else {
-                detectionDetails.innerHTML = '<p class="text-muted mt-2">No persons detected in the image.</p>';
-            }
-
-            // Display result image
-            resultImage.src = 'data:image/jpeg;base64,' + data.image;
-            
-            // Show results
-            resultContainer.style.display = 'block';
-        }
-
-        function resetUpload() {
-            resultContainer.style.display = 'none';
-            fileInput.value = '';
-        }
-
-        // Reset tracker function
-        function resetTracker() {
-            fetch('/reset_tracker', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                }
-            })
-            .then(response => response.json())
-            .then(data => {
-                if (data.success) {
-                    alert('Tracker reset successfully! All tracking IDs have been cleared.');
-                } else {
-                    alert('Error: ' + data.message);
-                }
-            })
-            .catch(error => {
-                alert('Error resetting tracker: ' + error.message);
-            });
-        }
-
-        // Load available cameras
+        // Camera functions
         function loadCameras() {
             fetch('/get_cameras')
                 .then(response => response.json())
@@ -425,22 +522,12 @@
                     if (data.success) {
                         const cameraSelect = document.getElementById('cameraSelect');
                         cameraSelect.innerHTML = '';
-                        
-                        if (data.cameras.length > 0) {
-                            data.cameras.forEach(camera => {
-                                const option = document.createElement('option');
-                                option.value = camera.id;
-                                option.textContent = camera.name;
-                                cameraSelect.appendChild(option);
-                            });
-                        } else {
+                        data.cameras.forEach((camera, index) => {
                             const option = document.createElement('option');
-                            option.value = '0';
-                            option.textContent = 'No cameras found';
+                            option.value = index;
+                            option.textContent = `Camera ${index}`;
                             cameraSelect.appendChild(option);
-                        }
-                    } else {
-                        console.error('Error loading cameras:', data.message);
+                        });
                     }
                 })
                 .catch(error => {
@@ -448,7 +535,6 @@
                 });
         }
 
-        // Change camera function
         function changeCamera() {
             const cameraSelect = document.getElementById('cameraSelect');
             const selectedCameraId = parseInt(cameraSelect.value);
@@ -463,14 +549,6 @@
             .then(response => response.json())
             .then(data => {
                 if (data.success) {
-                    // Update camera status
-                    document.getElementById('cameraStatus').textContent = `Camera: On (${selectedCameraId})`;
-                    document.getElementById('cameraStatus').className = 'badge bg-success me-2';
-                    
-                    // Reset detection status
-                    document.getElementById('detectionStatus').textContent = 'Detection: Disabled';
-                    document.getElementById('detectionStatus').className = 'badge bg-secondary';
-                    
                     // Refresh video feed
                     document.getElementById('videoFeed').src = '/video_feed?' + new Date().getTime();
                 } else {
@@ -482,16 +560,6 @@
             });
         }
 
-        // Auto-start camera when page loads
-        window.addEventListener('load', function() {
-            loadCameras();
-            // Wait a bit for cameras to load, then start camera
-            setTimeout(() => {
-                startCamera();
-            }, 500);
-        });
-
-        // Webcam functions
         function startCamera() {
             const cameraSelect = document.getElementById('cameraSelect');
             const selectedCameraId = cameraSelect ? parseInt(cameraSelect.value) : 0;
@@ -506,19 +574,20 @@
             .then(response => response.json())
             .then(data => {
                 if (data.success) {
-                    // Enable all buttons since camera is now running
-                    document.getElementById('toggleDetectionBtn').disabled = false;
-                    document.getElementById('captureBtn').disabled = false;
+                    // Enable reset tracker button since camera is now running
                     document.getElementById('resetTrackerBtn').disabled = false;
-                    // Update camera status
-                    document.getElementById('cameraStatus').textContent = `Camera: On (${selectedCameraId})`;
-                    document.getElementById('cameraStatus').className = 'badge bg-success me-2';
                     // Update toggle button
                     const toggleBtn = document.getElementById('toggleCameraBtn');
                     toggleBtn.innerHTML = '<i class="fas fa-video-slash me-2"></i>Turn Off Camera';
-                    toggleBtn.className = 'btn btn-danger me-2';
+                    toggleBtn.className = 'btn btn-danger';
                     // Refresh video feed
                     document.getElementById('videoFeed').src = '/video_feed?' + new Date().getTime();
+                    // Remove loading animation
+                    document.getElementById('videoFeed').classList.remove('loading');
+                    // Hide camera off overlay
+                    const overlay = document.getElementById('cameraOffOverlay');
+                    overlay.style.display = 'none';
+                    overlay.classList.remove('show');
                 } else {
                     alert('Error: ' + data.message);
                 }
@@ -538,20 +607,18 @@
             .then(response => response.json())
             .then(data => {
                 if (data.success) {
-                    // Disable all buttons since camera is now off
-                    document.getElementById('toggleDetectionBtn').disabled = true;
-                    document.getElementById('captureBtn').disabled = true;
+                    // Disable reset tracker button since camera is now off
                     document.getElementById('resetTrackerBtn').disabled = true;
-                    // Update camera status
-                    document.getElementById('cameraStatus').textContent = 'Camera: Off';
-                    document.getElementById('cameraStatus').className = 'badge bg-danger me-2';
                     // Update toggle button
                     const toggleBtn = document.getElementById('toggleCameraBtn');
                     toggleBtn.innerHTML = '<i class="fas fa-video me-2"></i>Turn On Camera';
-                    toggleBtn.className = 'btn btn-success me-2';
-                    // Reset detection status
-                    document.getElementById('detectionStatus').textContent = 'Detection: Disabled';
-                    document.getElementById('detectionStatus').className = 'badge bg-secondary';
+                    toggleBtn.className = 'btn btn-success';
+                    // Show camera off overlay
+                    const overlay = document.getElementById('cameraOffOverlay');
+                    overlay.style.display = 'flex';
+                    overlay.classList.add('show');
+                    // Clear video feed
+                    document.getElementById('videoFeed').src = '';
                 } else {
                     alert('Error: ' + data.message);
                 }
@@ -562,16 +629,18 @@
         }
 
         function toggleCamera() {
-            const cameraStatus = document.getElementById('cameraStatus').textContent;
-            if (cameraStatus === 'Camera: On') {
+            const toggleBtn = document.getElementById('toggleCameraBtn');
+            const buttonText = toggleBtn.innerHTML;
+            
+            if (buttonText.includes('Turn Off Camera')) {
                 stopCamera();
             } else {
                 startCamera();
             }
         }
 
-        function toggleDetection() {
-            fetch('/toggle_detection', {
+        function resetTracker() {
+            fetch('/reset_tracker', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
@@ -580,47 +649,128 @@
             .then(response => response.json())
             .then(data => {
                 if (data.success) {
-                    const statusElement = document.getElementById('detectionStatus');
-                    const toggleBtn = document.getElementById('toggleDetectionBtn');
-                    
-                    if (data.detection_enabled) {
-                        statusElement.textContent = 'Detection: Enabled';
-                        statusElement.className = 'badge bg-success';
-                        toggleBtn.innerHTML = '<i class="fas fa-eye-slash me-2"></i>Disable Detection';
-                        toggleBtn.className = 'btn btn-danger me-2';
-                    } else {
-                        statusElement.textContent = 'Detection: Disabled';
-                        statusElement.className = 'badge bg-secondary';
-                        toggleBtn.innerHTML = '<i class="fas fa-eye me-2"></i>Enable Detection';
-                        toggleBtn.className = 'btn btn-warning me-2';
-                    }
+                    alert('Tracker reset successfully');
                 } else {
                     alert('Error: ' + data.message);
                 }
             })
             .catch(error => {
-                alert('Error toggling detection: ' + error.message);
+                alert('Error resetting tracker: ' + error.message);
             });
         }
 
-        function captureFrame() {
-            fetch('/capture_frame', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                }
-            })
+        // Test Mode Functions
+        let testModeActive = false;
+
+        function toggleTestMode() {
+            testModeActive = !testModeActive;
+            const testModeBtn = document.getElementById('testModeBtn');
+            const testModeStatus = document.getElementById('testModeStatus');
+            
+            if (testModeActive) {
+                testModeBtn.innerHTML = '<i class="fas fa-flask me-2"></i>Exit Test Mode';
+                testModeBtn.className = 'btn btn-warning';
+                testModeStatus.style.display = 'block';
+                
+                // Send test mode activation to server
+                fetch('/toggle_test_mode', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ test_mode: true })
+                })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        console.log('Test mode activated');
+                    }
+                })
+                .catch(error => {
+                    console.error('Error activating test mode:', error);
+                });
+            } else {
+                testModeBtn.innerHTML = '<i class="fas fa-flask me-2"></i>Test Mode';
+                testModeBtn.className = 'btn btn-info';
+                testModeStatus.style.display = 'none';
+                
+                // Send test mode deactivation to server
+                fetch('/toggle_test_mode', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ test_mode: false })
+                })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        console.log('Test mode deactivated');
+                    }
+                })
+                .catch(error => {
+                    console.error('Error deactivating test mode:', error);
+                });
+            }
+        }
+
+        // RFID Functions
+        function updateRfidDisplay(uid, cardType) {
+            const display = document.getElementById('rfidDataDisplay');
+            const uidElement = document.getElementById('rfidUid');
+            const typeElement = document.getElementById('rfidType');
+            
+            if (uid) {
+                uidElement.textContent = uid;
+                typeElement.textContent = cardType;
+                display.style.display = 'block';
+            }
+        }
+
+        function hideRfidDisplay() {
+            const display = document.getElementById('rfidDataDisplay');
+            display.style.display = 'none';
+        }
+
+        // Auto-start camera when page loads
+        window.addEventListener('load', function() {
+            loadCameras();
+            // Wait a bit for cameras to load, then start camera
+            setTimeout(() => {
+                startCamera();
+            }, 500);
+            
+            // Check RFID status every 2 seconds
+            setInterval(checkRfidStatus, 2000);
+        });
+
+        // RFID Functions
+        function checkRfidStatus() {
+            fetch('/rfid/status')
             .then(response => response.json())
             .then(data => {
                 if (data.success) {
-                    // Display captured frame results
-                    displayResults(data);
+                        const status = data.status;
+                        const rfidStatus = document.getElementById('rfidStatus');
+                        
+                        // Update RFID status
+                        if (status.present) {
+                            rfidStatus.innerHTML = '<i class="fas fa-check-circle me-2"></i>RFID: Active (' + status.last_uid + ')';
+                            rfidStatus.className = 'badge bg-success';
+                            
+                            // Update RFID display
+                            updateRfidDisplay(status.last_uid, 'Mifare Classic 1K');
                 } else {
-                    alert('Error: ' + data.message);
+                            rfidStatus.innerHTML = '<i class="fas fa-clock me-2"></i>RFID: Waiting';
+                            rfidStatus.className = 'badge bg-secondary';
+                            
+                            // Hide RFID display
+                            hideRfidDisplay();
+                        }
                 }
             })
             .catch(error => {
-                alert('Error capturing frame: ' + error.message);
+                    console.error('Error checking RFID status:', error);
             });
         }
     </script>
