@@ -258,7 +258,7 @@ def validate_dress_code(detected_items, gender='male'):
         'detected_items': detected_classes
     }
 
-def detect_dress_code(person_crop):
+def detect_dress_code(person_crop, gender: str = 'male'):
     """Detect dress code items for a person crop using best.pt model"""
     try:
         # Run dress code detection on person crop
@@ -300,8 +300,8 @@ def detect_dress_code(person_crop):
         # Sort by confidence (highest first)
         dress_items.sort(key=lambda x: x['confidence'], reverse=True)
         
-        # Validate dress code compliance (using male for now)
-        validation_result = validate_dress_code(dress_items, gender='male')
+        # Validate dress code compliance per provided gender
+        validation_result = validate_dress_code(dress_items, gender=(gender or 'male').lower())
         
         return validation_result
         
@@ -347,6 +347,9 @@ def detect_persons_with_dress(image_path):
                             'class': 'person'
                         })
         
+        # Determine gender context (from last RFID student if present)
+        with rfid_lock:
+            current_gender = (rfid_last_student or {}).get('gender')
         # Stage 2: Detect dress code for each person
         for detection in detections:
             x1, y1, x2, y2 = detection['bbox']
@@ -361,7 +364,7 @@ def detect_persons_with_dress(image_path):
             person_crop = image[crop_y1:crop_y2, crop_x1:crop_x2]
             
             # Detect dress code for this person
-            dress_validation = detect_dress_code(person_crop)
+            dress_validation = detect_dress_code(person_crop, gender=current_gender or 'male')
             detection['dress_validation'] = dress_validation
             
             # Create a compliance summary for display
@@ -494,6 +497,9 @@ def detect_persons_frame_with_dress(frame):
                             'class': 'person'
                         })
         
+        # Determine gender context from current RFID student if available
+        with rfid_lock:
+            current_gender = (rfid_last_student or {}).get('gender')
         # Stage 2: Detect dress code for each person
         for detection in detections:
             x1, y1, x2, y2 = detection['bbox']
@@ -508,7 +514,7 @@ def detect_persons_frame_with_dress(frame):
             person_crop = frame[crop_y1:crop_y2, crop_x1:crop_x2]
             
             # Detect dress code for this person
-            dress_validation = detect_dress_code(person_crop)
+            dress_validation = detect_dress_code(person_crop, gender=current_gender or 'male')
             detection['dress_validation'] = dress_validation
             
             # Create a compliance summary for display
@@ -661,9 +667,12 @@ def _maybe_record_violation(frame, detections, admin_user):
         except Exception:
             proof_path = None
 
-        # Build violation type text
+        # Build violation type text (gender-aware)
+        with rfid_lock:
+            current_gender = (rfid_last_student or {}).get('gender')
+        gender_label = str(current_gender or 'unknown').lower()
         missing = ", ".join(violation_details) if violation_details else "Missing required items"
-        violation_type = f"Dress code violation: {missing}"
+        violation_type = f"{gender_label} dress code violation: {missing}"
 
         recorded_by = None
         if admin_user:
@@ -672,9 +681,8 @@ def _maybe_record_violation(frame, detections, admin_user):
             except Exception:
                 recorded_by = None
 
-        rel_path = proof_path if proof_path else None
-        if rel_path and rel_path.startswith('./'):
-            rel_path = rel_path[2:]
+        # Store only filename in DB; serve via /results/<filename>
+        rel_path = proof_name if proof_path else None
 
         if insert_violation:
             vid = insert_violation(rfid_last_student.get('student_id'), violation_type, rel_path, recorded_by)
