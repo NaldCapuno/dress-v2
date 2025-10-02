@@ -765,6 +765,26 @@
                                     <strong><i class="fas fa-tag"></i>Type:</strong>
                                     <span id="rfidType">Mifare Classic 1K</span>
                                 </div>
+                                <div>
+                                    <strong><i class="fas fa-user"></i>Name:</strong>
+                                    <span id="studentName">-</span>
+                                </div>
+                                <div>
+                                    <strong><i class="fas fa-id-card"></i>Student ID:</strong>
+                                    <span id="studentId">-</span>
+                                </div>
+                                <div>
+                                    <strong><i class="fas fa-venus-mars"></i>Gender:</strong>
+                                    <span id="studentGender">-</span>
+                                </div>
+                                <div>
+                                    <strong><i class="fas fa-book"></i>Program:</strong>
+                                    <span id="studentCourse">-</span>
+                                </div>
+                                <div>
+                                    <strong><i class="fas fa-university"></i>College:</strong>
+                                    <span id="studentCollege">-</span>
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -931,15 +951,33 @@
         }
 
         // RFID Functions
-        function updateRfidDisplay(uid, cardType) {
+        function updateRfidDisplay(uid, cardType, student) {
             const display = document.getElementById('rfidDataDisplay');
             const uidElement = document.getElementById('rfidUid');
             const typeElement = document.getElementById('rfidType');
+            const nameEl = document.getElementById('studentName');
+            const idEl = document.getElementById('studentId');
+            const genderEl = document.getElementById('studentGender');
+            const courseEl = document.getElementById('studentCourse');
+            const collegeEl = document.getElementById('studentCollege');
             
             if (uid) {
                 uidElement.textContent = uid;
                 typeElement.textContent = cardType;
                 display.style.display = 'block';
+                if (student) {
+                    nameEl.textContent = student.name || '-';
+                    idEl.textContent = student.student_id || '-';
+                    genderEl.textContent = student.gender || '-';
+                    courseEl.textContent = student.course || '-';
+                    collegeEl.textContent = student.college || '-';
+                } else {
+                    nameEl.textContent = '-';
+                    idEl.textContent = '-';
+                    genderEl.textContent = '-';
+                    courseEl.textContent = '-';
+                    collegeEl.textContent = '-';
+                }
             }
         }
 
@@ -972,8 +1010,8 @@
                             rfidStatus.innerHTML = '<i class="fas fa-check-circle me-2"></i>RFID: Active (' + status.last_uid + ')';
                             rfidStatus.className = 'badge bg-success';
                             
-                            // Update RFID display
-                            updateRfidDisplay(status.last_uid, 'Mifare Classic 1K');
+                            // Update RFID display with student data when present
+                            updateRfidDisplay(status.last_uid, 'Mifare Classic 1K', status.student || null);
                 } else {
                             rfidStatus.innerHTML = '<i class="fas fa-clock me-2"></i>RFID: Waiting';
                             rfidStatus.className = 'badge bg-secondary';

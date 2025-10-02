@@ -1,4 +1,4 @@
-from flask import Flask, render_template, request, jsonify, send_from_directory, Response
+from flask import Flask, render_template, request, jsonify, send_from_directory, Response, session, redirect, url_for
 import cv2
 import numpy as np
 from ultralytics import YOLO
@@ -7,6 +7,16 @@ import base64
 import threading
 import time
 from botsort_tracker import BotSORT
+from werkzeug.security import check_password_hash
+try:
+    from config import get_connection, find_student_by_rfid, insert_rfid_log, insert_violation
+except Exception as e:
+    get_connection = None
+    find_student_by_rfid = None
+    insert_rfid_log = None
+    insert_violation = None
+    print(f"Warning: Database config not available: {e}")
+
 try:
     from rfid_scanner import (
         get_rfid_uid, start_rfid_monitoring, stop_rfid_monitoring, 
@@ -34,6 +44,8 @@ except ImportError as e:
         return False
 
 app = Flask(__name__)
+# Secret key for session management (can be overridden via environment variable)
+app.secret_key = os.getenv('FLASK_SECRET_KEY', 'change-this-in-production')
 
 # Configure upload folder
 UPLOAD_FOLDER = 'uploads'
@@ -65,6 +77,10 @@ rfid_event_queue = None
 rfid_last_uid = None
 rfid_present = False
 rfid_lock = threading.Lock()
+rfid_last_student = None  # Holds last looked-up student dict or None
+rfid_last_violation_ts = 0  # last violation timestamp to throttle duplicates
+rfid_current_uid_checks = 0  # number of detection checks for current RFID UID
+rfid_current_uid_violated = False  # whether a violation has been issued for current UID session
 
 # Global variable for test mode
 test_mode = False
@@ -105,7 +121,7 @@ def initialize_rfid():
 
 def rfid_event_handler():
     """Handle RFID events in background thread"""
-    global rfid_last_uid, rfid_present, detection_enabled, rfid_lock
+    global rfid_last_uid, rfid_present, detection_enabled, rfid_lock, rfid_last_student
     
     while True:
         try:
@@ -116,11 +132,29 @@ def rfid_event_handler():
                         rfid_last_uid = event['uid']
                         rfid_present = True
                         detection_enabled = True
+                        # Reset per-scan counters
+                        rfid_current_uid_checks = 0
+                        rfid_current_uid_violated = False
+                        # Perform DB lookup and log
+                        try:
+                            student = None
+                            if get_connection is not None and rfid_last_uid:
+                                student = find_student_by_rfid(rfid_last_uid) if find_student_by_rfid else None
+                                if student and insert_rfid_log:
+                                    insert_rfid_log(rfid_last_uid, student.get('student_id'), 'valid')
+                                elif insert_rfid_log:
+                                    insert_rfid_log(rfid_last_uid, None, 'unregistered')
+                            rfid_last_student = student
+                        except Exception as e:
+                            print(f"RFID DB handling error: {e}")
                     print(f"RFID Card detected: {event['uid']} - Detection ENABLED")
                 else:
                     with rfid_lock:
                         rfid_present = False
                         detection_enabled = False
+                        rfid_last_student = None
+                        rfid_current_uid_checks = 0
+                        rfid_current_uid_violated = False
                     print("RFID Card removed - Detection DISABLED")
         except:
             # Timeout or no events, check current status
@@ -129,6 +163,10 @@ def rfid_event_handler():
                 if rfid_present != current_present:
                     rfid_present = current_present
                     detection_enabled = current_present
+                    if not current_present:
+                        rfid_last_student = None
+                        rfid_current_uid_checks = 0
+                        rfid_current_uid_violated = False
                     if current_present:
                         print("RFID Card present - Detection ENABLED")
                     else:
@@ -572,6 +610,84 @@ def draw_detections_frame(frame, detections):
         print(f"Error drawing detections on frame: {e}")
         return frame
 
+
+def _maybe_record_violation(frame, detections, admin_user):
+    """If current RFID student is missing required items, record a violation with proof image.
+
+    - Uses a simple time-based throttle to avoid duplicates within 10 seconds per student.
+    """
+    global rfid_last_student, rfid_last_violation_ts
+    try:
+        if not rfid_last_student:
+            return None
+        # Determine if any detection for this frame indicates NON-COMPLIANT
+        non_compliant = False
+        violation_details = []
+        for det in detections or []:
+            dv = det.get('dress_validation') or {}
+            if dv.get('overall_status') == 'NON-COMPLIANT':
+                non_compliant = True
+                comp = dv.get('compliance_status') or {}
+                for key, val in comp.items():
+                    if not val.get('present'):
+                        violation_details.append(val.get('name') or key)
+        # Increment checks only when a card is present
+        with rfid_lock:
+            if rfid_present:
+                # Count only frames where detection has been attempted
+                global rfid_current_uid_checks, rfid_current_uid_violated
+                # If we already issued a violation for this UID session, stop
+                if rfid_current_uid_violated:
+                    return None
+                rfid_current_uid_checks += 1
+                # Wait until 5 checks before deciding
+                if rfid_current_uid_checks < 5:
+                    return None
+                # On the 5th check, only proceed if still non-compliant
+                if not non_compliant:
+                    return None
+
+        # Throttle: avoid spamming the same student too frequently
+        now_ts = time.time()
+        if now_ts - rfid_last_violation_ts < 10:
+            return None
+
+        # Save proof image
+        proof_name = f"violation_{int(now_ts)}.jpg"
+        proof_path = os.path.join(RESULT_FOLDER, proof_name)
+        try:
+            os.makedirs(RESULT_FOLDER, exist_ok=True)
+            cv2.imwrite(proof_path, frame)
+        except Exception:
+            proof_path = None
+
+        # Build violation type text
+        missing = ", ".join(violation_details) if violation_details else "Missing required items"
+        violation_type = f"Dress code violation: {missing}"
+
+        recorded_by = None
+        if admin_user:
+            try:
+                recorded_by = int(admin_user.get('admin_id'))
+            except Exception:
+                recorded_by = None
+
+        rel_path = proof_path if proof_path else None
+        if rel_path and rel_path.startswith('./'):
+            rel_path = rel_path[2:]
+
+        if insert_violation:
+            vid = insert_violation(rfid_last_student.get('student_id'), violation_type, rel_path, recorded_by)
+            if vid:
+                rfid_last_violation_ts = now_ts
+                with rfid_lock:
+                    rfid_current_uid_violated = True
+                return vid
+        return None
+    except Exception as e:
+        print(f"Violation record error: {e}")
+        return None
+
 def generate_frames():
     """Generate video frames for streaming"""
     global camera, detection_enabled, current_frame, frame_lock
@@ -631,7 +747,87 @@ def generate_frames():
 
 @app.route('/')
 def index():
+    # Only allow SECURITY role to access the main index/dashboard
+    admin = session.get('admin') or {}
+    role = str(admin.get('role') or '').lower()
+    if role != 'security':
+        return redirect(url_for('login'))
     return render_template('index.html')
+
+@app.route('/dashboard')
+def dashboard():
+    """Alias for the main dashboard; restricted to security role."""
+    admin = session.get('admin') or {}
+    role = str(admin.get('role') or '').lower()
+    if role != 'security':
+        return redirect(url_for('login'))
+    return render_template('index.html')
+
+@app.route('/osas', methods=['GET'])
+def osas_dashboard():
+    """OSAS dashboard - only accessible to admins with role 'osas'."""
+    admin = session.get('admin') or {}
+    role = str(admin.get('role') or '').lower()
+    if role != 'osas':
+        return redirect(url_for('login'))
+    return render_template('osas_dashboard.html')
+
+@app.route('/logout', methods=['POST'])
+def logout():
+    """Clear session and log out the current user."""
+    try:
+        session.clear()
+        return jsonify({'success': True})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/login', methods=['GET', 'POST'])
+def login():
+    if request.method == 'GET':
+        return render_template('login.html')
+
+    # POST: JSON { username, password }
+    try:
+        data = request.get_json(force=True, silent=True) or {}
+        username = (data.get('username') or '').strip()
+        password = data.get('password') or ''
+
+        if not username or not password:
+            return jsonify({'success': False, 'error': 'Username and password are required.'}), 400
+
+        if get_connection is None:
+            return jsonify({'success': False, 'error': 'Database not configured.'}), 500
+
+        conn = get_connection()
+        try:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT admin_id, username, password_hash, role, created_at
+                    FROM admins
+                    WHERE username = %s
+                    LIMIT 1
+                    """,
+                    (username,)
+                )
+                admin = cur.fetchone()
+
+            if not admin or not check_password_hash(admin.get('password_hash', ''), password):
+                return jsonify({'success': False, 'error': 'Invalid username or password.'}), 401
+
+            # Remove sensitive field and persist minimal session
+            admin.pop('password_hash', None)
+            session['admin'] = {
+                'admin_id': admin.get('admin_id'),
+                'username': admin.get('username'),
+                'role': admin.get('role'),
+            }
+
+            return jsonify({'success': True, 'admin': session['admin']})
+        finally:
+            conn.close()
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
 
 @app.route('/upload', methods=['POST'])
 def upload_file():
@@ -821,6 +1017,10 @@ def capture_frame():
                     else:
                         cv2.putText(frame_with_detections, f"RFID: ACTIVE - {rfid_last_uid}", (10, 30), 
                                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
+
+                    # Attempt to record violation if non-compliant
+                    admin_user = session.get('admin') or {}
+                    _maybe_record_violation(current_frame, detections, admin_user)
                 else:
                     # No detection, just return original frame
                     detections = []
@@ -880,14 +1080,15 @@ def reset_tracker():
 @app.route('/rfid/status', methods=['GET'])
 def rfid_status():
     """Get RFID scanner status"""
-    global rfid_last_uid, rfid_present, detection_enabled, rfid_lock
+    global rfid_last_uid, rfid_present, detection_enabled, rfid_lock, rfid_last_student
     try:
         with rfid_lock:
             status = get_rfid_status()
             status.update({
                 'last_uid': rfid_last_uid,
                 'present': rfid_present,
-                'detection_enabled': detection_enabled
+                'detection_enabled': detection_enabled,
+                'student': rfid_last_student
             })
         return jsonify({'success': True, 'status': status})
     except Exception as e:
@@ -899,7 +1100,18 @@ def rfid_read():
     try:
         uid, error = get_rfid_uid(timeout_seconds=3)
         if uid:
-            return jsonify({'success': True, 'uid': uid})
+            # Lookup and log immediately
+            student = None
+            if get_connection is not None:
+                try:
+                    student = find_student_by_rfid(uid) if find_student_by_rfid else None
+                    if student and insert_rfid_log:
+                        insert_rfid_log(uid, student.get('student_id'), 'valid')
+                    elif insert_rfid_log:
+                        insert_rfid_log(uid, None, 'unregistered')
+                except Exception as e:
+                    print(f"RFID read DB error: {e}")
+            return jsonify({'success': True, 'uid': uid, 'student': student})
         else:
             return jsonify({'success': False, 'message': error or 'No card detected'}), 404
     except Exception as e:
