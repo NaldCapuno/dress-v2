@@ -16,7 +16,7 @@
 
 .confidence-bar {
     height: 8px;
-    background: linear-gradient(90deg, #28a745, #20c997);
+    background: #007FFF;
     border-radius: 4px;
     margin-top: 5px;
 }
@@ -30,8 +30,18 @@
 
 .upload-icon {
     font-size: 4rem;
-    color: #667eea;
+    color: #007FFF;
     margin-bottom: 1rem;
+}
+
+/* Minimal resets for badges and buttons now that Bootstrap is removed */
+.badge {
+    display: inline-flex;
+    align-items: center;
+    gap: .35rem;
+}
+.btn {
+    cursor: pointer;
 }
 
 @media (max-width: 768px) {

@@ -4,13 +4,13 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Dress Code Detection System</title>
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
-    <link href="{{ url_for('static', filename='style.css') }}" rel="stylesheet">
+    <link href="{{ url_for('static', filename='style.css') }}?v=2" rel="stylesheet">
     <style>
         :root {
-            --primary-gradient: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            --secondary-gradient: linear-gradient(45deg, #667eea, #764ba2);
+            --primary-color: #007FFF; /* Azure */
+            --accent-color: #FF7F50;  /* Coral */
             --success-color: #28a745;
             --warning-color: #ffc107;
             --danger-color: #dc3545;
@@ -18,6 +18,10 @@
             --light-bg: #f8f9fa;
             --card-shadow: 0 10px 30px rgba(0, 0, 0, 0.1);
             --border-radius: 15px;
+            --brand-azure: #007FFF;
+            --brand-coral: #FF7F50;
+            --text-muted: #5c6770;
+            --text-strong: #212529;
         }
 
         * {
@@ -26,100 +30,214 @@
             box-sizing: border-box;
         }
 
+        html, body { height: 100%; }
         body {
-            background: var(--primary-gradient);
+            /* Solid coral brand background */
+            background: var(--brand-coral);
             min-height: 100vh;
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            color: #333;
+            font-family: 'Inter', 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            color: var(--text-strong);
+            overflow: hidden; /* prevent page scroll */
         }
         
+        .container-fluid { height: 100%; padding: 0; }
+
+        /* App navbar (replaces Bootstrap navbar) */
+        .app-navbar {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0.75rem 1rem;
+            background: rgba(255,255,255,0.08);
+            border-bottom: 1px solid rgba(255,255,255,0.35);
+            backdrop-filter: blur(6px) saturate(120%);
+        }
+        .app-brand {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+            color: #ffffff;
+            text-decoration: none;
+            font-weight: 700;
+            letter-spacing: .3px;
+        }
+        .app-nav-right {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
         .main-container {
-            background: rgba(255, 255, 255, 0.98);
-            border-radius: 25px;
-            box-shadow: 0 25px 50px rgba(0, 0, 0, 0.15);
-            padding: 3rem;
-            margin: 2rem auto;
-            max-width: 1600px;
-            backdrop-filter: blur(10px);
+            background: transparent;
+            border-radius: 12px;
+            box-shadow: none;
+            padding: 0.75rem;
+            margin: 0 auto;
+            max-width: 100vw;
+            height: 100vh; /* fill viewport */
+            display: flex;
+            flex-direction: column;
+        }
+        /* Centered hero wrapper */
+        .hero-card {
+            background: rgba(255,255,255,0.14);
+            border: 1px solid rgba(255,255,255,0.35);
+            border-radius: 16px;
+            backdrop-filter: blur(8px) saturate(120%);
+            padding: 1rem 1.25rem;
+            margin-bottom: 0.75rem;
         }
         
-        .header-section {
+        .institution-bar {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 1rem;
+            border-bottom: 1px dashed rgba(255, 255, 255, 0.35);
+            padding-bottom: 0.5rem;
+            margin-bottom: 0.5rem;
             text-align: center;
-            margin-bottom: 3rem;
-            padding-bottom: 2rem;
-            border-bottom: 3px solid transparent;
-            background: var(--secondary-gradient);
-            background-clip: text;
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
+        }
+
+        .institution-accent {
+            width: 8px;
+            height: 48px;
+            background: #ffffff;
+            border-radius: 4px;
+            outline: 1px solid rgba(255, 255, 255, 0.6);
+            opacity: 0.7;
+        }
+
+        .institution-meta {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+
+        .institution-meta small {
+            color: rgba(255,255,255,0.9);
+            letter-spacing: 0.3px;
+            font-weight: 500;
+        }
+
+        .header-section {
+            margin-bottom: 0.75rem;
+            text-align: center;
         }
 
         .header-section h1 {
-            font-size: 3rem;
+            font-size: 1.75rem;
             font-weight: 700;
-            margin-bottom: 1rem;
-            text-shadow: 2px 2px 4px rgba(0,0,0,0.1);
+            margin-bottom: 0.25rem;
+            color: var(--text-strong);
         }
 
         .header-section p {
-            font-size: 1.2rem;
-            color: #666;
+            font-size: 0.9rem;
+            color: var(--text-muted);
             font-weight: 400;
         }
         
         .main-content {
             display: grid;
-            grid-template-columns: 2fr 1fr;
-            gap: 2.5rem;
-            margin-top: 2rem;
+            grid-template-columns: 1.6fr 1fr; /* refined ratio */
+            gap: 1rem;
+            margin-top: 0.5rem;
+            flex: 1 1 auto; /* consume remaining height */
+            min-height: 0; /* allow children to shrink */
+            align-items: stretch;
         }
         
         .webcam-section {
-            background: white;
-            border-radius: var(--border-radius);
-            padding: 2rem;
-            box-shadow: var(--card-shadow);
-            border: 1px solid rgba(102, 126, 234, 0.1);
+            background: rgba(255,255,255,0.66);
+            border-radius: 18px;
+            padding: 1rem;
+            box-shadow: 0 15px 40px rgba(0, 0, 0, 0.08);
+            border: 1px solid rgba(255, 255, 255, 0.45);
+            backdrop-filter: blur(10px) saturate(130%);
+            display: flex;
+            flex-direction: column;
+            min-height: 0;
         }
         
         .rfid-section {
             display: flex;
             flex-direction: column;
-            gap: 1.5rem;
+            gap: 0.75rem;
+            min-height: 0;
         }
         
         .section-title {
             font-size: 1.4rem;
             font-weight: 600;
-            color: #333;
-            margin-bottom: 1.5rem;
-            padding-bottom: 0.8rem;
-            border-bottom: 3px solid #667eea;
+            color: #ffffff;
+            margin-bottom: 0.75rem;
+            padding: 0.5rem 0.75rem;
+            background: rgba(0,127,255,0.06);
+            border: 1px solid rgba(0,127,255,0.18);
+            border-radius: 12px;
             position: relative;
+            letter-spacing: 0.3px;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+        /* Use coral accent for Live Camera Feed title pill */
+        .webcam-section .section-title {
+            background: rgba(255,127,80,0.12);
+            border: 1px solid rgba(255,127,80,0.35);
+            color: #ffffff;
         }
 
-        .section-title::after {
-            content: '';
-            position: absolute;
-            bottom: -3px;
-            left: 0;
-            width: 50px;
-            height: 3px;
-            background: var(--secondary-gradient);
-            border-radius: 2px;
+        /* Icon chip for section titles */
+        .section-title i {
+            background: var(--brand-azure);
+            color: #ffffff;
+            border: none;
+            border-radius: 999px;
+            padding: 0.35rem;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 28px;
+            height: 28px;
         }
+        /* Make Live Camera Feed icon chip coral */
+        .webcam-section .section-title i { background: var(--brand-coral); }
+
+        /* RFID section title in brand azure */
+        .rfid-section .section-title {
+            color: var(--brand-azure);
+            border-bottom-color: var(--brand-azure);
+        }
+        .rfid-section .section-title i {
+            background: var(--brand-azure);
+            color: #ffffff;
+            border: none;
+        }
+
+        .section-title::after { display: none; }
         
         .webcam-container {
-            background: var(--light-bg);
-            border-radius: 12px;
-            padding: 1.5rem;
-            border: 2px solid #e9ecef;
+            background: rgba(255,255,255,0.7);
+            border-radius: 14px;
+            padding: 1rem;
+            border: 2px solid var(--brand-coral);
             transition: all 0.3s ease;
+            display: flex;
+            flex-direction: column;
+            flex: 1 1 auto;
+            min-height: 0;
+        }
+        /* Ensure RFID panel uses coral border as well */
+        .rfid-section .webcam-container {
+            border-color: var(--brand-coral);
         }
 
         .webcam-container:hover {
-            border-color: #667eea;
-            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.1);
+            border-color: var(--brand-coral);
+            box-shadow: 0 12px 24px rgba(255,127,80,0.14);
+            transform: translateY(-2px);
         }
         
         .video-container {
@@ -127,17 +245,21 @@
             background: #000;
             border-radius: 12px;
             overflow: hidden;
-            margin-bottom: 1.5rem;
-            box-shadow: 0 8px 25px rgba(0, 0, 0, 0.2);
-            min-height: 300px;
+            margin-bottom: 0.75rem;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12);
+            min-height: 0;
+            flex: 1 1 auto; /* fill remaining space */
             display: flex;
             align-items: center;
             justify-content: center;
+            border: 1px solid rgba(0, 0, 0, 0.12);
+            outline: 1px solid rgba(0,127,255,0.08);
         }
         
         .video-container img {
             width: 100%;
-            height: auto;
+            height: 100%;
+            object-fit: contain;
             display: block;
             transition: transform 0.3s ease;
         }
@@ -152,7 +274,7 @@
             left: 0;
             width: 100%;
             height: 100%;
-            background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
+            background: #f6f8fa;
             display: flex;
             align-items: center;
             justify-content: center;
@@ -198,8 +320,8 @@
         .webcam-controls {
             display: flex;
             justify-content: center;
-            gap: 1rem;
-            margin-bottom: 1rem;
+            gap: 0.5rem;
+            margin-bottom: 0.5rem;
             flex-wrap: wrap;
         }
 
@@ -212,8 +334,8 @@
         }
 
         .form-select:focus {
-            border-color: #667eea;
-            box-shadow: 0 0 0 0.2rem rgba(102, 126, 234, 0.25);
+            border-color: #007FFF;
+            box-shadow: 0 0 0 0.2rem rgba(0, 127, 255, 0.25);
         }
 
         .form-label {
@@ -225,66 +347,94 @@
         .btn {
             border-radius: 8px;
             font-weight: 600;
-            padding: 0.75rem 1.5rem;
+            padding: 0.5rem 1rem;
             transition: all 0.3s ease;
             border: none;
             position: relative;
             overflow: hidden;
         }
+        /* generic icon spacing in buttons and badges */
+        .btn i, .badge i, .section-title i { margin-right: 0.5rem; }
+        .webcam-controls .btn { min-height: 38px; }
 
-        .btn::before {
-            content: '';
-            position: absolute;
-            top: 0;
-            left: -100%;
-            width: 100%;
-            height: 100%;
-            background: linear-gradient(90deg, transparent, rgba(255,255,255,0.2), transparent);
-            transition: left 0.5s;
-        }
-
-        .btn:hover::before {
-            left: 100%;
-        }
+        /* Remove glossy shimmer for professional look */
+        .btn::before { display: none; }
 
         .btn-success {
-            background: var(--success-color);
-            box-shadow: 0 4px 15px rgba(40, 167, 69, 0.3);
+            background: var(--brand-azure);
+            box-shadow: 0 2px 8px rgba(0, 127, 255, 0.2);
         }
 
         .btn-success:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 6px 20px rgba(40, 167, 69, 0.4);
+            transform: translateY(-1px);
+            box-shadow: 0 4px 14px rgba(0, 127, 255, 0.25);
         }
 
         .btn-danger {
-            background: var(--danger-color);
-            box-shadow: 0 4px 15px rgba(220, 53, 69, 0.3);
+            background: var(--brand-coral);
+            box-shadow: 0 2px 8px rgba(255, 127, 80, 0.25);
         }
 
         .btn-danger:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 6px 20px rgba(220, 53, 69, 0.4);
+            transform: translateY(-1px);
+            box-shadow: 0 4px 14px rgba(255, 127, 80, 0.3);
         }
 
         .btn-secondary {
-            background: #6c757d;
-            box-shadow: 0 4px 15px rgba(108, 117, 125, 0.3);
+            background: #ffffff;
+            color: var(--brand-azure);
+            border: 2px solid var(--brand-azure);
+            box-shadow: 0 1px 6px rgba(0, 0, 0, 0.06);
         }
 
         .btn-secondary:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 6px 20px rgba(108, 117, 125, 0.4);
+            transform: translateY(-1px);
+            background: var(--brand-azure);
+            color: #ffffff;
+            box-shadow: 0 4px 14px rgba(0, 127, 255, 0.25);
         }
 
         .btn-outline-primary {
-            border: 2px solid #667eea;
-            color: #667eea;
+            border: 2px solid #007FFF;
+            color: #007FFF;
             background: transparent;
         }
+        /* Enhanced focus styles for accessibility */
+        .btn:focus-visible {
+            outline: 3px solid rgba(0,127,255,0.35);
+            outline-offset: 2px;
+        }
+        .btn:active {
+            transform: translateY(0);
+            box-shadow: none;
+        }
+        /* Provide brand-consistent info and warning variants */
+        .btn-info {
+            background: #ffffff;
+            color: var(--brand-azure);
+            border: 2px solid var(--brand-azure);
+            box-shadow: 0 1px 6px rgba(0, 0, 0, 0.06);
+        }
+        .btn-info:hover {
+            transform: translateY(-1px);
+            background: var(--brand-azure);
+            color: #ffffff;
+            box-shadow: 0 4px 14px rgba(0, 127, 255, 0.25);
+        }
+        .btn-warning {
+            background: var(--brand-coral);
+            color: #ffffff;
+            border: 2px solid var(--brand-coral);
+            box-shadow: 0 2px 8px rgba(255, 127, 80, 0.25);
+        }
+        .btn-warning:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 4px 14px rgba(255, 127, 80, 0.3);
+        }
+
 
         .btn-outline-primary:hover {
-            background: #667eea;
+            background: #007FFF;
             color: white;
             transform: translateY(-2px);
         }
@@ -294,9 +444,21 @@
             margin-bottom: 1rem;
         }
 
+        /* Subtle separators in RFID detail lines */
+        .rfid-data-content div {
+            border-bottom: 1px solid #e9ecef;
+            padding-bottom: 0.35rem;
+        }
+        .rfid-data-content div:last-child { border-bottom: none; padding-bottom: 0; }
+
+        /* Constrain badges to azure/coral/white palette */
+        .badge.bg-success { background-color: var(--brand-azure) !important; }
+        .badge.bg-secondary { background-color: #ffffff !important; color: #495057 !important; border: 1px solid #e9ecef; }
+        .badge.bg-warning { background-color: var(--brand-coral) !important; color: #fff !important; }
+
         .test-mode-indicator {
             margin-top: 0.5rem;
-            animation: pulse 2s infinite;
+            animation: none;
         }
 
         .test-mode-indicator .badge {
@@ -311,27 +473,115 @@
             font-weight: 600;
             letter-spacing: 0.5px;
         }
+        .badge.bg-secondary { background: #f8f9fa; color: #495057; border: 1px solid #e9ecef; }
+        /* minimal utility to support existing markup without Bootstrap */
+        .me-2 { margin-right: 0.5rem; }
+        .mb-2 { margin-bottom: 0.5rem; }
+        .mb-3 { margin-bottom: 1rem; }
+        .mt-3 { margin-top: 1rem; }
+        .d-flex { display: flex; }
+        .align-items-center { align-items: center; }
+        .gap-2 { gap: 0.5rem; }
+        .badge.bg-light { background: #ffffff; color: #212529; }
+        .text-dark { color: #212529; }
+        .border { border: 1px solid #e9ecef; }
+
+        /* Bootstrap-style utility classes for brand colors */
+        .text-azure { color: var(--brand-azure) !important; }
+        .text-coral { color: var(--brand-coral) !important; }
+        .bg-azure { background-color: var(--brand-azure) !important; }
+        .bg-coral { background-color: var(--brand-coral) !important; }
+        .border-azure { border-color: var(--brand-azure) !important; }
+        .border-coral { border-color: var(--brand-coral) !important; }
+
+        /* Make hero heading, subtitle, and description white over coral background */
+        .institution-meta h1,
+        .institution-meta small,
+        .header-section p {
+            color: #ffffff;
+        }
+
+        /* Ensure RFID section title is white */
+        .rfid-section .section-title {
+            color: #ffffff;
+        }
+        /* Match RFID title pill to coral accent */
+        .rfid-section .section-title {
+            background: rgba(255,127,80,0.12);
+            border: 1px solid rgba(255,127,80,0.35);
+        }
+        .rfid-section .section-title i { background: var(--brand-coral); }
+
+        /* Header meta badges */
+        .meta-badges {
+            display: flex;
+            gap: 0.5rem;
+            margin-top: 0.5rem;
+            flex-wrap: wrap;
+            justify-content: center;
+        }
+        .meta-badges .badge-outline-azure {
+            background: #ffffff;
+            color: var(--brand-azure);
+            border: 1px solid var(--brand-azure);
+            padding: 0.35rem 0.6rem;
+            border-radius: 999px;
+            font-size: 0.75rem;
+        }
+        .meta-badges .badge-outline-coral {
+            background: #ffffff;
+            color: var(--brand-coral);
+            border: 1px solid var(--brand-coral);
+            padding: 0.35rem 0.6rem;
+            border-radius: 999px;
+            font-size: 0.75rem;
+        }
+        .meta-badges .badge-outline-azure:hover { background: rgba(0,127,255,0.06); }
+        .meta-badges .badge-outline-coral:hover { background: rgba(255,127,80,0.08); }
+        /* Add chip icons inside header badges */
+        .meta-badges .badge-outline-azure i,
+        .meta-badges .badge-outline-coral i {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 18px;
+            height: 18px;
+            border-radius: 999px;
+            margin-right: 0.35rem;
+        }
+        .meta-badges .badge-outline-azure i { background: var(--brand-azure); color: #ffffff; }
+        .meta-badges .badge-outline-coral i { background: var(--brand-coral); color: #ffffff; }
+
+        /* Footer */
+        .app-footer {
+            margin-top: 0.5rem;
+            padding-top: 0.5rem;
+            border-top: 1px dashed rgba(255,255,255,0.4);
+            color: #ffffff;
+            font-size: 0.8rem;
+            text-align: center;
+        }
 
         .alert {
-            border-radius: 12px;
-            border: none;
-            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
-            backdrop-filter: blur(10px);
+            border-radius: 10px;
+            border: 1px solid #e9ecef;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.06);
+            backdrop-filter: none;
         }
 
         .alert-info {
-            background: linear-gradient(135deg, rgba(23, 162, 184, 0.1), rgba(23, 162, 184, 0.05));
-            border-left: 4px solid var(--info-color);
+            background: #f1f9ff;
+            border-left: 4px solid var(--brand-azure);
         }
         
         .font-monospace {
             font-family: 'Courier New', monospace;
-            font-weight: bold;
-            color: #495057;
-            background: linear-gradient(135deg, #f8f9fa, #e9ecef);
+            font-weight: 600;
+            color: #1f2d3d;
+            background: #ffffff;
             padding: 0.5rem 1rem;
-            border-radius: 8px;
-            border: 1px solid #dee2e6;
+            border-radius: 6px;
+            border: 1px solid #e3e7ee;
             display: inline-block;
             min-width: 120px;
             text-align: center;
@@ -359,28 +609,25 @@
         @media (max-width: 1200px) {
             .main-content {
                 grid-template-columns: 1fr;
-                gap: 2rem;
+                gap: 1rem;
             }
-            
             .main-container {
-                padding: 2rem;
-                margin: 1rem;
+                padding: 1rem;
+                margin: 0.5rem;
             }
         }
         
         @media (max-width: 768px) {
             .header-section h1 {
-                font-size: 2rem;
+                font-size: 1.5rem;
             }
-            
             .webcam-controls {
                 flex-direction: column;
-                align-items: center;
+                align-items: stretch;
             }
-            
             .webcam-controls .btn {
                 width: 100%;
-                max-width: 200px;
+                max-width: none;
             }
         }
 
@@ -406,24 +653,45 @@
         }
 
         ::-webkit-scrollbar-thumb {
-            background: var(--secondary-gradient);
+            background: var(--brand-azure);
             border-radius: 4px;
         }
 
         ::-webkit-scrollbar-thumb:hover {
-            background: #667eea;
+            background: #007FFF;
         }
     </style>
 </head>
 <body>
+    <header class="app-navbar">
+        <a class="app-brand" href="#">
+            <i class="fas fa-shield-alt"></i>
+            <span>Dress Code Detection</span>
+        </a>
+        <div class="app-nav-right">
+            <span class="badge bg-light text-dark border"><i class="fas fa-id-badge"></i>RFID Enabled</span>
+            <span class="badge bg-light text-dark border"><i class="fas fa-building"></i>Institutional</span>
+        </div>
+    </header>
+
     <div class="container-fluid">
         <div class="main-container">
+            <div class="hero-card">
+            <div class="institution-bar">
+                <div class="institution-accent"></div>
+                <div class="institution-meta">
+                    <h1 class="m-0">Dress Code Detection System</h1>
+                    <small>University Deployment • Campus Security and Compliance</small>
+                    <div class="meta-badges">
+                        <span class="badge-outline-azure"><i class="fas fa-id-badge me-1"></i>RFID-enabled</span>
+                        <span class="badge-outline-azure"><i class="fas fa-shield-alt me-1"></i>Compliance</span>
+                        <span class="badge-outline-azure"><i class="fas fa-building me-1"></i>Institutional</span>
+                    </div>
+                </div>
+            </div>
             <div class="header-section">
-                <h1>
-                    <i class="fas fa-user-check me-3"></i>
-                    Dress Code Detection System
-                </h1>
-                <p>RFID-controlled person detection and dress code analysis</p>
+                <p>An institutional-grade dress code compliance system integrating real-time surveillance with RFID-enabled identity verification for secure and efficient campus operations.</p>
+            </div>
             </div>
             
             <!-- Main Content Layout -->
@@ -431,17 +699,10 @@
                 <!-- Webcam Section (Left - Bigger) -->
                 <div class="webcam-section">
                     <div class="section-title">
-                        <i class="fas fa-video me-2"></i>Live Camera Feed
+                        <span class="d-flex align-items-center"><i class="fas fa-video"></i>Live Camera Feed</span>
                     </div>
                     <div class="webcam-container">
-                        <div class="mb-4">
-                            <label for="cameraSelect" class="form-label">
-                                <i class="fas fa-camera me-2"></i>Select Camera
-                            </label>
-                            <select class="form-select" id="cameraSelect" onchange="changeCamera()">
-                                <option value="0">Camera 0</option>
-                            </select>
-                        </div>
+                        
                         <div class="video-container">
                             <img id="videoFeed" src="/video_feed" alt="Video Feed" class="loading">
                             <div id="cameraOffOverlay" class="camera-off-overlay" style="display: none;">
@@ -457,15 +718,15 @@
                                 </div>
                             </div>
                         </div>
-                        <div class="webcam-controls">
+                        <div class="webcam-controls" role="group" aria-label="Camera controls">
                             <button class="btn btn-success" id="toggleCameraBtn" onclick="toggleCamera()">
-                                <i class="fas fa-video me-2"></i>Turn Off Camera
+                                <i class="fas fa-video"></i>Turn Off Camera
                             </button>
                             <button class="btn btn-secondary" id="resetTrackerBtn" onclick="resetTracker()" disabled>
-                                <i class="fas fa-refresh me-2"></i>Reset Tracker
+                                <i class="fas fa-refresh"></i>Reset Tracker
                             </button>
-                            <button class="btn btn-info" id="testModeBtn" onclick="toggleTestMode()">
-                                <i class="fas fa-flask me-2"></i>Test Mode
+                            <button class="btn btn-outline-primary" id="testModeBtn" onclick="toggleTestMode()">
+                                <i class="fas fa-flask"></i>Test Mode
                             </button>
                         </div>
                     </div>
@@ -474,17 +735,17 @@
                 <!-- Right Column with RFID -->
                 <div class="rfid-section">
                     <!-- RFID Display Section -->
-                    <div class="section-title">
-                        <i class="fas fa-id-card me-2"></i>RFID Scanner
-                    </div>
                     <div class="webcam-container">
+                        <div class="section-title">
+                            <span class="d-flex align-items-center"><i class="fas fa-id-card"></i>RFID Scanner</span>
+                        </div>
                         <div class="rfid-status">
                             <span id="rfidStatus" class="badge bg-secondary">
-                                <i class="fas fa-clock me-2"></i>RFID: Waiting
+                                <i class="fas fa-clock"></i>RFID: Waiting
                             </span>
                             <div id="testModeStatus" class="test-mode-indicator" style="display: none;">
                                 <span class="badge bg-warning">
-                                    <i class="fas fa-flask me-2"></i>Test Mode Active
+                                    <i class="fas fa-flask"></i>Test Mode Active
                                 </span>
                             </div>
                         </div>
@@ -492,16 +753,16 @@
                         <div id="rfidDataDisplay" class="alert alert-info" style="display: none;">
                             <div class="mb-3">
                                 <strong>
-                                    <i class="fas fa-credit-card me-2"></i>Current Card
+                                    <i class="fas fa-credit-card"></i>Current Card
                                 </strong>
                             </div>
                             <div class="rfid-data-content">
                                 <div>
-                                    <strong><i class="fas fa-fingerprint me-2"></i>UID:</strong>
+                                    <strong><i class="fas fa-fingerprint"></i>UID:</strong>
                                     <span id="rfidUid" class="font-monospace">N/A</span>
                                 </div>
                                 <div>
-                                    <strong><i class="fas fa-tag me-2"></i>Type:</strong>
+                                    <strong><i class="fas fa-tag"></i>Type:</strong>
                                     <span id="rfidType">Mifare Classic 1K</span>
                                 </div>
                             </div>
@@ -511,54 +772,9 @@
             </div>
         </div>
     </div>
-
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+    <div class="app-footer">© 2025 University Deployment — Dress Code Detection System</div>
     <script>
         // Camera functions
-        function loadCameras() {
-            fetch('/get_cameras')
-                .then(response => response.json())
-                .then(data => {
-                    if (data.success) {
-                        const cameraSelect = document.getElementById('cameraSelect');
-                        cameraSelect.innerHTML = '';
-                        data.cameras.forEach((camera, index) => {
-                            const option = document.createElement('option');
-                            option.value = index;
-                            option.textContent = `Camera ${index}`;
-                            cameraSelect.appendChild(option);
-                        });
-                    }
-                })
-                .catch(error => {
-                    console.error('Error loading cameras:', error);
-                });
-        }
-
-        function changeCamera() {
-            const cameraSelect = document.getElementById('cameraSelect');
-            const selectedCameraId = parseInt(cameraSelect.value);
-            
-            fetch('/change_camera', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({ camera_id: selectedCameraId })
-            })
-            .then(response => response.json())
-            .then(data => {
-                if (data.success) {
-                    // Refresh video feed
-                    document.getElementById('videoFeed').src = '/video_feed?' + new Date().getTime();
-                } else {
-                    alert('Error: ' + data.message);
-                }
-            })
-            .catch(error => {
-                alert('Error changing camera: ' + error.message);
-            });
-        }
 
         function startCamera() {
             const cameraSelect = document.getElementById('cameraSelect');
@@ -734,12 +950,10 @@
 
         // Auto-start camera when page loads
         window.addEventListener('load', function() {
-            loadCameras();
-            // Wait a bit for cameras to load, then start camera
+            // Start camera shortly after page load
             setTimeout(() => {
                 startCamera();
             }, 500);
-            
             // Check RFID status every 2 seconds
             setInterval(checkRfidStatus, 2000);
         });
