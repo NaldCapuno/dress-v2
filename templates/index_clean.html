@@ -1,0 +1,371 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dress Code Detection System</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <link href="{{ url_for('static', filename='style.css') }}" rel="stylesheet">
+    <style>
+        body {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+        
+        .main-container {
+            background: rgba(255, 255, 255, 0.95);
+            border-radius: 20px;
+            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.1);
+            padding: 2rem;
+            margin: 2rem auto;
+            max-width: 1400px;
+        }
+        
+        .main-content {
+            display: grid;
+            grid-template-columns: 2fr 1fr;
+            gap: 2rem;
+            margin-top: 2rem;
+        }
+        
+        .webcam-section {
+            background: white;
+            border-radius: 15px;
+            padding: 1.5rem;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.1);
+        }
+        
+        .upload-section {
+            display: flex;
+            flex-direction: column;
+            gap: 1.5rem;
+        }
+        
+        .section-title {
+            font-size: 1.2rem;
+            font-weight: 600;
+            color: #333;
+            margin-bottom: 1rem;
+            padding-bottom: 0.5rem;
+            border-bottom: 2px solid #667eea;
+        }
+        
+        .webcam-container {
+            background: #f8f9fa;
+            border-radius: 10px;
+            padding: 1rem;
+            border: 2px dashed #dee2e6;
+        }
+        
+        .video-container {
+            position: relative;
+            background: #000;
+            border-radius: 10px;
+            overflow: hidden;
+            margin-bottom: 1rem;
+        }
+        
+        .video-container img {
+            width: 100%;
+            height: auto;
+            display: block;
+        }
+        
+        .webcam-controls {
+            display: flex;
+            justify-content: center;
+            gap: 1rem;
+            margin-bottom: 1rem;
+        }
+        
+        .btn-custom {
+            background: linear-gradient(45deg, #667eea, #764ba2);
+            border: none;
+            color: white;
+            padding: 0.5rem 1.5rem;
+            border-radius: 25px;
+            font-weight: 500;
+            transition: all 0.3s ease;
+        }
+        
+        .btn-custom:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
+            color: white;
+        }
+        
+        .btn-group .btn.active {
+            background-color: #667eea;
+            border-color: #667eea;
+            color: white;
+        }
+        
+        .font-monospace {
+            font-family: 'Courier New', monospace;
+            font-weight: bold;
+            color: #495057;
+            background-color: #f8f9fa;
+            padding: 2px 6px;
+            border-radius: 4px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="main-container">
+            <div class="text-center mb-4">
+                <h1 class="display-4 text-primary">
+                    <i class="fas fa-user-check me-3"></i>
+                    Dress Code Detection System
+                </h1>
+                <p class="lead text-muted">RFID-controlled person detection and dress code analysis</p>
+            </div>
+            
+            <!-- Main Content Layout -->
+            <div class="main-content">
+                <!-- Webcam Section (Left - Bigger) -->
+                <div class="webcam-section">
+                    <div class="section-title">
+                        <i class="fas fa-video me-2"></i>Live Camera Feed
+                    </div>
+                    <div class="webcam-container">
+                        <div class="mb-3">
+                            <label for="cameraSelect" class="form-label">Select Camera:</label>
+                            <select class="form-select" id="cameraSelect" onchange="changeCamera()">
+                                <option value="0">Camera 0</option>
+                            </select>
+                        </div>
+                        <div class="video-container mb-3">
+                            <img id="videoFeed" src="/video_feed" alt="Video Feed">
+                        </div>
+                        <div class="webcam-controls text-center">
+                            <button class="btn btn-success me-2" id="toggleCameraBtn" onclick="toggleCamera()">
+                                <i class="fas fa-video me-2"></i>Turn Off Camera
+                            </button>
+                            <button class="btn btn-secondary" id="resetTrackerBtn" onclick="resetTracker()" disabled>
+                                <i class="fas fa-refresh me-2"></i>Reset Tracker
+                            </button>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Right Column with RFID -->
+                <div class="upload-section">
+                    <!-- RFID Display Section -->
+                    <div class="section-title">
+                        <i class="fas fa-id-card me-2"></i>RFID Scanner
+                    </div>
+                    <div class="webcam-container">
+                        <div class="mb-3">
+                            <div class="rfid-status mb-2 text-center">
+                                <span id="rfidStatus" class="badge bg-secondary">RFID: Waiting</span>
+                            </div>
+                        </div>
+                        
+                        <div class="mt-3">
+                            <div id="rfidDataDisplay" class="alert alert-info small" style="display: none;">
+                                <div class="d-flex justify-content-between align-items-center mb-2">
+                                    <strong>Current Card:</strong>
+                                    <button class="btn btn-outline-primary btn-sm" id="rfidReadBtn" onclick="readRfidCard()">
+                                        <i class="fas fa-sync-alt"></i>
+                                    </button>
+                                </div>
+                                <div id="rfidDataContent">
+                                    <div><strong>UID:</strong> <span id="rfidUid" class="font-monospace">N/A</span></div>
+                                    <div><strong>Type:</strong> <span id="rfidType">Mifare Classic 1K</span></div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        // Camera functions
+        function loadCameras() {
+            fetch('/get_cameras')
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        const cameraSelect = document.getElementById('cameraSelect');
+                        cameraSelect.innerHTML = '';
+                        data.cameras.forEach((camera, index) => {
+                            const option = document.createElement('option');
+                            option.value = index;
+                            option.textContent = `Camera ${index}`;
+                            cameraSelect.appendChild(option);
+                        });
+                    }
+                })
+                .catch(error => {
+                    console.error('Error loading cameras:', error);
+                });
+        }
+
+        function changeCamera() {
+            const cameraSelect = document.getElementById('cameraSelect');
+            const selectedCameraId = parseInt(cameraSelect.value);
+            
+            fetch('/change_camera', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ camera_id: selectedCameraId })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    // Refresh video feed
+                    document.getElementById('videoFeed').src = '/video_feed?' + new Date().getTime();
+                } else {
+                    alert('Error: ' + data.message);
+                }
+            })
+            .catch(error => {
+                alert('Error changing camera: ' + error.message);
+            });
+        }
+
+        function startCamera() {
+            const cameraSelect = document.getElementById('cameraSelect');
+            const selectedCameraId = cameraSelect ? parseInt(cameraSelect.value) : 0;
+            
+            fetch('/start_camera', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ camera_id: selectedCameraId })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    // Enable reset tracker button since camera is now running
+                    document.getElementById('resetTrackerBtn').disabled = false;
+                    // Update toggle button
+                    const toggleBtn = document.getElementById('toggleCameraBtn');
+                    toggleBtn.innerHTML = '<i class="fas fa-video-slash me-2"></i>Turn Off Camera';
+                    toggleBtn.className = 'btn btn-danger me-2';
+                    // Refresh video feed
+                    document.getElementById('videoFeed').src = '/video_feed?' + new Date().getTime();
+                } else {
+                    alert('Error: ' + data.message);
+                }
+            })
+            .catch(error => {
+                alert('Error starting camera: ' + error.message);
+            });
+        }
+
+        function stopCamera() {
+            fetch('/stop_camera', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                }
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    // Disable reset tracker button since camera is now off
+                    document.getElementById('resetTrackerBtn').disabled = true;
+                    // Update toggle button
+                    const toggleBtn = document.getElementById('toggleCameraBtn');
+                    toggleBtn.innerHTML = '<i class="fas fa-video me-2"></i>Turn On Camera';
+                    toggleBtn.className = 'btn btn-success me-2';
+                } else {
+                    alert('Error: ' + data.message);
+                }
+            })
+            .catch(error => {
+                alert('Error stopping camera: ' + error.message);
+            });
+        }
+
+        function toggleCamera() {
+            const toggleBtn = document.getElementById('toggleCameraBtn');
+            const buttonText = toggleBtn.innerHTML;
+            
+            if (buttonText.includes('Turn Off Camera')) {
+                stopCamera();
+            } else {
+                startCamera();
+            }
+        }
+
+        function resetTracker() {
+            fetch('/reset_tracker', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                }
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    alert('Tracker reset successfully');
+                } else {
+                    alert('Error: ' + data.message);
+                }
+            })
+            .catch(error => {
+                alert('Error resetting tracker: ' + error.message);
+            });
+        }
+
+        // RFID Functions
+        function updateRfidDisplay(uid, cardType) {
+            const display = document.getElementById('rfidDataDisplay');
+            const uidElement = document.getElementById('rfidUid');
+            const typeElement = document.getElementById('rfidType');
+            
+            if (uid) {
+                uidElement.textContent = uid;
+                typeElement.textContent = cardType;
+                display.style.display = 'block';
+            }
+        }
+
+        function hideRfidDisplay() {
+            const display = document.getElementById('rfidDataDisplay');
+            display.style.display = 'none';
+        }
+
+        function readRfidCard() {
+            fetch('/rfid/read', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                }
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    updateRfidDisplay(data.uid, 'Mifare Classic 1K');
+                    alert(`Card read successfully!\nUID: ${data.uid}`);
+                } else {
+                    alert('Error: ' + data.message);
+                }
+            })
+            .catch(error => {
+                alert('Error reading RFID card: ' + error.message);
+            });
+        }
+
+        // Auto-start camera when page loads
+        window.addEventListener('load', function() {
+            loadCameras();
+            // Wait a bit for cameras to load, then start camera
+            setTimeout(() => {
+                startCamera();
+            }, 500);
+        });
+    </script>
+</body>
+</html>

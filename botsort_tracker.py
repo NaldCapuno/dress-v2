@@ -117,6 +117,7 @@ class BotSORT:
                 w, h = x2 - x1, y2 - y1
                 dets.append([x1, y1, w, h, score])
             else:
+                # det is already in [x, y, w, h, score] format
                 dets.append(det)
         
         dets = np.array(dets)
