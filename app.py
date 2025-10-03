@@ -434,7 +434,7 @@ def detect_persons_with_dress(image_path):
         return []
 
 def draw_detections(image_path, detections, output_path):
-    """Draw bounding boxes on the image with tracking IDs and dress code"""
+    """Draw bounding boxes on the image with tracking IDs and detailed dress code compliance"""
     try:
         # Read image
         image = cv2.imread(image_path)
@@ -445,18 +445,27 @@ def draw_detections(image_path, detections, output_path):
             confidence = detection['confidence']
             track_id = detection.get('track_id', 'N/A')
             dress_summary = detection.get('dress_summary', 'No dress items detected')
+            dress_validation = detection.get('dress_validation', {})
             
-            # Choose color based on track ID for better visualization
-            color = (0, 255, 0)  # Default green
-            if track_id != 'N/A':
-                # Generate different colors for different track IDs
-                color_int = track_id * 50 % 255
-                color = (color_int, 255, 255 - color_int)
+            # Choose color based on dress code compliance
+            if dress_validation.get('status_color') == 'success':
+                color = (0, 255, 0)  # Green for compliant
+            elif dress_validation.get('status_color') == 'warning':
+                color = (0, 255, 255)  # Yellow for partially compliant
+            elif dress_validation.get('status_color') == 'danger':
+                color = (0, 0, 255)  # Red for non-compliant
+            else:
+                # Fallback to track ID based color
+                color = (0, 255, 0)  # Default green
+                if track_id != 'N/A':
+                    # Generate different colors for different track IDs
+                    color_int = track_id * 50 % 255
+                    color = (color_int, 255, 255 - color_int)
             
             # Draw rectangle
             cv2.rectangle(image, (x1, y1), (x2, y2), color, 2)
             
-            # Draw label with tracking ID and dress items as a list
+            # Draw label with tracking ID and person confidence
             label1 = f"ID:{track_id} Person: {confidence:.2f}"
             
             # Draw first label (person info)
@@ -466,32 +475,53 @@ def draw_detections(image_path, detections, output_path):
             cv2.putText(image, label1, (x1, y1 - 5), 
                        cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 0), 2)
             
-            # Draw dress items as a list
-            dress_items = detection.get('dress_items', [])
-            if dress_items:
-                current_y = y1 - label_size1[1] - 15
-                cv2.putText(image, "Dress Items:", (x1, current_y), 
-                           cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
-                current_y -= 20
+            # Draw dress code compliance status
+            current_y = y1 - label_size1[1] - 15
+            compliance_text = f"Dress Code: {dress_summary}"
+            text_size = cv2.getTextSize(compliance_text, cv2.FONT_HERSHEY_SIMPLEX, 0.5, 2)[0]
+            
+            # Draw background for compliance status
+            cv2.rectangle(image, (x1, current_y - text_size[1] - 5), 
+                         (x1 + text_size[0] + 5, current_y + 5), color, -1)
+            cv2.putText(image, compliance_text, (x1 + 2, current_y - 2), 
+                       cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 0), 2)
+            
+            # Draw detailed dress code items with present/missing status
+            compliance_status = dress_validation.get('compliance_status', {})
+            if compliance_status:
+                current_y -= 25
                 
-                for i, item in enumerate(dress_items[:3]):  # Show top 3 items
-                    item_text = f"• {item['class']} ({item['confidence']:.2f})"
-                    text_size = cv2.getTextSize(item_text, cv2.FONT_HERSHEY_SIMPLEX, 0.5, 2)[0]
+                # Determine gender for context
+                with rfid_lock:
+                    current_gender = (rfid_last_student or {}).get('gender', 'male')
+                
+                gender_text = f"Gender: {current_gender.title()}"
+                gender_size = cv2.getTextSize(gender_text, cv2.FONT_HERSHEY_SIMPLEX, 0.4, 1)[0]
+                cv2.rectangle(image, (x1, current_y - gender_size[1] - 5), 
+                             (x1 + gender_size[0] + 5, current_y + 5), color, -1)
+                cv2.putText(image, gender_text, (x1 + 2, current_y - 2), 
+                           cv2.FONT_HERSHEY_SIMPLEX, 0.4, (0, 0, 0), 1)
+                
+                # Draw each required item with status
+                for item_key, item_status in compliance_status.items():
+                    current_y -= 20
+                    status_icon = "✅" if item_status['present'] else "❌"
+                    item_text = f"{status_icon} {item_status['name']}"
+                    item_size = cv2.getTextSize(item_text, cv2.FONT_HERSHEY_SIMPLEX, 0.4, 1)[0]
                     
                     # Draw background for each item
-                    cv2.rectangle(image, (x1, current_y - text_size[1] - 5), 
-                                 (x1 + text_size[0] + 5, current_y + 5), color, -1)
+                    cv2.rectangle(image, (x1, current_y - item_size[1] - 5), 
+                                 (x1 + item_size[0] + 5, current_y + 5), color, -1)
                     cv2.putText(image, item_text, (x1 + 2, current_y - 2), 
-                               cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 0), 2)
-                    current_y -= 25
+                               cv2.FONT_HERSHEY_SIMPLEX, 0.4, (0, 0, 0), 1)
             else:
-                # No dress items detected
-                no_items_text = "No dress items detected"
-                text_size = cv2.getTextSize(no_items_text, cv2.FONT_HERSHEY_SIMPLEX, 0.5, 2)[0]
-                cv2.rectangle(image, (x1, y1 - label_size1[1] - 35), 
-                             (x1 + text_size[0] + 5, y1 - label_size1[1] - 10), color, -1)
-                cv2.putText(image, no_items_text, (x1 + 2, y1 - label_size1[1] - 20), 
-                       cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 0), 2)
+                # No dress code validation available
+                no_items_text = "No dress code validation available"
+                text_size = cv2.getTextSize(no_items_text, cv2.FONT_HERSHEY_SIMPLEX, 0.4, 1)[0]
+                cv2.rectangle(image, (x1, current_y - text_size[1] - 5), 
+                             (x1 + text_size[0] + 5, current_y + 5), color, -1)
+                cv2.putText(image, no_items_text, (x1 + 2, current_y - 2), 
+                           cv2.FONT_HERSHEY_SIMPLEX, 0.4, (0, 0, 0), 1)
         
         # Save result
         cv2.imwrite(output_path, image)
@@ -584,7 +614,7 @@ def detect_persons_frame_with_dress(frame):
         return []
 
 def draw_detections_frame(frame, detections):
-    """Draw bounding boxes on a video frame with tracking IDs and dress code compliance"""
+    """Draw bounding boxes on a video frame with tracking IDs and detailed dress code compliance"""
     try:
         # Draw bounding boxes
         for detection in detections:
@@ -629,17 +659,34 @@ def draw_detections_frame(frame, detections):
             cv2.putText(frame, compliance_text, (x1 + 2, current_y - 2), 
                        cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 0), 2)
             
-            # Draw individual item status
-            if dress_details:
+            # Draw detailed dress code items with present/missing status
+            compliance_status = dress_validation.get('compliance_status', {})
+            if compliance_status:
                 current_y -= 25
-                items_text = f"Items: {dress_details}"
-                items_size = cv2.getTextSize(items_text, cv2.FONT_HERSHEY_SIMPLEX, 0.4, 1)[0]
                 
-                # Draw background for items
-                cv2.rectangle(frame, (x1, current_y - items_size[1] - 5), 
-                             (x1 + items_size[0] + 5, current_y + 5), color, -1)
-                cv2.putText(frame, items_text, (x1 + 2, current_y - 2), 
+                # Determine gender for context
+                with rfid_lock:
+                    current_gender = (rfid_last_student or {}).get('gender', 'male')
+                
+                gender_text = f"Gender: {current_gender.title()}"
+                gender_size = cv2.getTextSize(gender_text, cv2.FONT_HERSHEY_SIMPLEX, 0.4, 1)[0]
+                cv2.rectangle(frame, (x1, current_y - gender_size[1] - 5), 
+                             (x1 + gender_size[0] + 5, current_y + 5), color, -1)
+                cv2.putText(frame, gender_text, (x1 + 2, current_y - 2), 
                            cv2.FONT_HERSHEY_SIMPLEX, 0.4, (0, 0, 0), 1)
+                
+                # Draw each required item with status
+                for item_key, item_status in compliance_status.items():
+                    current_y -= 20
+                    status_icon = "✅" if item_status['present'] else "❌"
+                    item_text = f"{status_icon} {item_status['name']}"
+                    item_size = cv2.getTextSize(item_text, cv2.FONT_HERSHEY_SIMPLEX, 0.4, 1)[0]
+                    
+                    # Draw background for each item
+                    cv2.rectangle(frame, (x1, current_y - item_size[1] - 5), 
+                                 (x1 + item_size[0] + 5, current_y + 5), color, -1)
+                    cv2.putText(frame, item_text, (x1 + 2, current_y - 2), 
+                               cv2.FONT_HERSHEY_SIMPLEX, 0.4, (0, 0, 0), 1)
             
         return frame
     except Exception as e:
@@ -889,17 +936,11 @@ def generate_frames():
                     # Note: admin_user is None in background thread, will be handled in violation function
                     _maybe_record_violation(frame, detections, None)
                     
-                    # Add status overlay based on mode
-                    if test_mode_active:
-                        cv2.putText(frame, "TEST MODE: Detection Always Active", (10, 30), 
-                                   cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 165, 0), 2)  # Orange color
-                    else:
-                        cv2.putText(frame, f"RFID: ACTIVE - {rfid_last_uid}", (10, 30), 
-                                   cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
+                    # Status overlay removed as requested
+                    pass
                 else:
-                    # Add RFID status overlay
-                    cv2.putText(frame, "RFID: WAITING - Scan Card to Enable Detection", (10, 30), 
-                               cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
+                    # Status overlay removed as requested
+                    pass
                 
                 # Encode frame as JPEG
                 ret, buffer = cv2.imencode('.jpg', frame)
@@ -1760,13 +1801,8 @@ def capture_frame():
                     # Draw detections on frame
                     frame_with_detections = draw_detections_frame(current_frame.copy(), detections)
                     
-                    # Add status overlay based on mode
-                    if test_mode_active:
-                        cv2.putText(frame_with_detections, "TEST MODE: Detection Always Active", (10, 30), 
-                                   cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 165, 0), 2)  # Orange color
-                    else:
-                        cv2.putText(frame_with_detections, f"RFID: ACTIVE - {rfid_last_uid}", (10, 30), 
-                                   cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
+                    # Status overlay removed as requested
+                    pass
 
                     # Attempt to record violation if non-compliant
                     admin_user = session.get('admin') or {}
@@ -1776,9 +1812,8 @@ def capture_frame():
                     detections = []
                     frame_with_detections = current_frame.copy()
                     
-                    # Add RFID status overlay
-                    cv2.putText(frame_with_detections, "RFID: WAITING - Scan Card to Enable Detection", (10, 30), 
-                               cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
+                    # Status overlay removed as requested
+                    pass
                 
                 # Encode frame as base64
                 ret, buffer = cv2.imencode('.jpg', frame_with_detections)
