@@ -23,19 +23,19 @@
             <div class="status-divider"></div>
             <div class="status-item">
                 <div class="status-label">RFID Scanner</div>
-                <div class="status-value" id="rfid-status-overview">Ready</div>
+                <div class="status-value" id="rfid-status-overview">Inactive</div>
             </div>
             <div class="status-divider"></div>
             <div class="status-item">
                 <div class="status-label">Detection Mode</div>
-                <div class="status-value" id="detection-mode">Live</div>
+                <div class="status-value" id="detection-mode">RFID-Triggered</div>
             </div>
         </div>
             
         <!-- Live Monitoring Section -->
         <div class="card">
             <div class="card-header">
-                <h2><i class="fas fa-video"></i>Live Camera Feed</h2>
+                <h2><i class="fas fa-video"></i> Live Camera Feed</h2>
             </div>
             <div class="monitoring-layout">
                 <div class="webcam-section">
@@ -84,11 +84,11 @@
                 
                 <div class="rfid-section">
                     <div class="rfid-header">
-                        <h3><i class="fas fa-id-card"></i>RFID Scanner</h3>
+                        <h3><i class="fas fa-id-card"></i> RFID Scanner</h3>
                         </div>
                         <div class="rfid-status">
                             <span id="rfidStatus" class="badge bg-secondary">
-                                <i class="fas fa-clock"></i>RFID: Waiting
+                                <i class="fas fa-power-off"></i>RFID: Inactive
                             </span>
                             <div id="testModeStatus" class="test-mode-indicator" style="display: none;">
                                 <span class="badge bg-warning">
@@ -308,6 +308,12 @@
                     
                     // Update overview metrics
                     document.getElementById('camera-status').textContent = 'Active';
+                    
+                    // Update RFID status to show it's now active
+                    document.getElementById('rfid-status-overview').textContent = 'Active';
+                    const rfidStatus = document.getElementById('rfidStatus');
+                    rfidStatus.innerHTML = '<i class="fas fa-check-circle"></i>RFID: Active';
+                    rfidStatus.className = 'badge bg-success';
                 } else {
                     alert('Error: ' + data.message);
                     // Hide initializing sign on error
@@ -355,6 +361,15 @@
                     
                     // Update overview metrics
                     document.getElementById('camera-status').textContent = 'Inactive';
+                    
+                    // Update RFID status to show it's now inactive
+                    document.getElementById('rfid-status-overview').textContent = 'Inactive';
+                    const rfidStatus = document.getElementById('rfidStatus');
+                    rfidStatus.innerHTML = '<i class="fas fa-power-off"></i>RFID: Inactive';
+                    rfidStatus.className = 'badge bg-secondary';
+                    
+                    // Hide RFID display
+                    hideRfidDisplay();
                 } else {
                     alert('Error: ' + data.message);
                 }
@@ -507,8 +522,19 @@
                         const status = data.status;
                         const rfidStatus = document.getElementById('rfidStatus');
                         
+                        // Check if RFID is disabled first
+                        if (!status.enabled) {
+                            rfidStatus.innerHTML = '<i class="fas fa-power-off"></i>RFID: Inactive';
+                            rfidStatus.className = 'badge bg-secondary';
+                            
+                            // Update overview metrics
+                            document.getElementById('rfid-status-overview').textContent = 'Inactive';
+                            
+                            // Hide RFID display
+                            hideRfidDisplay();
+                        }
                         // Update RFID status
-                        if (status.present) {
+                        else if (status.present) {
                             rfidStatus.innerHTML = '<i class="fas fa-check-circle"></i>RFID: Active (' + status.last_uid + ')';
                             rfidStatus.className = 'badge bg-success';
                             
@@ -517,7 +543,7 @@
                             
                             // Update RFID display with student data when present
                             updateRfidDisplay(status.last_uid, 'Mifare Classic 1K', status.student || null);
-                } else {
+                        } else {
                             rfidStatus.innerHTML = '<i class="fas fa-clock"></i>RFID: Waiting';
                             rfidStatus.className = 'badge bg-secondary';
                             
