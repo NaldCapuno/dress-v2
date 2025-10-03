@@ -83,6 +83,7 @@ rfid_current_uid_checks = 0  # number of detection checks for current RFID UID
 rfid_current_uid_violated = False  # whether a violation has been issued for current UID session
 rfid_consecutive_non_compliant = 0  # counter for consecutive non-compliant detections
 rfid_last_compliance_status = None  # track last compliance status to detect changes
+rfid_enabled = False  # flag to completely disable RFID processing
 
 # Global variable for test mode
 test_mode = False
@@ -123,11 +124,11 @@ def initialize_rfid():
 
 def rfid_event_handler():
     """Handle RFID events in background thread"""
-    global rfid_last_uid, rfid_present, detection_enabled, rfid_lock, rfid_last_student, rfid_consecutive_non_compliant, rfid_last_compliance_status
+    global rfid_last_uid, rfid_present, detection_enabled, rfid_lock, rfid_last_student, rfid_consecutive_non_compliant, rfid_last_compliance_status, camera, rfid_enabled
     
     while True:
         try:
-            if rfid_event_queue:
+            if rfid_event_queue and rfid_enabled and camera is not None and camera.isOpened():
                 event = rfid_event_queue.get(timeout=1.0)
                 if event['type'] == 'uid':
                     with rfid_lock:
@@ -162,30 +163,51 @@ def rfid_event_handler():
                         rfid_consecutive_non_compliant = 0
                         rfid_last_compliance_status = None
                     print("RFID Card removed - Detection DISABLED")
+            elif rfid_event_queue:
+                # RFID disabled or camera off, just consume events without processing
+                try:
+                    rfid_event_queue.get(timeout=1.0)
+                except:
+                    pass
         except:
             # Timeout or no events, check current status
-            current_present = _rfid_is_present()
-            with rfid_lock:
-                if rfid_present != current_present:
-                    rfid_present = current_present
-                    detection_enabled = current_present
-                    if not current_present:
+            # Only check RFID status if RFID is enabled and camera is active
+            if rfid_enabled and camera is not None and camera.isOpened():
+                current_present = _rfid_is_present()
+                with rfid_lock:
+                    if rfid_present != current_present:
+                        rfid_present = current_present
+                        detection_enabled = current_present
+                        if not current_present:
+                            rfid_last_student = None
+                            rfid_current_uid_checks = 0
+                            rfid_current_uid_violated = False
+                            rfid_consecutive_non_compliant = 0
+                            rfid_last_compliance_status = None
+                        if current_present:
+                            print("RFID Card present - Detection ENABLED")
+                        else:
+                            print("RFID Card removed - Detection DISABLED")
+            else:
+                # RFID disabled or camera off, ensure RFID is inactive
+                with rfid_lock:
+                    if rfid_present:
+                        rfid_present = False
+                        detection_enabled = False
                         rfid_last_student = None
                         rfid_current_uid_checks = 0
                         rfid_current_uid_violated = False
                         rfid_consecutive_non_compliant = 0
                         rfid_last_compliance_status = None
-                    if current_present:
-                        print("RFID Card present - Detection ENABLED")
-                    else:
-                        print("RFID Card removed - Detection DISABLED")
+                        rfid_last_uid = None
+                        print("RFID disabled or camera off - RFID forced inactive")
         time.sleep(0.1)
 
 # Initialize RFID on startup (camera will be initialized when user starts it)
 # initialize_camera()  # Commented out to keep camera off by default
-initialize_rfid()
+# initialize_rfid()  # Commented out - RFID will start with camera
 
-# Start RFID event handler thread
+# Start RFID event handler thread (but RFID monitoring won't start until camera is on)
 rfid_thread = threading.Thread(target=rfid_event_handler, daemon=True)
 rfid_thread.start()
 
@@ -1371,6 +1393,36 @@ def violation_log():
         if 'conn' in locals():
             conn.close()
 
+@app.route('/debug_rfid')
+def debug_rfid():
+    """Debug endpoint to check RFID status"""
+    try:
+        with rfid_lock:
+            rfid_state = {
+                'rfid_available': RFID_AVAILABLE,
+                'rfid_present': rfid_present,
+                'rfid_last_uid': rfid_last_uid,
+                'rfid_event_queue': rfid_event_queue is not None,
+                'detection_enabled': detection_enabled,
+                'rfid_last_student': rfid_last_student
+            }
+        
+        # Get actual RFID status from scanner
+        if RFID_AVAILABLE:
+            try:
+                scanner_status = get_rfid_status()
+                rfid_state['scanner_status'] = scanner_status
+            except Exception as e:
+                rfid_state['scanner_error'] = str(e)
+        
+        return jsonify({
+            'success': True,
+            'rfid_state': rfid_state,
+            'timestamp': time.strftime('%Y-%m-%d %H:%M:%S')
+        })
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
 @app.route('/debug_state')
 def debug_state():
     """Debug endpoint to check current system state"""
@@ -1543,8 +1595,8 @@ def video_feed():
 
 @app.route('/start_camera', methods=['POST'])
 def start_camera():
-    """Start webcam (or return status if already running)"""
-    global camera, selected_camera_id
+    """Start webcam and RFID monitoring (or return status if already running)"""
+    global camera, selected_camera_id, rfid_event_queue, rfid_enabled
     try:
         # Try to get camera_id from JSON, fallback to selected_camera_id
         camera_id = selected_camera_id
@@ -1559,7 +1611,24 @@ def start_camera():
             camera = cv2.VideoCapture(camera_id)
             if camera.isOpened():
                 selected_camera_id = camera_id  # Update global selected camera ID
-                return jsonify({'success': True, 'message': f'Camera {camera_id} started successfully'})
+                
+                # Initialize and start RFID monitoring when camera starts
+                if RFID_AVAILABLE:
+                    try:
+                        # Initialize RFID if not already done
+                        if rfid_event_queue is None:
+                            initialize_rfid()
+                        else:
+                            start_rfid_monitoring()
+                        
+                        # Enable RFID processing
+                        rfid_enabled = True
+                        print(f"DEBUG: RFID enabled set to True, rfid_enabled: {rfid_enabled}")
+                        print("RFID monitoring started with camera")
+                    except Exception as e:
+                        print(f"Warning: Could not start RFID monitoring: {e}")
+                
+                return jsonify({'success': True, 'message': f'Camera {camera_id} and RFID monitoring started successfully'})
             else:
                 camera = None
                 return jsonify({'success': False, 'message': f'Failed to open camera {camera_id}'}), 500
@@ -1570,8 +1639,8 @@ def start_camera():
 
 @app.route('/change_camera', methods=['POST'])
 def change_camera():
-    """Change to a different camera"""
-    global camera, detection_enabled, selected_camera_id
+    """Change to a different camera and enable RFID monitoring"""
+    global camera, detection_enabled, selected_camera_id, rfid_enabled, rfid_event_queue
     try:
         data = request.get_json()
         camera_id = data.get('camera_id', 0)
@@ -1586,7 +1655,23 @@ def change_camera():
         if camera.isOpened():
             selected_camera_id = camera_id  # Update global selected camera ID
             detection_enabled = False  # Reset detection when changing camera
-            return jsonify({'success': True, 'message': f'Switched to camera {camera_id}'})
+            
+            # Enable RFID monitoring when camera is started via switching
+            if RFID_AVAILABLE:
+                try:
+                    if rfid_event_queue is None:
+                        initialize_rfid()
+                    else:
+                        start_rfid_monitoring()
+                    
+                    # Enable RFID processing
+                    rfid_enabled = True
+                    print(f"DEBUG: RFID enabled via camera switch, rfid_enabled: {rfid_enabled}")
+                    print("RFID monitoring started with camera switch")
+                except Exception as e:
+                    print(f"Warning: Could not start RFID monitoring during camera switch: {e}")
+            
+            return jsonify({'success': True, 'message': f'Switched to camera {camera_id} and enabled RFID monitoring'})
         else:
             camera = None
             return jsonify({'success': False, 'message': f'Failed to open camera {camera_id}'}), 500
@@ -1595,14 +1680,43 @@ def change_camera():
 
 @app.route('/stop_camera', methods=['POST'])
 def stop_camera():
-    """Stop webcam"""
-    global camera, detection_enabled
+    """Stop webcam and RFID monitoring"""
+    global camera, detection_enabled, rfid_event_queue, rfid_enabled
     try:
         if camera is not None:
             camera.release()
             camera = None
             detection_enabled = False  # Also disable detection when camera stops
-            return jsonify({'success': True, 'message': 'Camera stopped successfully'})
+            
+            # Stop RFID monitoring when camera stops
+            if RFID_AVAILABLE:
+                try:
+                    # Disable RFID processing first
+                    rfid_enabled = False
+                    print(f"DEBUG: RFID enabled set to False, rfid_enabled: {rfid_enabled}")
+                    
+                    stop_rfid_monitoring()
+                    
+                    # Unsubscribe from RFID events to completely stop monitoring
+                    if rfid_event_queue is not None:
+                        unsubscribe_from_rfid_events(rfid_event_queue)
+                        rfid_event_queue = None
+                    
+                    print("RFID monitoring completely stopped with camera")
+                    
+                    # Reset RFID state
+                    with rfid_lock:
+                        rfid_present = False
+                        rfid_last_student = None
+                        rfid_consecutive_non_compliant = 0
+                        rfid_last_compliance_status = None
+                        rfid_current_uid_violated = False
+                        rfid_last_uid = None
+                        
+                except Exception as e:
+                    print(f"Warning: Could not stop RFID monitoring: {e}")
+            
+            return jsonify({'success': True, 'message': 'Camera and RFID monitoring stopped successfully'})
         else:
             return jsonify({'success': True, 'message': 'Camera was not running'})
     except Exception as e:
@@ -1765,18 +1879,36 @@ def reset_tracker():
 @app.route('/rfid/status', methods=['GET'])
 def rfid_status():
     """Get RFID scanner status"""
-    global rfid_last_uid, rfid_present, detection_enabled, rfid_lock, rfid_last_student
+    global rfid_last_uid, rfid_present, detection_enabled, rfid_lock, rfid_last_student, rfid_enabled
     try:
         with rfid_lock:
-            status = get_rfid_status()
-            status.update({
-                'last_uid': rfid_last_uid,
-                'present': rfid_present,
-                'detection_enabled': detection_enabled,
-                'student': rfid_last_student
-            })
+            print(f"DEBUG: RFID status check - rfid_enabled: {rfid_enabled}, rfid_present: {rfid_present}")
+            
+            # If RFID is disabled, return inactive status
+            if not rfid_enabled:
+                status = {
+                    'available': RFID_AVAILABLE,
+                    'present': False,
+                    'last_uid': None,
+                    'detection_enabled': False,
+                    'student': None,
+                    'enabled': False
+                }
+                print("DEBUG: RFID disabled, returning inactive status")
+            else:
+                # RFID is enabled, get actual status
+                status = get_rfid_status()
+                status.update({
+                    'last_uid': rfid_last_uid,
+                    'present': rfid_present,
+                    'detection_enabled': detection_enabled,
+                    'student': rfid_last_student,
+                    'enabled': True
+                })
+                print(f"DEBUG: RFID enabled, returning status: {status}")
         return jsonify({'success': True, 'status': status})
     except Exception as e:
+        print(f"DEBUG: RFID status error: {e}")
         return jsonify({'success': False, 'message': f'Error getting RFID status: {str(e)}'}), 500
 
 @app.route('/rfid/read', methods=['POST'])
