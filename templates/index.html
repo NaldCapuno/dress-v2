@@ -37,10 +37,11 @@
             <div class="card-header">
                 <h2><i class="fas fa-video"></i> Live Camera Feed</h2>
             </div>
-            <div class="monitoring-layout">
+            <div class="card-body">
+                <div class="monitoring-layout">
                 <div class="webcam-section">
-                        <div class="video-container">
-                            <img id="videoFeed" src="/video_feed" alt="Video Feed" class="loading" style="display: none;">
+            <div class="video-container">
+                <img id="videoFeed" src="/video_feed" alt="Video Feed" class="loading" style="display: none;">
                             <div id="cameraOffOverlay" class="camera-off-overlay" style="display: flex;">
                                 <div class="camera-off-content">
                                     <i class="fas fa-video-slash fa-4x mb-3"></i>
@@ -62,8 +63,7 @@
                             </div>
                         </div>
                         <div class="webcam-controls" role="group" aria-label="Camera controls">
-                        <div style="display: flex; gap: 8px; align-items: center; justify-content: center; flex-wrap: nowrap;">
-                            <select id="cameraSelect" class="form-control" style="min-width: 120px; max-width: 150px;">
+                            <select id="cameraSelect" class="form-control">
                                 <option value="0">Loading cameras...</option>
                             </select>
                             <button class="btn btn-secondary" onclick="loadAvailableCameras()" title="Refresh camera list">
@@ -72,14 +72,13 @@
                             <button class="btn btn-success" id="toggleCameraBtn" onclick="toggleCamera()">
                                 <i class="fas fa-video"></i>Turn On Camera
                             </button>
-                            <button class="btn btn-secondary" id="resetTrackerBtn" onclick="resetTracker()" disabled>
+                            <button class="btn btn-secondary" id="resetTrackerBtn" onclick="resetTracker()">
                                 <i class="fas fa-refresh"></i>Reset Tracker
                             </button>
                             <button class="btn btn-info" id="testModeBtn" onclick="toggleTestMode()">
                                 <i class="fas fa-flask"></i>Test Mode
                             </button>
                         </div>
-                    </div>
                 </div>
                 
                 <div class="rfid-section">
@@ -136,6 +135,7 @@
                         </div>
                     </div>
                 </div>
+            </div>
             </div>
         </div>
     <script>
@@ -227,6 +227,9 @@
                     const videoFeed = document.getElementById('videoFeed');
                     videoFeed.src = '/video_feed?' + new Date().getTime();
                     videoFeed.style.display = 'block';
+                    
+                    // Force 4:3 aspect ratio
+                    forceVideoContainerSize();
                     videoFeed.classList.remove('loading');
                     
                     // Hide camera off overlay
@@ -291,6 +294,9 @@
                     const videoFeed = document.getElementById('videoFeed');
                     videoFeed.src = '/video_feed?' + new Date().getTime();
                     videoFeed.style.display = 'block';
+                    
+                    // Force 4:3 aspect ratio
+                    forceVideoContainerSize();
                     // Remove loading animation
                     videoFeed.classList.remove('loading');
                     // Hide camera off overlay
@@ -410,6 +416,31 @@
             });
         }
 
+        // Force video container to 4:3 aspect ratio (no size constraints)
+        function forceVideoContainerSize() {
+            const videoContainer = document.querySelector('.video-container');
+            const videoFeed = document.getElementById('videoFeed');
+            
+            if (videoContainer && videoFeed) {
+                // Always use 4:3 aspect ratio with no size constraints
+                videoContainer.style.width = '100%';
+                videoContainer.style.height = 'auto';
+                videoContainer.style.aspectRatio = '4/3';
+                videoContainer.style.margin = '0 auto';
+                
+                videoFeed.style.width = '100%';
+                videoFeed.style.height = 'auto';
+                videoFeed.style.aspectRatio = '4/3';
+                videoFeed.style.objectFit = 'cover';
+            }
+        }
+
+        // Call on page load and when camera starts
+        document.addEventListener('DOMContentLoaded', forceVideoContainerSize);
+        
+        // Make responsive on window resize
+        window.addEventListener('resize', forceVideoContainerSize);
+        
         // Test Mode Functions
         let testModeActive = false;
 
@@ -438,6 +469,8 @@
                 .then(data => {
                     if (data.success) {
                         console.log('Test mode activated');
+                        // Ensure webcam size stays consistent
+                        forceVideoContainerSize();
                     }
                 })
                 .catch(error => {
@@ -449,7 +482,7 @@
                 testModeStatus.style.display = 'none';
                 
                 // Update overview metrics
-                document.getElementById('detection-mode').textContent = 'Live';
+                document.getElementById('detection-mode').textContent = 'RFID-Triggered';
                 
                 // Send test mode deactivation to server
                 fetch('/toggle_test_mode', {
@@ -463,6 +496,8 @@
                 .then(data => {
                     if (data.success) {
                         console.log('Test mode deactivated');
+                        // Ensure webcam size stays consistent
+                        forceVideoContainerSize();
                     }
                 })
                 .catch(error => {

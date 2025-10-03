@@ -122,130 +122,185 @@
         <main class="main">
         <div class="container">
         <div id="overview-section">
-
-    <div class="metrics-grid" style="margin-top: 16px;">
-        <div class="card">
-            <div class="metric">
-                <div class="metric-label">Total Violations (This Term)</div>
-                <div class="metric-value" id="ov-total">0</div>
-            </div>
-        </div>
-        <div class="card">
-            <div class="metric">
-                <div class="metric-label">Unresolved</div>
-                <div class="metric-value" id="ov-unresolved">0</div>
-            </div>
-        </div>
-        <div class="card">
-            <div class="metric">
-                <div class="metric-label">Resolved</div>
-                <div class="metric-value" id="ov-resolved">0</div>
-            </div>
-        </div>
-        <div class="card">
-            <div class="metric">
-                <div class="metric-label">Pending > 3 Days</div>
-                <div class="metric-value" id="ov-pending-3d">0</div>
-            </div>
-        </div>
+            <div class="metrics-grid">
+                <div class="card">
+                    <div class="card-body">
+                        <div class="metric">
+                            <div class="metric-label">Total Violations (This Term)</div>
+                            <div class="metric-value" id="ov-total">0</div>
+                        </div>
+                    </div>
+                </div>
+                <div class="card">
+                    <div class="card-body">
+                        <div class="metric">
+                            <div class="metric-label">Unresolved</div>
+                            <div class="metric-value" id="ov-unresolved">0</div>
+                        </div>
+                    </div>
+                </div>
+                <div class="card">
+                    <div class="card-body">
+                        <div class="metric">
+                            <div class="metric-label">Resolved</div>
+                            <div class="metric-value" id="ov-resolved">0</div>
+                        </div>
+                    </div>
+                </div>
+                <div class="card">
+                    <div class="card-body">
+                        <div class="metric">
+                            <div class="metric-label">Pending > 3 Days</div>
+                            <div class="metric-value" id="ov-pending-3d">0</div>
+                        </div>
+                    </div>
+                </div>
     </div>
 
-    <div class="grid" style="margin-top: 16px;">
-        <div class="card">
-            <h3>Violations Over Time</h3>
-            <canvas id="ov-trend" height="160"></canvas>
-        </div>
-        <div class="card">
-            <h3>Resolved vs Unresolved</h3>
-            <canvas id="ov-resolve-pie" height="160"></canvas>
+            <div class="grid">
+                <div class="card">
+                    <div class="card-header">
+                        <h3>Violations Over Time</h3>
+                    </div>
+                    <div class="card-body">
+                        <canvas id="ov-trend" height="160"></canvas>
+                    </div>
+                </div>
+                <div class="card">
+                    <div class="card-header">
+                        <h3>Resolved vs Unresolved</h3>
+                    </div>
+                    <div class="card-body">
+                        <canvas id="ov-resolve-pie" height="160"></canvas>
+                    </div>
+                </div>
+            </div>
+
+            <div class="grid">
+                <div class="card">
+                    <div class="card-header">
+                        <h3>Top College</h3>
+                    </div>
+                    <div class="card-body">
+                        <div id="ov-top-college" class="metric-value" style="font-size:1.2rem;">-</div>
+                    </div>
+                </div>
+                <div class="card">
+                    <div class="card-header">
+                        <h3>Top Programs</h3>
+                    </div>
+                    <div class="card-body">
+                        <ul id="ov-top-programs" style="margin:0; padding-left:18px;"></ul>
+                    </div>
+                </div>
+                <div class="card">
+                    <div class="card-header">
+                        <h3>Gender Distribution</h3>
+                    </div>
+                    <div class="card-body">
+                        <canvas id="ov-gender" height="140"></canvas>
+                    </div>
+                </div>
+            </div>
         </div>
     </div>
 
-    <div class="grid" style="margin-top: 16px;">
-        <div class="card">
-            <h3>Top College</h3>
-            <div id="ov-top-college" class="metric-value" style="font-size:1.2rem;">-</div>
-        </div>
-        <div class="card">
-            <h3>Top Programs</h3>
-            <ul id="ov-top-programs" style="margin:0; padding-left:18px;"></ul>
-        </div>
-        <div class="card">
-            <h3>Gender Distribution</h3>
-            <canvas id="ov-gender" height="140"></canvas>
-        </div>
-    </div>
-    </div>
-
-    <div id="statistics-section" style="display:none;">
-        <div class="metrics-grid" style="margin-top: 16px;">
-            <div class="card">
-                <h3>By Status</h3>
-                <canvas id="byStatusChart" height="160"></canvas>
+        <div id="statistics-section" style="display:none;">
+            <div class="metrics-grid">
+                <div class="card">
+                    <div class="card-header">
+                        <h3>By Status</h3>
+                    </div>
+                    <div class="card-body">
+                        <canvas id="byStatusChart" height="160"></canvas>
+                    </div>
+                </div>
+                <div class="card">
+                    <div class="card-header">
+                        <h3>By College</h3>
+                    </div>
+                    <div class="card-body">
+                        <canvas id="byCollegeChart" height="160"></canvas>
+                    </div>
+                </div>
+                <div class="card">
+                    <div class="card-header">
+                        <h3>By Program</h3>
+                    </div>
+                    <div class="card-body">
+                        <canvas id="byProgramChart" height="160"></canvas>
+                    </div>
+                </div>
+                <div class="card">
+                    <div class="card-header">
+                        <h3>By Gender</h3>
+                    </div>
+                    <div class="card-body">
+                        <canvas id="byGenderChart" height="160"></canvas>
+                    </div>
+                </div>
             </div>
-            <div class="card">
-                <h3>By College</h3>
-                <canvas id="byCollegeChart" height="160"></canvas>
-            </div>
-            <div class="card">
-                <h3>By Program</h3>
-                <canvas id="byProgramChart" height="160"></canvas>
-            </div>
-            <div class="card">
-                <h3>By Gender</h3>
-                <canvas id="byGenderChart" height="160"></canvas>
-            </div>
         </div>
-    </div>
     
-    <div id="violations-section" style="display:none;">
-    <div class="card">
-        <div class="filters">
-            <input type="date" id="start" placeholder="Start date">
-            <input type="date" id="end" placeholder="End date">
-            <input type="text" id="academic_year" placeholder="Academic Year (e.g., 2024-2025)">
-            <select id="semester">
-                <option value="">Semester</option>
-                <option value="1">1</option>
-                <option value="2">2</option>
-            </select>
-            <button class="btn" onclick="applyFilters()">Apply</button>
-        </div>
-    </div>
-    <div class="card" style="margin-top: 16px;">
-        <div class="toolbar">
-            <h3>Violation Records</h3>
-            <div class="pagination">
-                <button class="btn" onclick="prevPage()">Prev</button>
-                <span>Page <span id="page">1</span></span>
-                <button class="btn" onclick="nextPage()">Next</button>
-                <span>Total: <span id="total-count">0</span></span>
+        <div id="violations-section" style="display:none;">
+            <div class="card">
+                <div class="card-header">
+                    <h3>Filters</h3>
+                </div>
+                <div class="card-body">
+                    <div class="dashboard-filters">
+                        <input type="date" id="start" placeholder="Start date" class="form-control">
+                        <input type="date" id="end" placeholder="End date" class="form-control">
+                        <input type="text" id="academic_year" placeholder="Academic Year (e.g., 2024-2025)" class="form-control">
+                        <select id="semester" class="form-control">
+                            <option value="">Semester</option>
+                            <option value="1">1</option>
+                            <option value="2">2</option>
+                        </select>
+                        <button class="btn btn-primary" onclick="applyFilters()">Apply</button>
+                    </div>
+                </div>
+            </div>
+            <div class="card">
+                <div class="card-header">
+                    <div class="dashboard-pagination">
+                        <div class="pagination-info">
+                            <h3>Violation Records</h3>
+                        </div>
+                        <div class="pagination-controls">
+                            <button class="btn btn-secondary" onclick="prevPage()">Prev</button>
+                            <span>Page <span id="page">1</span></span>
+                            <button class="btn btn-secondary" onclick="nextPage()">Next</button>
+                            <span>Total: <span id="total-count">0</span></span>
+                        </div>
+                    </div>
+                </div>
+                <div class="card-body">
+                    <div class="table-responsive">
+                        <table class="table">
+                            <thead>
+                                <tr>
+                                    <th>ID</th>
+                                    <th>Date</th>
+                                    <th>Student ID</th>
+                                    <th>Name</th>
+                                    <th>College</th>
+                                    <th>Program</th>
+                                    <th>Gender</th>
+                                    <th>Type</th>
+                                    <th>Status</th>
+                                    <th>Action</th>
+                                </tr>
+                            </thead>
+                            <tbody id="violations-body"></tbody>
+                        </table>
+                    </div>
+                </div>
             </div>
         </div>
-        <div class="table-wrap">
-            <table class="table">
-                <thead>
-                    <tr>
-                        <th>ID</th>
-                        <th>Date</th>
-                        <th>Student ID</th>
-                        <th>Name</th>
-                        <th>College</th>
-                        <th>Program</th>
-                        <th>Gender</th>
-                        <th>Type</th>
-                        <th>Status</th>
-                        <th>Action</th>
-                    </tr>
-                </thead>
-                <tbody id="violations-body"></tbody>
-            </table>
         </div>
-    </div>
-    </div>
-    </div>
-    </main>
-    </div>
+        </main>
+        </div>
 
     <script>
         // Sidebar-only navigation
