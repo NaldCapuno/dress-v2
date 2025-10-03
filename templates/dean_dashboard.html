@@ -48,12 +48,14 @@
                     <td>${v.violation_type || ''}</td>
                     <td><span class="status ${v.status}">${v.status}</span></td>
                     <td>
-                        <select onchange="updateStatus(${v.violation_id}, this.value)">
-                            <option value="">Update...</option>
-                            <option value="forwarded_to_guidance">Forward to Guidance</option>
-                            <option value="resolved">Resolved</option>
-                            <option value="pending">Pending</option>
-                        </select>
+                        <div class="action-dropdown compact status-${v.status}">
+                            <select onchange="updateStatus(${v.violation_id}, this.value)">
+                                <option value="">Update...</option>
+                                <option value="forwarded_guidance">Forward to Guidance</option>
+                                <option value="resolved">Resolved</option>
+                                <option value="pending">Pending</option>
+                            </select>
+                        </div>
                     </td>
                 `;
                 tbody.appendChild(tr);
@@ -63,12 +65,52 @@
         }
         async function updateStatus(id, val) {
             if (!val) return;
-            const res = await postJSON(`/dean/violation/${id}/status`, { status: val });
-            if (res.success) {
-                loadViolations();
-                loadAnalytics();
-            } else {
-                alert(res.error || 'Failed to update');
+            
+            // Find the dropdown element and add loading state
+            const dropdown = document.querySelector(`select[onchange*="${id}"]`);
+            const dropdownContainer = dropdown?.closest('.action-dropdown');
+            
+            if (dropdownContainer) {
+                dropdownContainer.classList.add('loading');
+            }
+            
+            try {
+                const res = await postJSON(`/dean/violation/${id}/status`, { status: val });
+                
+                if (dropdownContainer) {
+                    dropdownContainer.classList.remove('loading');
+                    
+                    if (res.success) {
+                        dropdownContainer.classList.add('success-animation');
+                        setTimeout(() => {
+                            dropdownContainer.classList.remove('success-animation');
+                            loadViolations();
+                            loadAnalytics();
+                        }, 600);
+                    } else {
+                        dropdownContainer.classList.add('error-animation');
+                        setTimeout(() => {
+                            dropdownContainer.classList.remove('error-animation');
+                        }, 600);
+                        alert(res.error || 'Failed to update');
+                    }
+                } else {
+                    if (res.success) {
+                        loadViolations();
+                        loadAnalytics();
+                    } else {
+                        alert(res.error || 'Failed to update');
+                    }
+                }
+            } catch (error) {
+                if (dropdownContainer) {
+                    dropdownContainer.classList.remove('loading');
+                    dropdownContainer.classList.add('error-animation');
+                    setTimeout(() => {
+                        dropdownContainer.classList.remove('error-animation');
+                    }, 600);
+                }
+                alert('Network error: ' + error.message);
             }
         }
         function getFilterParams() {

@@ -21,7 +21,7 @@ try:
     from rfid_scanner import (
         get_rfid_uid, start_rfid_monitoring, stop_rfid_monitoring, 
         subscribe_to_rfid_events, unsubscribe_from_rfid_events,
-        get_rfid_status, _rfid_is_present
+        get_rfid_status, _rfid_is_present, set_rfid_enabled, is_rfid_enabled
     )
     RFID_AVAILABLE = True
 except ImportError as e:
@@ -39,8 +39,12 @@ except ImportError as e:
     def unsubscribe_from_rfid_events(*args):
         pass
     def get_rfid_status():
-        return {'available': False, 'present': False}
+        return {'available': False, 'present': False, 'enabled': False}
     def _rfid_is_present():
+        return False
+    def set_rfid_enabled(enabled):
+        pass
+    def is_rfid_enabled():
         return False
 
 app = Flask(__name__)
@@ -84,6 +88,7 @@ rfid_current_uid_violated = False  # whether a violation has been issued for cur
 rfid_consecutive_non_compliant = 0  # counter for consecutive non-compliant detections
 rfid_last_compliance_status = None  # track last compliance status to detect changes
 rfid_enabled = False  # flag to completely disable RFID processing
+rfid_violation_timeout = 30  # seconds after which violation flag resets (allows re-recording)
 
 # Global variable for test mode
 test_mode = False
@@ -713,16 +718,23 @@ def _maybe_record_violation(frame, detections, admin_user):
         violation_details = []
         current_compliance_status = None
         
-        for det in detections or []:
-            dv = det.get('dress_validation') or {}
-            overall_status = dv.get('overall_status')
-            if overall_status == 'NON-COMPLIANT':
-                non_compliant = True
-                comp = dv.get('compliance_status') or {}
-                for key, val in comp.items():
-                    if not val.get('present'):
-                        violation_details.append(val.get('name') or key)
-            current_compliance_status = overall_status
+        # Process detections to determine overall compliance status
+        if detections:
+            for det in detections:
+                dv = det.get('dress_validation') or {}
+                overall_status = dv.get('overall_status')
+                # Always set the current compliance status (not just for non-compliant)
+                current_compliance_status = overall_status
+                
+                if overall_status == 'NON-COMPLIANT':
+                    non_compliant = True
+                    comp = dv.get('compliance_status') or {}
+                    for key, val in comp.items():
+                        if not val.get('present'):
+                            violation_details.append(val.get('name') or key)
+        else:
+            # No detections - consider this as "no compliance status"
+            current_compliance_status = 'NO_DETECTION'
         
         print(f"DEBUG: Frame analysis - Non-compliant: {non_compliant}, Status: {current_compliance_status}, Detections: {len(detections)}")
         
@@ -732,10 +744,17 @@ def _maybe_record_violation(frame, detections, admin_user):
                 print("DEBUG: RFID not present, skipping violation check")
                 return None
                 
-            # If we already issued a violation for this UID session, stop
+            # If we already issued a violation for this UID session, check timeout
             if rfid_current_uid_violated:
-                print("DEBUG: Violation already recorded for this RFID session")
-                return None
+                # Check if enough time has passed to allow re-recording
+                time_since_violation = time.time() - rfid_last_violation_ts
+                if time_since_violation < rfid_violation_timeout:
+                    print(f"DEBUG: Violation already recorded for this RFID session ({time_since_violation:.1f}s ago, timeout: {rfid_violation_timeout}s)")
+                    return None
+                else:
+                    # Reset violation flag after timeout
+                    rfid_current_uid_violated = False
+                    print(f"DEBUG: Violation timeout reached ({time_since_violation:.1f}s), resetting violation flag")
             
             # Check if compliance status changed (reset counter if it did)
             if rfid_last_compliance_status is not None and rfid_last_compliance_status != current_compliance_status:
@@ -750,9 +769,14 @@ def _maybe_record_violation(frame, detections, admin_user):
                 rfid_consecutive_non_compliant += 1
                 print(f"DEBUG: Non-compliant detection #{rfid_consecutive_non_compliant} for student {rfid_last_student.get('student_id')}")
             else:
-                # Reset counter if compliant
+                # Reset counter if compliant or no detections
                 rfid_consecutive_non_compliant = 0
-                print(f"DEBUG: Compliant detection, resetting counter for student {rfid_last_student.get('student_id')}")
+                # Also reset the violation flag so they can be recorded again if they become non-compliant
+                rfid_current_uid_violated = False
+                if current_compliance_status == 'NO_DETECTION':
+                    print(f"DEBUG: No detections, resetting counter and violation flag for student {rfid_last_student.get('student_id')}")
+                else:
+                    print(f"DEBUG: Compliant detection, resetting counter and violation flag for student {rfid_last_student.get('student_id')}")
             
             # Only proceed if we have 3 consecutive non-compliant detections
             if rfid_consecutive_non_compliant < 3:
@@ -1266,6 +1290,226 @@ def dean_trend():
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
 
+
+# ------------------ OSAS endpoints (university-wide oversight) ------------------
+@app.route('/osas/violations', methods=['GET'])
+def osas_get_violations():
+    """List violations for OSAS review (university-wide)."""
+    try:
+        status_filter = request.args.get('status', 'pending')
+        start_dt = request.args.get('start')
+        end_dt = request.args.get('end')
+        academic_year = request.args.get('academic_year')
+        semester = request.args.get('semester')
+        page = int(request.args.get('page', 1))
+        page_size = int(request.args.get('page_size', 50))
+        offset = max(0, (page - 1) * page_size)
+
+        conn = get_connection() if get_connection else None
+        if conn is None:
+            return jsonify({'success': False, 'error': 'DB not configured'}), 500
+
+        where = []
+        params = []
+        if status_filter:
+            where.append("v.status = %s")
+            params.append(status_filter)
+        if start_dt:
+            where.append("v.timestamp >= %s")
+            params.append(start_dt)
+        if end_dt:
+            where.append("v.timestamp <= %s")
+            params.append(end_dt)
+        if academic_year and semester in {"1", "2"}:
+            try:
+                start_year = int(academic_year.split('-')[0])
+                if semester == "1":
+                    ay_start = f"{start_year}-08-01 00:00:00"
+                    ay_end = f"{start_year}-12-31 23:59:59"
+                else:
+                    ay_start = f"{start_year+1}-01-01 00:00:00"
+                    ay_end = f"{start_year+1}-05-31 23:59:59"
+                where.append("v.timestamp BETWEEN %s AND %s")
+                params.extend([ay_start, ay_end])
+            except Exception:
+                pass
+        where_sql = (" WHERE " + " AND ".join(where)) if where else ""
+
+        base_select = (
+            "SELECT v.violation_id, v.student_id, v.recorded_by, v.violation_type, v.timestamp, v.image_proof, v.status, "
+            "s.name, s.gender, s.course, s.college "
+            "FROM violations v LEFT JOIN students s ON v.student_id = s.student_id"
+        )
+
+        with conn.cursor() as cur:
+            cur.execute(f"SELECT COUNT(*) AS cnt FROM violations v LEFT JOIN students s ON v.student_id = s.student_id{where_sql}", params)
+            total = (cur.fetchone() or {}).get('cnt', 0)
+
+            cur.execute(
+                f"{base_select}{where_sql} ORDER BY v.timestamp DESC LIMIT %s OFFSET %s",
+                params + [page_size, offset]
+            )
+            rows = cur.fetchall() or []
+        conn.close()
+        return jsonify({'success': True, 'rows': rows, 'total': total})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/osas/violation/<int:violation_id>/status', methods=['POST'])
+def osas_update_violation_status(violation_id: int):
+    """OSAS can forward to dean, guidance, or resolve."""
+    try:
+        data = request.get_json(silent=True) or {}
+        status = str(data.get('status') or '').strip().lower()
+        allowed = {"pending", "forwarded_dean", "forwarded_guidance", "resolved"}
+        if status not in allowed:
+            return jsonify({'success': False, 'error': 'Invalid status'}), 400
+        conn = get_connection() if get_connection else None
+        if conn is None:
+            return jsonify({'success': False, 'error': 'DB not configured'}), 500
+        with conn.cursor() as cur:
+            cur.execute("UPDATE violations SET status=%s WHERE violation_id=%s", (status, violation_id))
+        conn.close()
+        return jsonify({'success': True})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/osas/analytics', methods=['GET'])
+def osas_analytics():
+    """Aggregate analytics for OSAS view (university-wide)."""
+    try:
+        start_dt = request.args.get('start')
+        end_dt = request.args.get('end')
+        academic_year = request.args.get('academic_year')
+        semester = request.args.get('semester')
+        status_filter = request.args.get('status', 'pending')
+
+        conn = get_connection() if get_connection else None
+        if conn is None:
+            return jsonify({'success': False, 'error': 'DB not configured'}), 500
+
+        where = []
+        params = []
+        if status_filter:
+            where.append("v.status = %s")
+            params.append(status_filter)
+        if start_dt:
+            where.append("v.timestamp >= %s")
+            params.append(start_dt)
+        if end_dt:
+            where.append("v.timestamp <= %s")
+            params.append(end_dt)
+        if academic_year and semester in {"1", "2"}:
+            try:
+                start_year = int(academic_year.split('-')[0])
+                if semester == "1":
+                    ay_start = f"{start_year}-08-01 00:00:00"
+                    ay_end = f"{start_year}-12-31 23:59:59"
+                else:
+                    ay_start = f"{start_year+1}-01-01 00:00:00"
+                    ay_end = f"{start_year+1}-05-31 23:59:59"
+                where.append("v.timestamp BETWEEN %s AND %s")
+                params.extend([ay_start, ay_end])
+            except Exception:
+                pass
+        where_sql = (" WHERE " + " AND ".join(where)) if where else ""
+
+        with conn.cursor() as cur:
+            cur.execute(f"SELECT COUNT(*) AS total FROM violations v LEFT JOIN students s ON v.student_id=s.student_id{where_sql}", params)
+            total = (cur.fetchone() or {}).get('total', 0)
+
+            cur.execute(
+                f"SELECT COALESCE(s.college,'Unknown') AS label, COUNT(*) AS cnt FROM violations v LEFT JOIN students s ON v.student_id=s.student_id{where_sql} GROUP BY label ORDER BY cnt DESC",
+                params,
+            )
+            by_college = cur.fetchall() or []
+
+            cur.execute(
+                f"SELECT COALESCE(s.course,'Unknown') AS label, COUNT(*) AS cnt FROM violations v LEFT JOIN students s ON v.student_id=s.student_id{where_sql} GROUP BY label ORDER BY cnt DESC",
+                params,
+            )
+            by_program = cur.fetchall() or []
+
+            cur.execute(
+                f"SELECT LOWER(COALESCE(s.gender,'')) AS label, COUNT(*) AS cnt FROM violations v LEFT JOIN students s ON v.student_id=s.student_id{where_sql} GROUP BY label",
+                params,
+            )
+            by_gender = cur.fetchall() or []
+
+            cur.execute(
+                f"SELECT v.status AS label, COUNT(*) AS cnt FROM violations v{where_sql} GROUP BY v.status",
+                params,
+            )
+            by_status = cur.fetchall() or []
+        conn.close()
+        return jsonify({'success': True, 'total': total, 'by_college': by_college, 'by_program': by_program, 'by_gender': by_gender, 'by_status': by_status})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/osas/trend', methods=['GET'])
+def osas_trend():
+    try:
+        start_dt = request.args.get('start')
+        end_dt = request.args.get('end')
+        academic_year = request.args.get('academic_year')
+        semester = request.args.get('semester')
+        status_filter = request.args.get('status', 'pending')
+        group_by = request.args.get('group_by', 'day')
+
+        conn = get_connection() if get_connection else None
+        if conn is None:
+            return jsonify({'success': False, 'error': 'DB not configured'}), 500
+
+        where = []
+        params = []
+        if status_filter:
+            where.append("v.status = %s")
+            params.append(status_filter)
+        if start_dt:
+            where.append("v.timestamp >= %s")
+            params.append(start_dt)
+        if end_dt:
+            where.append("v.timestamp <= %s")
+            params.append(end_dt)
+        if academic_year and semester in {"1", "2"}:
+            try:
+                start_year = int(academic_year.split('-')[0])
+                if semester == "1":
+                    ay_start = f"{start_year}-08-01 00:00:00"
+                    ay_end = f"{start_year}-12-31 23:59:59"
+                else:
+                    ay_start = f"{start_year+1}-01-01 00:00:00"
+                    ay_end = f"{start_year+1}-05-31 23:59:59"
+                where.append("v.timestamp BETWEEN %s AND %s")
+                params.extend([ay_start, ay_end])
+            except Exception:
+                pass
+        where_sql = (" WHERE " + " AND ".join(where)) if where else ""
+
+        if group_by == 'month':
+            group_expr = "DATE_FORMAT(v.timestamp, '%Y-%m')"
+            order_expr = "DATE_FORMAT(v.timestamp, '%Y-%m')"
+        elif group_by == 'week':
+            group_expr = "YEARWEEK(v.timestamp, 3)"
+            order_expr = "YEARWEEK(v.timestamp, 3)"
+        else:
+            group_expr = "DATE(v.timestamp)"
+            order_expr = "DATE(v.timestamp)"
+
+        with conn.cursor() as cur:
+            cur.execute(
+                f"SELECT {group_expr} AS label, COUNT(*) AS cnt FROM violations v LEFT JOIN students s ON v.student_id=s.student_id{where_sql} GROUP BY label ORDER BY {order_expr} ASC",
+                params,
+            )
+            rows = cur.fetchall() or []
+        conn.close()
+        return jsonify({'success': True, 'series': rows})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
 @app.route('/logout', methods=['POST'])
 def logout():
     """Clear session and log out the current user."""
@@ -1664,6 +1908,7 @@ def start_camera():
                         
                         # Enable RFID processing
                         rfid_enabled = True
+                        set_rfid_enabled(True)  # Enable RFID polling
                         print(f"DEBUG: RFID enabled set to True, rfid_enabled: {rfid_enabled}")
                         print("RFID monitoring started with camera")
                     except Exception as e:
@@ -1707,6 +1952,7 @@ def change_camera():
                     
                     # Enable RFID processing
                     rfid_enabled = True
+                    set_rfid_enabled(True)  # Enable RFID polling
                     print(f"DEBUG: RFID enabled via camera switch, rfid_enabled: {rfid_enabled}")
                     print("RFID monitoring started with camera switch")
                 except Exception as e:
@@ -1734,6 +1980,7 @@ def stop_camera():
                 try:
                     # Disable RFID processing first
                     rfid_enabled = False
+                    set_rfid_enabled(False)  # Disable RFID polling
                     print(f"DEBUG: RFID enabled set to False, rfid_enabled: {rfid_enabled}")
                     
                     stop_rfid_monitoring()
