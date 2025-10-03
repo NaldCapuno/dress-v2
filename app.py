@@ -173,8 +173,8 @@ def rfid_event_handler():
                         print("RFID Card removed - Detection DISABLED")
         time.sleep(0.1)
 
-# Initialize camera and RFID on startup
-initialize_camera()
+# Initialize RFID on startup (camera will be initialized when user starts it)
+# initialize_camera()  # Commented out to keep camera off by default
 initialize_rfid()
 
 # Start RFID event handler thread
@@ -1337,15 +1337,64 @@ def get_cameras():
     """Get list of available cameras"""
     try:
         cameras = []
-        # Test cameras 0-9
-        for i in range(10):
-            cap = cv2.VideoCapture(i)
-            if cap.isOpened():
-                cameras.append({
-                    'id': i,
-                    'name': f'Camera {i}'
-                })
-                cap.release()
+        import platform
+        
+        # Try to get system-specific camera names
+        system = platform.system().lower()
+        
+        # Test cameras 0-5 (reduced range to avoid errors)
+        for i in range(6):
+            try:
+                cap = cv2.VideoCapture(i)
+                if cap.isOpened():
+                    # Try to get camera properties for better naming
+                    width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+                    height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+                    fps = cap.get(cv2.CAP_PROP_FPS)
+                    
+                    # Try to get camera backend info
+                    backend = cap.getBackendName()
+                    
+                    # Try to get more descriptive names based on system
+                    camera_name = None
+                    
+                    if system == "windows":
+                        # On Windows, try to get device names
+                        try:
+                            import subprocess
+                            result = subprocess.run(['wmic', 'path', 'win32_pnpentity', 'where', 'name like "%camera%"', 'get', 'name'], 
+                                                  capture_output=True, text=True, timeout=3)
+                            if result.returncode == 0:
+                                lines = result.stdout.strip().split('\n')
+                                for line in lines[1:]:  # Skip header
+                                    if line.strip() and 'camera' in line.lower():
+                                        camera_name = line.strip()
+                                        break
+                        except:
+                            pass
+                    
+                    # Fallback to generic naming with more details
+                    if not camera_name:
+                        if i == 0:
+                            camera_name = f"Default Camera ({width}x{height})"
+                        else:
+                            camera_name = f"Camera {i} ({width}x{height})"
+                    
+                    # Add backend info if available
+                    if backend and backend != "UNKNOWN":
+                        camera_name += f" [{backend}]"
+                    
+                    cameras.append({
+                        'id': i,
+                        'name': camera_name,
+                        'resolution': f"{width}x{height}",
+                        'fps': fps,
+                        'backend': backend
+                    })
+                    cap.release()
+            except Exception as e:
+                # Skip cameras that cause errors
+                continue
         
         return jsonify({'success': True, 'cameras': cameras})
     except Exception as e:
