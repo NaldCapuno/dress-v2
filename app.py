@@ -1,4 +1,4 @@
-from flask import Flask, render_template, request, jsonify, send_from_directory, Response
+from flask import Flask, render_template, request, jsonify, send_from_directory, Response, session, redirect, url_for
 import cv2
 import numpy as np
 from ultralytics import YOLO
@@ -7,11 +7,21 @@ import base64
 import threading
 import time
 from botsort_tracker import BotSORT
+from werkzeug.security import check_password_hash
+try:
+    from config import get_connection, find_student_by_rfid, insert_rfid_log, insert_violation
+except Exception as e:
+    get_connection = None
+    find_student_by_rfid = None
+    insert_rfid_log = None
+    insert_violation = None
+    print(f"Warning: Database config not available: {e}")
+
 try:
     from rfid_scanner import (
         get_rfid_uid, start_rfid_monitoring, stop_rfid_monitoring, 
         subscribe_to_rfid_events, unsubscribe_from_rfid_events,
-        get_rfid_status, _rfid_is_present
+        get_rfid_status, _rfid_is_present, set_rfid_enabled, is_rfid_enabled
     )
     RFID_AVAILABLE = True
 except ImportError as e:
@@ -29,11 +39,17 @@ except ImportError as e:
     def unsubscribe_from_rfid_events(*args):
         pass
     def get_rfid_status():
-        return {'available': False, 'present': False}
+        return {'available': False, 'present': False, 'enabled': False}
     def _rfid_is_present():
+        return False
+    def set_rfid_enabled(enabled):
+        pass
+    def is_rfid_enabled():
         return False
 
 app = Flask(__name__)
+# Secret key for session management (can be overridden via environment variable)
+app.secret_key = os.getenv('FLASK_SECRET_KEY', 'change-this-in-production')
 
 # Configure upload folder
 UPLOAD_FOLDER = 'uploads'
@@ -65,6 +81,14 @@ rfid_event_queue = None
 rfid_last_uid = None
 rfid_present = False
 rfid_lock = threading.Lock()
+rfid_last_student = None  # Holds last looked-up student dict or None
+rfid_last_violation_ts = 0  # last violation timestamp to throttle duplicates
+rfid_current_uid_checks = 0  # number of detection checks for current RFID UID
+rfid_current_uid_violated = False  # whether a violation has been issued for current UID session
+rfid_consecutive_non_compliant = 0  # counter for consecutive non-compliant detections
+rfid_last_compliance_status = None  # track last compliance status to detect changes
+rfid_enabled = False  # flag to completely disable RFID processing
+rfid_violation_timeout = 30  # seconds after which violation flag resets (allows re-recording)
 
 # Global variable for test mode
 test_mode = False
@@ -105,41 +129,90 @@ def initialize_rfid():
 
 def rfid_event_handler():
     """Handle RFID events in background thread"""
-    global rfid_last_uid, rfid_present, detection_enabled, rfid_lock
+    global rfid_last_uid, rfid_present, detection_enabled, rfid_lock, rfid_last_student, rfid_consecutive_non_compliant, rfid_last_compliance_status, camera, rfid_enabled
     
     while True:
         try:
-            if rfid_event_queue:
+            if rfid_event_queue and rfid_enabled and camera is not None and camera.isOpened():
                 event = rfid_event_queue.get(timeout=1.0)
                 if event['type'] == 'uid':
                     with rfid_lock:
                         rfid_last_uid = event['uid']
                         rfid_present = True
                         detection_enabled = True
+                        # Reset per-scan counters
+                        rfid_current_uid_checks = 0
+                        rfid_current_uid_violated = False
+                        rfid_consecutive_non_compliant = 0
+                        rfid_last_compliance_status = None
+                        # Perform DB lookup and log
+                        try:
+                            student = None
+                            if get_connection is not None and rfid_last_uid:
+                                student = find_student_by_rfid(rfid_last_uid) if find_student_by_rfid else None
+                                if student and insert_rfid_log:
+                                    insert_rfid_log(rfid_last_uid, student.get('student_id'), 'valid')
+                                elif insert_rfid_log:
+                                    insert_rfid_log(rfid_last_uid, None, 'unregistered')
+                            rfid_last_student = student
+                        except Exception as e:
+                            print(f"RFID DB handling error: {e}")
                     print(f"RFID Card detected: {event['uid']} - Detection ENABLED")
                 else:
                     with rfid_lock:
                         rfid_present = False
                         detection_enabled = False
+                        rfid_last_student = None
+                        rfid_current_uid_checks = 0
+                        rfid_current_uid_violated = False
+                        rfid_consecutive_non_compliant = 0
+                        rfid_last_compliance_status = None
                     print("RFID Card removed - Detection DISABLED")
+            elif rfid_event_queue:
+                # RFID disabled or camera off, just consume events without processing
+                try:
+                    rfid_event_queue.get(timeout=1.0)
+                except:
+                    pass
         except:
             # Timeout or no events, check current status
-            current_present = _rfid_is_present()
-            with rfid_lock:
-                if rfid_present != current_present:
-                    rfid_present = current_present
-                    detection_enabled = current_present
-                    if current_present:
-                        print("RFID Card present - Detection ENABLED")
-                    else:
-                        print("RFID Card removed - Detection DISABLED")
+            # Only check RFID status if RFID is enabled and camera is active
+            if rfid_enabled and camera is not None and camera.isOpened():
+                current_present = _rfid_is_present()
+                with rfid_lock:
+                    if rfid_present != current_present:
+                        rfid_present = current_present
+                        detection_enabled = current_present
+                        if not current_present:
+                            rfid_last_student = None
+                            rfid_current_uid_checks = 0
+                            rfid_current_uid_violated = False
+                            rfid_consecutive_non_compliant = 0
+                            rfid_last_compliance_status = None
+                        if current_present:
+                            print("RFID Card present - Detection ENABLED")
+                        else:
+                            print("RFID Card removed - Detection DISABLED")
+            else:
+                # RFID disabled or camera off, ensure RFID is inactive
+                with rfid_lock:
+                    if rfid_present:
+                        rfid_present = False
+                        detection_enabled = False
+                        rfid_last_student = None
+                        rfid_current_uid_checks = 0
+                        rfid_current_uid_violated = False
+                        rfid_consecutive_non_compliant = 0
+                        rfid_last_compliance_status = None
+                        rfid_last_uid = None
+                        print("RFID disabled or camera off - RFID forced inactive")
         time.sleep(0.1)
 
-# Initialize camera and RFID on startup
-initialize_camera()
-initialize_rfid()
+# Initialize RFID on startup (camera will be initialized when user starts it)
+# initialize_camera()  # Commented out to keep camera off by default
+# initialize_rfid()  # Commented out - RFID will start with camera
 
-# Start RFID event handler thread
+# Start RFID event handler thread (but RFID monitoring won't start until camera is on)
 rfid_thread = threading.Thread(target=rfid_event_handler, daemon=True)
 rfid_thread.start()
 
@@ -187,13 +260,13 @@ def validate_dress_code(detected_items, gender='male'):
             compliance_status[required_item] = {
                 'present': True,
                 'name': item_names[required_item],
-                'status': '✅'
+                'status': 'has:'
             }
         else:
             compliance_status[required_item] = {
                 'present': False,
                 'name': item_names[required_item],
-                'status': '❌'
+                'status': 'missing:'
             }
     
     # Calculate compliance percentage
@@ -220,7 +293,7 @@ def validate_dress_code(detected_items, gender='male'):
         'detected_items': detected_classes
     }
 
-def detect_dress_code(person_crop):
+def detect_dress_code(person_crop, gender: str = 'male'):
     """Detect dress code items for a person crop using best.pt model"""
     try:
         # Run dress code detection on person crop
@@ -262,8 +335,8 @@ def detect_dress_code(person_crop):
         # Sort by confidence (highest first)
         dress_items.sort(key=lambda x: x['confidence'], reverse=True)
         
-        # Validate dress code compliance (using male for now)
-        validation_result = validate_dress_code(dress_items, gender='male')
+        # Validate dress code compliance per provided gender
+        validation_result = validate_dress_code(dress_items, gender=(gender or 'male').lower())
         
         return validation_result
         
@@ -309,6 +382,9 @@ def detect_persons_with_dress(image_path):
                             'class': 'person'
                         })
         
+        # Determine gender context (from last RFID student if present)
+        with rfid_lock:
+            current_gender = (rfid_last_student or {}).get('gender')
         # Stage 2: Detect dress code for each person
         for detection in detections:
             x1, y1, x2, y2 = detection['bbox']
@@ -323,17 +399,30 @@ def detect_persons_with_dress(image_path):
             person_crop = image[crop_y1:crop_y2, crop_x1:crop_x2]
             
             # Detect dress code for this person
-            dress_validation = detect_dress_code(person_crop)
+            dress_validation = detect_dress_code(person_crop, gender=current_gender or 'male')
             detection['dress_validation'] = dress_validation
             
             # Create a compliance summary for display
             compliance_status = dress_validation['compliance_status']
-            compliance_items = []
+            
+            # Group items by status
+            has_items = []
+            missing_items = []
             for item_key, item_status in compliance_status.items():
-                compliance_items.append(f"{item_status['status']} {item_status['name']}")
+                if item_status['present']:
+                    has_items.append(item_status['name'].lower().replace(' ', '_'))
+                else:
+                    missing_items.append(item_status['name'].lower().replace(' ', '_'))
+            
+            # Format grouped details (only show categories that have items)
+            detail_parts = []
+            if has_items:
+                detail_parts.append(f"has: {', '.join(has_items)}")
+            if missing_items:
+                detail_parts.append(f"missing: {', '.join(missing_items)}")
             
             detection['dress_summary'] = f"{dress_validation['overall_status']} ({dress_validation['compliance_percentage']:.0f}%)"
-            detection['dress_details'] = " | ".join(compliance_items)
+            detection['dress_details'] = "\n".join(detail_parts)
         
         # Update tracker with detections for static image
         if detections:
@@ -363,7 +452,7 @@ def detect_persons_with_dress(image_path):
         return []
 
 def draw_detections(image_path, detections, output_path):
-    """Draw bounding boxes on the image with tracking IDs and dress code"""
+    """Draw bounding boxes on the image with tracking IDs and detailed dress code compliance"""
     try:
         # Read image
         image = cv2.imread(image_path)
@@ -374,18 +463,27 @@ def draw_detections(image_path, detections, output_path):
             confidence = detection['confidence']
             track_id = detection.get('track_id', 'N/A')
             dress_summary = detection.get('dress_summary', 'No dress items detected')
+            dress_validation = detection.get('dress_validation', {})
             
-            # Choose color based on track ID for better visualization
-            color = (0, 255, 0)  # Default green
-            if track_id != 'N/A':
-                # Generate different colors for different track IDs
-                color_int = track_id * 50 % 255
-                color = (color_int, 255, 255 - color_int)
+            # Choose color based on dress code compliance
+            if dress_validation.get('status_color') == 'success':
+                color = (0, 255, 0)  # Green for compliant
+            elif dress_validation.get('status_color') == 'warning':
+                color = (0, 255, 255)  # Yellow for partially compliant
+            elif dress_validation.get('status_color') == 'danger':
+                color = (0, 0, 255)  # Red for non-compliant
+            else:
+                # Fallback to track ID based color
+                color = (0, 255, 0)  # Default green
+                if track_id != 'N/A':
+                    # Generate different colors for different track IDs
+                    color_int = track_id * 50 % 255
+                    color = (color_int, 255, 255 - color_int)
             
             # Draw rectangle
             cv2.rectangle(image, (x1, y1), (x2, y2), color, 2)
             
-            # Draw label with tracking ID and dress items as a list
+            # Draw label with tracking ID and person confidence
             label1 = f"ID:{track_id} Person: {confidence:.2f}"
             
             # Draw first label (person info)
@@ -395,32 +493,69 @@ def draw_detections(image_path, detections, output_path):
             cv2.putText(image, label1, (x1, y1 - 5), 
                        cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 0), 2)
             
-            # Draw dress items as a list
-            dress_items = detection.get('dress_items', [])
-            if dress_items:
-                current_y = y1 - label_size1[1] - 15
-                cv2.putText(image, "Dress Items:", (x1, current_y), 
-                           cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
-                current_y -= 20
-                
-                for i, item in enumerate(dress_items[:3]):  # Show top 3 items
-                    item_text = f"• {item['class']} ({item['confidence']:.2f})"
-                    text_size = cv2.getTextSize(item_text, cv2.FONT_HERSHEY_SIMPLEX, 0.5, 2)[0]
-                    
-                    # Draw background for each item
-                    cv2.rectangle(image, (x1, current_y - text_size[1] - 5), 
-                                 (x1 + text_size[0] + 5, current_y + 5), color, -1)
-                    cv2.putText(image, item_text, (x1 + 2, current_y - 2), 
-                               cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 0), 2)
-                    current_y -= 25
-            else:
-                # No dress items detected
-                no_items_text = "No dress items detected"
-                text_size = cv2.getTextSize(no_items_text, cv2.FONT_HERSHEY_SIMPLEX, 0.5, 2)[0]
-                cv2.rectangle(image, (x1, y1 - label_size1[1] - 35), 
-                             (x1 + text_size[0] + 5, y1 - label_size1[1] - 10), color, -1)
-                cv2.putText(image, no_items_text, (x1 + 2, y1 - label_size1[1] - 20), 
+            # Draw dress code compliance status
+            current_y = y1 - label_size1[1] - 15
+            compliance_text = f"Dress Code: {dress_summary}"
+            text_size = cv2.getTextSize(compliance_text, cv2.FONT_HERSHEY_SIMPLEX, 0.5, 2)[0]
+            
+            # Draw background for compliance status
+            cv2.rectangle(image, (x1, current_y - text_size[1] - 5), 
+                         (x1 + text_size[0] + 5, current_y + 5), color, -1)
+            cv2.putText(image, compliance_text, (x1 + 2, current_y - 2), 
                        cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 0), 2)
+            
+            # Draw detailed dress code items with present/missing status
+            compliance_status = dress_validation.get('compliance_status', {})
+            if compliance_status:
+                current_y -= 25
+                
+                # Determine gender for context
+                with rfid_lock:
+                    current_gender = (rfid_last_student or {}).get('gender', 'male')
+                
+                gender_text = f"Gender: {current_gender.title()}"
+                gender_size = cv2.getTextSize(gender_text, cv2.FONT_HERSHEY_SIMPLEX, 0.4, 1)[0]
+                cv2.rectangle(image, (x1, current_y - gender_size[1] - 5), 
+                             (x1 + gender_size[0] + 5, current_y + 5), color, -1)
+                cv2.putText(image, gender_text, (x1 + 2, current_y - 2), 
+                           cv2.FONT_HERSHEY_SIMPLEX, 0.4, (0, 0, 0), 1)
+                
+                # Group items by status and display
+                has_items = []
+                missing_items = []
+                for item_key, item_status in compliance_status.items():
+                    if item_status['present']:
+                        has_items.append(item_status['name'].lower().replace(' ', '_'))
+                    else:
+                        missing_items.append(item_status['name'].lower().replace(' ', '_'))
+                
+                # Draw has items (only if present)
+                if has_items:
+                    has_text = f"has: {', '.join(has_items)}"
+                    current_y -= 20
+                    has_size = cv2.getTextSize(has_text, cv2.FONT_HERSHEY_SIMPLEX, 0.4, 1)[0]
+                    cv2.rectangle(image, (x1, current_y - has_size[1] - 5), 
+                                 (x1 + has_size[0] + 5, current_y + 5), color, -1)
+                    cv2.putText(image, has_text, (x1 + 2, current_y - 2), 
+                               cv2.FONT_HERSHEY_SIMPLEX, 0.4, (0, 0, 0), 1)
+                
+                # Draw missing items (only if present)
+                if missing_items:
+                    missing_text = f"missing: {', '.join(missing_items)}"
+                    current_y -= 20
+                    missing_size = cv2.getTextSize(missing_text, cv2.FONT_HERSHEY_SIMPLEX, 0.4, 1)[0]
+                    cv2.rectangle(image, (x1, current_y - missing_size[1] - 5), 
+                                 (x1 + missing_size[0] + 5, current_y + 5), color, -1)
+                    cv2.putText(image, missing_text, (x1 + 2, current_y - 2), 
+                               cv2.FONT_HERSHEY_SIMPLEX, 0.4, (0, 0, 0), 1)
+            else:
+                # No dress code validation available
+                no_items_text = "No dress code validation available"
+                text_size = cv2.getTextSize(no_items_text, cv2.FONT_HERSHEY_SIMPLEX, 0.4, 1)[0]
+                cv2.rectangle(image, (x1, current_y - text_size[1] - 5), 
+                             (x1 + text_size[0] + 5, current_y + 5), color, -1)
+                cv2.putText(image, no_items_text, (x1 + 2, current_y - 2), 
+                           cv2.FONT_HERSHEY_SIMPLEX, 0.4, (0, 0, 0), 1)
         
         # Save result
         cv2.imwrite(output_path, image)
@@ -456,6 +591,9 @@ def detect_persons_frame_with_dress(frame):
                             'class': 'person'
                         })
         
+        # Determine gender context from current RFID student if available
+        with rfid_lock:
+            current_gender = (rfid_last_student or {}).get('gender')
         # Stage 2: Detect dress code for each person
         for detection in detections:
             x1, y1, x2, y2 = detection['bbox']
@@ -470,17 +608,30 @@ def detect_persons_frame_with_dress(frame):
             person_crop = frame[crop_y1:crop_y2, crop_x1:crop_x2]
             
             # Detect dress code for this person
-            dress_validation = detect_dress_code(person_crop)
+            dress_validation = detect_dress_code(person_crop, gender=current_gender or 'male')
             detection['dress_validation'] = dress_validation
             
             # Create a compliance summary for display
             compliance_status = dress_validation['compliance_status']
-            compliance_items = []
+            
+            # Group items by status
+            has_items = []
+            missing_items = []
             for item_key, item_status in compliance_status.items():
-                compliance_items.append(f"{item_status['status']} {item_status['name']}")
+                if item_status['present']:
+                    has_items.append(item_status['name'].lower().replace(' ', '_'))
+                else:
+                    missing_items.append(item_status['name'].lower().replace(' ', '_'))
+            
+            # Format grouped details (only show categories that have items)
+            detail_parts = []
+            if has_items:
+                detail_parts.append(f"has: {', '.join(has_items)}")
+            if missing_items:
+                detail_parts.append(f"missing: {', '.join(missing_items)}")
             
             detection['dress_summary'] = f"{dress_validation['overall_status']} ({dress_validation['compliance_percentage']:.0f}%)"
-            detection['dress_details'] = " | ".join(compliance_items)
+            detection['dress_details'] = "\n".join(detail_parts)
         
         # Update tracker with detections
         if detections:
@@ -510,7 +661,7 @@ def detect_persons_frame_with_dress(frame):
         return []
 
 def draw_detections_frame(frame, detections):
-    """Draw bounding boxes on a video frame with tracking IDs and dress code compliance"""
+    """Draw bounding boxes on a video frame with tracking IDs and detailed dress code compliance"""
     try:
         # Draw bounding boxes
         for detection in detections:
@@ -555,22 +706,289 @@ def draw_detections_frame(frame, detections):
             cv2.putText(frame, compliance_text, (x1 + 2, current_y - 2), 
                        cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 0), 2)
             
-            # Draw individual item status
-            if dress_details:
+            # Draw detailed dress code items with present/missing status
+            compliance_status = dress_validation.get('compliance_status', {})
+            if compliance_status:
                 current_y -= 25
-                items_text = f"Items: {dress_details}"
-                items_size = cv2.getTextSize(items_text, cv2.FONT_HERSHEY_SIMPLEX, 0.4, 1)[0]
                 
-                # Draw background for items
-                cv2.rectangle(frame, (x1, current_y - items_size[1] - 5), 
-                             (x1 + items_size[0] + 5, current_y + 5), color, -1)
-                cv2.putText(frame, items_text, (x1 + 2, current_y - 2), 
+                # Determine gender for context
+                with rfid_lock:
+                    current_gender = (rfid_last_student or {}).get('gender', 'male')
+                
+                gender_text = f"Gender: {current_gender.title()}"
+                gender_size = cv2.getTextSize(gender_text, cv2.FONT_HERSHEY_SIMPLEX, 0.4, 1)[0]
+                cv2.rectangle(frame, (x1, current_y - gender_size[1] - 5), 
+                             (x1 + gender_size[0] + 5, current_y + 5), color, -1)
+                cv2.putText(frame, gender_text, (x1 + 2, current_y - 2), 
                            cv2.FONT_HERSHEY_SIMPLEX, 0.4, (0, 0, 0), 1)
+                
+                # Group items by status and display
+                has_items = []
+                missing_items = []
+                for item_key, item_status in compliance_status.items():
+                    if item_status['present']:
+                        has_items.append(item_status['name'].lower().replace(' ', '_'))
+                    else:
+                        missing_items.append(item_status['name'].lower().replace(' ', '_'))
+                
+                # Draw has items (only if present)
+                if has_items:
+                    has_text = f"has: {', '.join(has_items)}"
+                    current_y -= 20
+                    has_size = cv2.getTextSize(has_text, cv2.FONT_HERSHEY_SIMPLEX, 0.4, 1)[0]
+                    cv2.rectangle(frame, (x1, current_y - has_size[1] - 5), 
+                                 (x1 + has_size[0] + 5, current_y + 5), color, -1)
+                    cv2.putText(frame, has_text, (x1 + 2, current_y - 2), 
+                               cv2.FONT_HERSHEY_SIMPLEX, 0.4, (0, 0, 0), 1)
+                
+                # Draw missing items (only if present)
+                if missing_items:
+                    missing_text = f"missing: {', '.join(missing_items)}"
+                    current_y -= 20
+                    missing_size = cv2.getTextSize(missing_text, cv2.FONT_HERSHEY_SIMPLEX, 0.4, 1)[0]
+                    cv2.rectangle(frame, (x1, current_y - missing_size[1] - 5), 
+                                 (x1 + missing_size[0] + 5, current_y + 5), color, -1)
+                    cv2.putText(frame, missing_text, (x1 + 2, current_y - 2), 
+                               cv2.FONT_HERSHEY_SIMPLEX, 0.4, (0, 0, 0), 1)
             
         return frame
     except Exception as e:
         print(f"Error drawing detections on frame: {e}")
         return frame
+
+
+def _maybe_record_violation(frame, detections, admin_user):
+    """Record violation after 3 consecutive non-compliant detections for current RFID student.
+    
+    - Only records once per RFID scan session
+    - Requires 3 consecutive non-compliant detections before recording
+    - Resets counter if compliance status changes
+    """
+    global rfid_last_student, rfid_last_violation_ts, rfid_consecutive_non_compliant, rfid_last_compliance_status, rfid_current_uid_violated
+    
+    try:
+        if not rfid_last_student:
+            print("DEBUG: No RFID student found, skipping violation check")
+            return None
+            
+        # Determine if any detection for this frame indicates NON-COMPLIANT
+        non_compliant = False
+        violation_details = []
+        current_compliance_status = None
+        
+        # Process detections to determine overall compliance status
+        if detections:
+            for det in detections:
+                dv = det.get('dress_validation') or {}
+                overall_status = dv.get('overall_status')
+                # Always set the current compliance status (not just for non-compliant)
+                current_compliance_status = overall_status
+                
+                if overall_status == 'NON-COMPLIANT':
+                    non_compliant = True
+                    comp = dv.get('compliance_status') or {}
+                    for key, val in comp.items():
+                        if not val.get('present'):
+                            violation_details.append(val.get('name') or key)
+        else:
+            # No detections - consider this as "no compliance status"
+            current_compliance_status = 'NO_DETECTION'
+        
+        print(f"DEBUG: Frame analysis - Non-compliant: {non_compliant}, Status: {current_compliance_status}, Detections: {len(detections)}")
+        
+        # Only process if RFID card is present
+        with rfid_lock:
+            if not rfid_present:
+                print("DEBUG: RFID not present, skipping violation check")
+                return None
+                
+            # If we already issued a violation for this UID session, check timeout
+            if rfid_current_uid_violated:
+                # Check if enough time has passed to allow re-recording
+                time_since_violation = time.time() - rfid_last_violation_ts
+                if time_since_violation < rfid_violation_timeout:
+                    print(f"DEBUG: Violation already recorded for this RFID session ({time_since_violation:.1f}s ago, timeout: {rfid_violation_timeout}s)")
+                    return None
+                else:
+                    # Reset violation flag after timeout
+                    rfid_current_uid_violated = False
+                    print(f"DEBUG: Violation timeout reached ({time_since_violation:.1f}s), resetting violation flag")
+            
+            # Check if compliance status changed (reset counter if it did)
+            if rfid_last_compliance_status is not None and rfid_last_compliance_status != current_compliance_status:
+                rfid_consecutive_non_compliant = 0
+                print(f"DEBUG: Compliance status changed from {rfid_last_compliance_status} to {current_compliance_status}, resetting counter")
+            
+            # Update last compliance status
+            rfid_last_compliance_status = current_compliance_status
+            
+            # Increment counter only for non-compliant detections
+            if non_compliant:
+                rfid_consecutive_non_compliant += 1
+                print(f"DEBUG: Non-compliant detection #{rfid_consecutive_non_compliant} for student {rfid_last_student.get('student_id')}")
+            else:
+                # Reset counter if compliant or no detections
+                rfid_consecutive_non_compliant = 0
+                # Also reset the violation flag so they can be recorded again if they become non-compliant
+                rfid_current_uid_violated = False
+                if current_compliance_status == 'NO_DETECTION':
+                    print(f"DEBUG: No detections, resetting counter and violation flag for student {rfid_last_student.get('student_id')}")
+                else:
+                    print(f"DEBUG: Compliant detection, resetting counter and violation flag for student {rfid_last_student.get('student_id')}")
+            
+            # Only proceed if we have 3 consecutive non-compliant detections
+            if rfid_consecutive_non_compliant < 3:
+                print(f"DEBUG: Need {3 - rfid_consecutive_non_compliant} more consecutive non-compliant detections")
+                return None
+
+        # Throttle: avoid spamming the same student too frequently (10 seconds)
+        now_ts = time.time()
+        if now_ts - rfid_last_violation_ts < 10:
+            print(f"DEBUG: Throttled - last violation was {now_ts - rfid_last_violation_ts:.1f}s ago")
+            return None
+
+        print(f"DEBUG: Recording violation for student {rfid_last_student.get('student_id')} after {rfid_consecutive_non_compliant} consecutive detections")
+        print(f"DEBUG: Admin user: {admin_user is not None}")
+
+        # Save enhanced proof image with annotations
+        proof_name = f"violation_{int(now_ts)}_{rfid_last_student.get('student_id', 'unknown')}.jpg"
+        proof_path = os.path.join(RESULT_FOLDER, proof_name)
+        print(f"DEBUG: Proof image path: {proof_path}")
+        
+        try:
+            os.makedirs(RESULT_FOLDER, exist_ok=True)
+            print(f"DEBUG: Created/verified results folder: {RESULT_FOLDER}")
+            
+            # Create an enhanced proof image with violation details
+            proof_frame = frame.copy()
+            print(f"DEBUG: Created proof frame copy, shape: {proof_frame.shape}")
+            
+            # Build violation type text (gender-aware) for image annotation
+            with rfid_lock:
+                current_gender = (rfid_last_student or {}).get('gender')
+            gender_label = str(current_gender or 'unknown').lower()
+            missing = ", ".join(violation_details) if violation_details else "Missing required items"
+            violation_type_for_image = f"{gender_label} dress code violation: {missing}"
+            
+            # Add violation information overlay
+            violation_text = f"VIOLATION RECORDED - {violation_type_for_image}"
+            timestamp_text = f"Time: {time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(now_ts))}"
+            student_text = f"Student ID: {rfid_last_student.get('student_id', 'Unknown')}"
+            rfid_text = f"RFID: {rfid_last_uid}"
+            
+            print(f"DEBUG: Adding text overlays to proof image")
+            
+            # Draw semi-transparent background for text
+            overlay = proof_frame.copy()
+            cv2.rectangle(overlay, (10, 10), (proof_frame.shape[1] - 10, 120), (0, 0, 0), -1)
+            cv2.addWeighted(overlay, 0.7, proof_frame, 0.3, 0, proof_frame)
+            
+            # Add violation text
+            cv2.putText(proof_frame, violation_text, (20, 35), 
+                       cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 255), 2)  # Red text
+            cv2.putText(proof_frame, timestamp_text, (20, 60), 
+                       cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)  # White text
+            cv2.putText(proof_frame, student_text, (20, 85), 
+                       cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)  # White text
+            cv2.putText(proof_frame, rfid_text, (20, 110), 
+                       cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)  # White text
+            
+            print(f"DEBUG: Added text overlays, now adding bounding boxes")
+            
+            # Draw bounding boxes and violation details on detected persons
+            for det in detections or []:
+                dv = det.get('dress_validation') or {}
+                if dv.get('overall_status') == 'NON-COMPLIANT':
+                    x1, y1, x2, y2 = det.get('bbox', [0, 0, 0, 0])
+                    
+                    # Draw red bounding box for non-compliant person
+                    cv2.rectangle(proof_frame, (x1, y1), (x2, y2), (0, 0, 255), 3)
+                    
+                    # Add violation details
+                    comp = dv.get('compliance_status') or {}
+                    missing_items = []
+                    for key, val in comp.items():
+                        if not val.get('present'):
+                            missing_items.append(val.get('name') or key)
+                    
+                    if missing_items:
+                        missing_text = f"Missing: {', '.join(missing_items)}"
+                        cv2.putText(proof_frame, missing_text, (x1, y1 - 10), 
+                                   cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 255), 2)
+            
+            print(f"DEBUG: Added bounding boxes, attempting to save image")
+            
+            # Save the enhanced proof image
+            success = cv2.imwrite(proof_path, proof_frame)
+            print(f"DEBUG: cv2.imwrite returned: {success}")
+            print(f"DEBUG: Proof image saved: {proof_path}")
+            
+            # Verify file was created
+            if os.path.exists(proof_path):
+                file_size = os.path.getsize(proof_path)
+                print(f"DEBUG: File exists, size: {file_size} bytes")
+            else:
+                print(f"DEBUG: ERROR - File was not created!")
+            
+        except Exception as e:
+            print(f"DEBUG: Error saving proof image: {e}")
+            import traceback
+            traceback.print_exc()
+            proof_path = None
+
+        # Use the violation type that was already created for the image
+        violation_type = violation_type_for_image
+
+        recorded_by = None
+        if admin_user and isinstance(admin_user, dict):
+            try:
+                recorded_by = int(admin_user.get('admin_id'))
+            except Exception:
+                recorded_by = None
+
+        # Store only filename in DB; serve via /results/<filename>
+        rel_path = proof_name if proof_path else None
+        print(f"DEBUG: Database path: {rel_path}")
+
+        if insert_violation:
+            print(f"DEBUG: Attempting database insertion...")
+            vid = insert_violation(rfid_last_student.get('student_id'), violation_type, rel_path, recorded_by)
+            print(f"DEBUG: Database insertion returned: {vid}")
+            if vid:
+                rfid_last_violation_ts = now_ts
+                with rfid_lock:
+                    rfid_current_uid_violated = True
+                
+                # Create violation summary for logging
+                violation_summary = {
+                    'violation_id': vid,
+                    'student_id': rfid_last_student.get('student_id'),
+                    'student_name': rfid_last_student.get('name', 'Unknown'),
+                    'rfid_uid': rfid_last_uid,
+                    'violation_type': violation_type,
+                    'timestamp': time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(now_ts)),
+                    'proof_image': proof_name,
+                    'missing_items': violation_details,
+                    'consecutive_detections': rfid_consecutive_non_compliant
+                }
+                
+                print(f"VIOLATION RECORDED:")
+                print(f"  - Violation ID: {vid}")
+                print(f"  - Student: {rfid_last_student.get('name')} (ID: {rfid_last_student.get('student_id')})")
+                print(f"  - RFID: {rfid_last_uid}")
+                print(f"  - Type: {violation_type}")
+                print(f"  - Proof Image: {proof_name}")
+                print(f"  - Consecutive Non-Compliant Detections: {rfid_consecutive_non_compliant}")
+                
+                return vid
+            else:
+                print(f"DEBUG: Database insertion failed - no violation ID returned")
+        else:
+            print(f"DEBUG: insert_violation function not available")
+        return None
+    except Exception as e:
+        print(f"Violation record error: {e}")
+        return None
 
 def generate_frames():
     """Generate video frames for streaming"""
@@ -596,17 +1014,15 @@ def generate_frames():
                     detections = detect_persons_frame_with_dress(frame)
                     frame = draw_detections_frame(frame, detections)
                     
-                    # Add status overlay based on mode
-                    if test_mode_active:
-                        cv2.putText(frame, "TEST MODE: Detection Always Active", (10, 30), 
-                                   cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 165, 0), 2)  # Orange color
-                    else:
-                        cv2.putText(frame, f"RFID: ACTIVE - {rfid_last_uid}", (10, 30), 
-                                   cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
+                    # Attempt to record violation if non-compliant (for live monitoring)
+                    # Note: admin_user is None in background thread, will be handled in violation function
+                    _maybe_record_violation(frame, detections, None)
+                    
+                    # Status overlay removed as requested
+                    pass
                 else:
-                    # Add RFID status overlay
-                    cv2.putText(frame, "RFID: WAITING - Scan Card to Enable Detection", (10, 30), 
-                               cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
+                    # Status overlay removed as requested
+                    pass
                 
                 # Encode frame as JPEG
                 ret, buffer = cv2.imencode('.jpg', frame)
@@ -631,7 +1047,584 @@ def generate_frames():
 
 @app.route('/')
 def index():
+    # Only allow SECURITY role to access the main index/dashboard
+    admin = session.get('admin') or {}
+    role = str(admin.get('role') or '').lower()
+    if role != 'security':
+        return redirect(url_for('login'))
     return render_template('index.html')
+
+@app.route('/dashboard')
+def dashboard():
+    """Alias for the main dashboard; restricted to security role."""
+    admin = session.get('admin') or {}
+    role = str(admin.get('role') or '').lower()
+    if role != 'security':
+        return redirect(url_for('login'))
+    return render_template('index.html')
+
+@app.route('/osas', methods=['GET'])
+def osas_dashboard():
+    """OSAS dashboard - only accessible to admins with role 'osas'."""
+    admin = session.get('admin') or {}
+    role = str(admin.get('role') or '').lower()
+    if role != 'osas':
+        return redirect(url_for('login'))
+    return render_template('osas_dashboard.html')
+
+@app.route('/dean', methods=['GET'])
+def dean_dashboard():
+    """Dean dashboard - only accessible to admins with role 'dean'."""
+    admin = session.get('admin') or {}
+    role = str(admin.get('role') or '').lower()
+    if role != 'dean':
+        return redirect(url_for('login'))
+    return render_template('dean_dashboard.html', college=admin.get('college'))
+
+@app.route('/dean/programs', methods=['GET'])
+def dean_programs():
+    """Return distinct programs for the dean's college."""
+    college = (session.get('admin') or {}).get('college')
+    if not college:
+        return jsonify({'success': True, 'programs': []})
+    conn = get_connection() if get_connection else None
+    if conn is None:
+        return jsonify({'success': False, 'error': 'DB not configured'}), 500
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT DISTINCT COALESCE(course,'') AS course FROM students WHERE college=%s AND COALESCE(course,'')<>'' ORDER BY course ASC",
+                (college,)
+            )
+            rows = cur.fetchall() or []
+        programs = [r.get('course') for r in rows if r.get('course')]
+        return jsonify({'success': True, 'programs': programs})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+    finally:
+        conn.close()
+
+
+# ------------------ Dean endpoints (college-level accountability) ------------------
+@app.route('/dean/violations', methods=['GET'])
+def dean_get_violations():
+    """List violations for dean review (defaults to cases forwarded to dean)."""
+    try:
+        status_filter = request.args.get('status', 'forwarded_dean')
+        start_dt = request.args.get('start')
+        end_dt = request.args.get('end')
+        academic_year = request.args.get('academic_year')
+        semester = request.args.get('semester')
+        page = int(request.args.get('page', 1))
+        page_size = int(request.args.get('page_size', 50))
+        offset = max(0, (page - 1) * page_size)
+        college = request.args.get('college') or ((session.get('admin') or {}).get('college'))
+        program = request.args.get('program')
+
+        conn = get_connection() if get_connection else None
+        if conn is None:
+            return jsonify({'success': False, 'error': 'DB not configured'}), 500
+
+        where = []
+        params = []
+        if status_filter:
+            where.append("v.status = %s")
+            params.append(status_filter)
+        # Enforce dean operates per-college: require college filter
+        if not college:
+            return jsonify({'success': True, 'rows': [], 'total': 0})
+        where.append("s.college = %s")
+        params.append(college)
+        if program:
+            where.append("s.course = %s")
+            params.append(program)
+        if start_dt:
+            where.append("v.timestamp >= %s")
+            params.append(start_dt)
+        if end_dt:
+            where.append("v.timestamp <= %s")
+            params.append(end_dt)
+        if academic_year and semester in {"1", "2"}:
+            try:
+                start_year = int(academic_year.split('-')[0])
+                if semester == "1":
+                    ay_start = f"{start_year}-08-01 00:00:00"
+                    ay_end = f"{start_year}-12-31 23:59:59"
+                else:
+                    ay_start = f"{start_year+1}-01-01 00:00:00"
+                    ay_end = f"{start_year+1}-05-31 23:59:59"
+                where.append("v.timestamp BETWEEN %s AND %s")
+                params.extend([ay_start, ay_end])
+            except Exception:
+                pass
+        where_sql = (" WHERE " + " AND ".join(where)) if where else ""
+
+        base_select = (
+            "SELECT v.violation_id, v.student_id, v.recorded_by, v.violation_type, v.timestamp, v.image_proof, v.status, "
+            "s.name, s.gender, s.course, s.college "
+            "FROM violations v LEFT JOIN students s ON v.student_id = s.student_id"
+        )
+
+        with conn.cursor() as cur:
+            cur.execute(f"SELECT COUNT(*) AS cnt FROM violations v LEFT JOIN students s ON v.student_id = s.student_id{where_sql}", params)
+            total = (cur.fetchone() or {}).get('cnt', 0)
+
+            cur.execute(
+                f"{base_select}{where_sql} ORDER BY v.timestamp DESC LIMIT %s OFFSET %s",
+                params + [page_size, offset]
+            )
+            rows = cur.fetchall() or []
+        conn.close()
+        return jsonify({'success': True, 'rows': rows, 'total': total})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/dean/violation/<int:violation_id>/status', methods=['POST'])
+def dean_update_violation_status(violation_id: int):
+    """Dean can forward to guidance, set pending, or resolve."""
+    try:
+        data = request.get_json(silent=True) or {}
+        status = str(data.get('status') or '').strip().lower()
+        allowed = {"pending", "forwarded_guidance", "resolved"}
+        if status not in allowed:
+            return jsonify({'success': False, 'error': 'Invalid status'}), 400
+        conn = get_connection() if get_connection else None
+        if conn is None:
+            return jsonify({'success': False, 'error': 'DB not configured'}), 500
+        with conn.cursor() as cur:
+            cur.execute("UPDATE violations SET status=%s WHERE violation_id=%s", (status, violation_id))
+        conn.close()
+        return jsonify({'success': True})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/dean/analytics', methods=['GET'])
+def dean_analytics():
+    """Aggregate analytics for dean view (college-level)."""
+    try:
+        start_dt = request.args.get('start')
+        end_dt = request.args.get('end')
+        academic_year = request.args.get('academic_year')
+        semester = request.args.get('semester')
+        status_filter = request.args.get('status', 'forwarded_dean')
+        college = request.args.get('college') or ((session.get('admin') or {}).get('college'))
+        program = request.args.get('program')
+
+        conn = get_connection() if get_connection else None
+        if conn is None:
+            return jsonify({'success': False, 'error': 'DB not configured'}), 500
+
+        where = []
+        params = []
+        if status_filter:
+            where.append("v.status = %s")
+            params.append(status_filter)
+        # Enforce dean operates per-college: require college filter
+        if not college:
+            return jsonify({'success': True, 'total': 0, 'by_program': [], 'by_gender': [], 'by_status': []})
+        where.append("s.college = %s")
+        params.append(college)
+        if program:
+            where.append("s.course = %s")
+            params.append(program)
+        if start_dt:
+            where.append("v.timestamp >= %s")
+            params.append(start_dt)
+        if end_dt:
+            where.append("v.timestamp <= %s")
+            params.append(end_dt)
+        if academic_year and semester in {"1", "2"}:
+            try:
+                start_year = int(academic_year.split('-')[0])
+                if semester == "1":
+                    ay_start = f"{start_year}-08-01 00:00:00"
+                    ay_end = f"{start_year}-12-31 23:59:59"
+                else:
+                    ay_start = f"{start_year+1}-01-01 00:00:00"
+                    ay_end = f"{start_year+1}-05-31 23:59:59"
+                where.append("v.timestamp BETWEEN %s AND %s")
+                params.extend([ay_start, ay_end])
+            except Exception:
+                pass
+        where_sql = (" WHERE " + " AND ".join(where)) if where else ""
+
+        with conn.cursor() as cur:
+            cur.execute(f"SELECT COUNT(*) AS total FROM violations v LEFT JOIN students s ON v.student_id=s.student_id{where_sql}", params)
+            total = (cur.fetchone() or {}).get('total', 0)
+
+            cur.execute(
+                f"SELECT COALESCE(s.course,'Unknown') AS label, COUNT(*) AS cnt FROM violations v LEFT JOIN students s ON v.student_id=s.student_id{where_sql} GROUP BY label ORDER BY cnt DESC",
+                params,
+            )
+            by_program = cur.fetchall() or []
+
+            cur.execute(
+                f"SELECT LOWER(COALESCE(s.gender,'')) AS label, COUNT(*) AS cnt FROM violations v LEFT JOIN students s ON v.student_id=s.student_id{where_sql} GROUP BY label",
+                params,
+            )
+            by_gender = cur.fetchall() or []
+
+            cur.execute(
+                f"SELECT v.status AS label, COUNT(*) AS cnt FROM violations v{where_sql} GROUP BY v.status",
+                params,
+            )
+            by_status = cur.fetchall() or []
+        conn.close()
+        return jsonify({'success': True, 'total': total, 'by_program': by_program, 'by_gender': by_gender, 'by_status': by_status})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/dean/trend', methods=['GET'])
+def dean_trend():
+    try:
+        start_dt = request.args.get('start')
+        end_dt = request.args.get('end')
+        academic_year = request.args.get('academic_year')
+        semester = request.args.get('semester')
+        status_filter = request.args.get('status', 'forwarded_dean')
+        group_by = request.args.get('group_by', 'day')
+        college = request.args.get('college') or ((session.get('admin') or {}).get('college'))
+        program = request.args.get('program')
+
+        conn = get_connection() if get_connection else None
+        if conn is None:
+            return jsonify({'success': False, 'error': 'DB not configured'}), 500
+
+        where = []
+        params = []
+        if status_filter:
+            where.append("v.status = %s")
+            params.append(status_filter)
+        # Enforce dean operates per-college: require college filter
+        if not college:
+            return jsonify({'success': True, 'series': []})
+        where.append("s.college = %s")
+        params.append(college)
+        if program:
+            where.append("s.course = %s")
+            params.append(program)
+        if start_dt:
+            where.append("timestamp >= %s")
+            params.append(start_dt)
+        if end_dt:
+            where.append("timestamp <= %s")
+            params.append(end_dt)
+        if academic_year and semester in {"1", "2"}:
+            try:
+                start_year = int(academic_year.split('-')[0])
+                if semester == "1":
+                    ay_start = f"{start_year}-08-01 00:00:00"
+                    ay_end = f"{start_year}-12-31 23:59:59"
+                else:
+                    ay_start = f"{start_year+1}-01-01 00:00:00"
+                    ay_end = f"{start_year+1}-05-31 23:59:59"
+                where.append("timestamp BETWEEN %s AND %s")
+                params.extend([ay_start, ay_end])
+            except Exception:
+                pass
+        where_sql = (" WHERE " + " AND ".join(where)) if where else ""
+
+        if group_by == 'month':
+            group_expr = "DATE_FORMAT(timestamp, '%Y-%m')"
+            order_expr = "DATE_FORMAT(timestamp, '%Y-%m')"
+        elif group_by == 'week':
+            group_expr = "YEARWEEK(timestamp, 3)"
+            order_expr = "YEARWEEK(timestamp, 3)"
+        else:
+            group_expr = "DATE(timestamp)"
+            order_expr = "DATE(timestamp)"
+
+        with conn.cursor() as cur:
+            cur.execute(
+                f"SELECT {group_expr} AS label, COUNT(*) AS cnt FROM violations v LEFT JOIN students s ON v.student_id=s.student_id{where_sql} GROUP BY label ORDER BY {order_expr} ASC",
+                params,
+            )
+            rows = cur.fetchall() or []
+        conn.close()
+        return jsonify({'success': True, 'series': rows})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+# ------------------ OSAS endpoints (university-wide oversight) ------------------
+@app.route('/osas/violations', methods=['GET'])
+def osas_get_violations():
+    """List violations for OSAS review (university-wide)."""
+    try:
+        status_filter = request.args.get('status', 'pending')
+        start_dt = request.args.get('start')
+        end_dt = request.args.get('end')
+        academic_year = request.args.get('academic_year')
+        semester = request.args.get('semester')
+        page = int(request.args.get('page', 1))
+        page_size = int(request.args.get('page_size', 50))
+        offset = max(0, (page - 1) * page_size)
+
+        conn = get_connection() if get_connection else None
+        if conn is None:
+            return jsonify({'success': False, 'error': 'DB not configured'}), 500
+
+        where = []
+        params = []
+        if status_filter:
+            where.append("v.status = %s")
+            params.append(status_filter)
+        if start_dt:
+            where.append("v.timestamp >= %s")
+            params.append(start_dt)
+        if end_dt:
+            where.append("v.timestamp <= %s")
+            params.append(end_dt)
+        if academic_year and semester in {"1", "2"}:
+            try:
+                start_year = int(academic_year.split('-')[0])
+                if semester == "1":
+                    ay_start = f"{start_year}-08-01 00:00:00"
+                    ay_end = f"{start_year}-12-31 23:59:59"
+                else:
+                    ay_start = f"{start_year+1}-01-01 00:00:00"
+                    ay_end = f"{start_year+1}-05-31 23:59:59"
+                where.append("v.timestamp BETWEEN %s AND %s")
+                params.extend([ay_start, ay_end])
+            except Exception:
+                pass
+        where_sql = (" WHERE " + " AND ".join(where)) if where else ""
+
+        base_select = (
+            "SELECT v.violation_id, v.student_id, v.recorded_by, v.violation_type, v.timestamp, v.image_proof, v.status, "
+            "s.name, s.gender, s.course, s.college "
+            "FROM violations v LEFT JOIN students s ON v.student_id = s.student_id"
+        )
+
+        with conn.cursor() as cur:
+            cur.execute(f"SELECT COUNT(*) AS cnt FROM violations v LEFT JOIN students s ON v.student_id = s.student_id{where_sql}", params)
+            total = (cur.fetchone() or {}).get('cnt', 0)
+
+            cur.execute(
+                f"{base_select}{where_sql} ORDER BY v.timestamp DESC LIMIT %s OFFSET %s",
+                params + [page_size, offset]
+            )
+            rows = cur.fetchall() or []
+        conn.close()
+        return jsonify({'success': True, 'rows': rows, 'total': total})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/osas/violation/<int:violation_id>/status', methods=['POST'])
+def osas_update_violation_status(violation_id: int):
+    """OSAS can forward to dean, guidance, or resolve."""
+    try:
+        data = request.get_json(silent=True) or {}
+        status = str(data.get('status') or '').strip().lower()
+        allowed = {"pending", "forwarded_dean", "forwarded_guidance", "resolved"}
+        if status not in allowed:
+            return jsonify({'success': False, 'error': 'Invalid status'}), 400
+        conn = get_connection() if get_connection else None
+        if conn is None:
+            return jsonify({'success': False, 'error': 'DB not configured'}), 500
+        with conn.cursor() as cur:
+            cur.execute("UPDATE violations SET status=%s WHERE violation_id=%s", (status, violation_id))
+        conn.close()
+        return jsonify({'success': True})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/osas/analytics', methods=['GET'])
+def osas_analytics():
+    """Aggregate analytics for OSAS view (university-wide)."""
+    try:
+        start_dt = request.args.get('start')
+        end_dt = request.args.get('end')
+        academic_year = request.args.get('academic_year')
+        semester = request.args.get('semester')
+        status_filter = request.args.get('status', 'pending')
+
+        conn = get_connection() if get_connection else None
+        if conn is None:
+            return jsonify({'success': False, 'error': 'DB not configured'}), 500
+
+        where = []
+        params = []
+        if status_filter:
+            where.append("v.status = %s")
+            params.append(status_filter)
+        if start_dt:
+            where.append("v.timestamp >= %s")
+            params.append(start_dt)
+        if end_dt:
+            where.append("v.timestamp <= %s")
+            params.append(end_dt)
+        if academic_year and semester in {"1", "2"}:
+            try:
+                start_year = int(academic_year.split('-')[0])
+                if semester == "1":
+                    ay_start = f"{start_year}-08-01 00:00:00"
+                    ay_end = f"{start_year}-12-31 23:59:59"
+                else:
+                    ay_start = f"{start_year+1}-01-01 00:00:00"
+                    ay_end = f"{start_year+1}-05-31 23:59:59"
+                where.append("v.timestamp BETWEEN %s AND %s")
+                params.extend([ay_start, ay_end])
+            except Exception:
+                pass
+        where_sql = (" WHERE " + " AND ".join(where)) if where else ""
+
+        with conn.cursor() as cur:
+            cur.execute(f"SELECT COUNT(*) AS total FROM violations v LEFT JOIN students s ON v.student_id=s.student_id{where_sql}", params)
+            total = (cur.fetchone() or {}).get('total', 0)
+
+            cur.execute(
+                f"SELECT COALESCE(s.college,'Unknown') AS label, COUNT(*) AS cnt FROM violations v LEFT JOIN students s ON v.student_id=s.student_id{where_sql} GROUP BY label ORDER BY cnt DESC",
+                params,
+            )
+            by_college = cur.fetchall() or []
+
+            cur.execute(
+                f"SELECT COALESCE(s.course,'Unknown') AS label, COUNT(*) AS cnt FROM violations v LEFT JOIN students s ON v.student_id=s.student_id{where_sql} GROUP BY label ORDER BY cnt DESC",
+                params,
+            )
+            by_program = cur.fetchall() or []
+
+            cur.execute(
+                f"SELECT LOWER(COALESCE(s.gender,'')) AS label, COUNT(*) AS cnt FROM violations v LEFT JOIN students s ON v.student_id=s.student_id{where_sql} GROUP BY label",
+                params,
+            )
+            by_gender = cur.fetchall() or []
+
+            cur.execute(
+                f"SELECT v.status AS label, COUNT(*) AS cnt FROM violations v{where_sql} GROUP BY v.status",
+                params,
+            )
+            by_status = cur.fetchall() or []
+        conn.close()
+        return jsonify({'success': True, 'total': total, 'by_college': by_college, 'by_program': by_program, 'by_gender': by_gender, 'by_status': by_status})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/osas/trend', methods=['GET'])
+def osas_trend():
+    try:
+        start_dt = request.args.get('start')
+        end_dt = request.args.get('end')
+        academic_year = request.args.get('academic_year')
+        semester = request.args.get('semester')
+        status_filter = request.args.get('status', 'pending')
+        group_by = request.args.get('group_by', 'day')
+
+        conn = get_connection() if get_connection else None
+        if conn is None:
+            return jsonify({'success': False, 'error': 'DB not configured'}), 500
+
+        where = []
+        params = []
+        if status_filter:
+            where.append("v.status = %s")
+            params.append(status_filter)
+        if start_dt:
+            where.append("v.timestamp >= %s")
+            params.append(start_dt)
+        if end_dt:
+            where.append("v.timestamp <= %s")
+            params.append(end_dt)
+        if academic_year and semester in {"1", "2"}:
+            try:
+                start_year = int(academic_year.split('-')[0])
+                if semester == "1":
+                    ay_start = f"{start_year}-08-01 00:00:00"
+                    ay_end = f"{start_year}-12-31 23:59:59"
+                else:
+                    ay_start = f"{start_year+1}-01-01 00:00:00"
+                    ay_end = f"{start_year+1}-05-31 23:59:59"
+                where.append("v.timestamp BETWEEN %s AND %s")
+                params.extend([ay_start, ay_end])
+            except Exception:
+                pass
+        where_sql = (" WHERE " + " AND ".join(where)) if where else ""
+
+        if group_by == 'month':
+            group_expr = "DATE_FORMAT(v.timestamp, '%Y-%m')"
+            order_expr = "DATE_FORMAT(v.timestamp, '%Y-%m')"
+        elif group_by == 'week':
+            group_expr = "YEARWEEK(v.timestamp, 3)"
+            order_expr = "YEARWEEK(v.timestamp, 3)"
+        else:
+            group_expr = "DATE(v.timestamp)"
+            order_expr = "DATE(v.timestamp)"
+
+        with conn.cursor() as cur:
+            cur.execute(
+                f"SELECT {group_expr} AS label, COUNT(*) AS cnt FROM violations v LEFT JOIN students s ON v.student_id=s.student_id{where_sql} GROUP BY label ORDER BY {order_expr} ASC",
+                params,
+            )
+            rows = cur.fetchall() or []
+        conn.close()
+        return jsonify({'success': True, 'series': rows})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/logout', methods=['POST'])
+def logout():
+    """Clear session and log out the current user."""
+    try:
+        session.clear()
+        return jsonify({'success': True})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/login', methods=['GET', 'POST'])
+def login():
+    if request.method == 'GET':
+        return render_template('login.html')
+
+    # POST: JSON { username, password }
+    try:
+        data = request.get_json(force=True, silent=True) or {}
+        username = (data.get('username') or '').strip()
+        password = data.get('password') or ''
+
+        if not username or not password:
+            return jsonify({'success': False, 'error': 'Username and password are required.'}), 400
+
+        if get_connection is None:
+            return jsonify({'success': False, 'error': 'Database not configured.'}), 500
+
+        conn = get_connection()
+        try:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT admin_id, username, password_hash, role, college, created_at
+                    FROM admins
+                    WHERE username = %s
+                    LIMIT 1
+                    """,
+                    (username,)
+                )
+                admin = cur.fetchone()
+
+            if not admin or not check_password_hash(admin.get('password_hash', ''), password):
+                return jsonify({'success': False, 'error': 'Invalid username or password.'}), 401
+
+            # Remove sensitive field and persist minimal session
+            admin.pop('password_hash', None)
+            session['admin'] = {
+                'admin_id': admin.get('admin_id'),
+                'username': admin.get('username'),
+                'role': admin.get('role'),
+                'college': admin.get('college'),
+            }
+
+            return jsonify({'success': True, 'admin': session['admin']})
+        finally:
+            conn.close()
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
 
 @app.route('/upload', methods=['POST'])
 def upload_file():
@@ -704,6 +1697,240 @@ def detect_from_url():
 def uploaded_file(filename):
     return send_from_directory(RESULT_FOLDER, filename)
 
+@app.route('/violation_proof/<filename>')
+def violation_proof(filename):
+    """Serve violation proof images with proper headers"""
+    try:
+        return send_from_directory(RESULT_FOLDER, filename, as_attachment=False)
+    except Exception as e:
+        return f"Error serving proof image: {e}", 404
+
+@app.route('/violation_log')
+def violation_log():
+    """Display recent violations with proof images"""
+    try:
+        if not get_connection:
+            return jsonify({'error': 'Database not available'}), 500
+            
+        conn = get_connection()
+        with conn.cursor() as cur:
+            # Get recent violations (last 50)
+            cur.execute("""
+                SELECT v.violation_id, v.student_id, v.violation_type, v.timestamp, v.image_proof,
+                       s.name as student_name, s.gender, s.course, s.college
+                FROM violations v 
+                LEFT JOIN students s ON v.student_id = s.student_id
+                ORDER BY v.timestamp DESC 
+                LIMIT 50
+            """)
+            violations = cur.fetchall() or []
+            
+        return jsonify({
+            'success': True, 
+            'violations': violations,
+            'total_count': len(violations)
+        })
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+    finally:
+        if 'conn' in locals():
+            conn.close()
+
+@app.route('/debug_rfid')
+def debug_rfid():
+    """Debug endpoint to check RFID status"""
+    try:
+        with rfid_lock:
+            rfid_state = {
+                'rfid_available': RFID_AVAILABLE,
+                'rfid_present': rfid_present,
+                'rfid_last_uid': rfid_last_uid,
+                'rfid_event_queue': rfid_event_queue is not None,
+                'detection_enabled': detection_enabled,
+                'rfid_last_student': rfid_last_student
+            }
+        
+        # Get actual RFID status from scanner
+        if RFID_AVAILABLE:
+            try:
+                scanner_status = get_rfid_status()
+                rfid_state['scanner_status'] = scanner_status
+            except Exception as e:
+                rfid_state['scanner_error'] = str(e)
+        
+        return jsonify({
+            'success': True,
+            'rfid_state': rfid_state,
+            'timestamp': time.strftime('%Y-%m-%d %H:%M:%S')
+        })
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/debug_state')
+def debug_state():
+    """Debug endpoint to check current system state"""
+    try:
+        with rfid_lock:
+            state = {
+                'rfid_present': rfid_present,
+                'rfid_last_uid': rfid_last_uid,
+                'rfid_last_student': rfid_last_student,
+                'rfid_consecutive_non_compliant': rfid_consecutive_non_compliant,
+                'rfid_last_compliance_status': rfid_last_compliance_status,
+                'rfid_current_uid_violated': rfid_current_uid_violated,
+                'detection_enabled': detection_enabled,
+                'current_frame_available': current_frame is not None,
+                'result_folder_exists': os.path.exists(RESULT_FOLDER),
+                'result_folder_path': os.path.abspath(RESULT_FOLDER)
+            }
+        
+        return jsonify({
+            'success': True,
+            'state': state,
+            'timestamp': time.strftime('%Y-%m-%d %H:%M:%S')
+        })
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/test_violation')
+def test_violation():
+    """Test violation recording with current frame"""
+    try:
+        with frame_lock:
+            if current_frame is None:
+                return jsonify({'success': False, 'error': 'No frame available'})
+            
+            print("DEBUG: Starting test violation...")
+            
+            # Create a test student for violation testing
+            test_student = {
+                'student_id': 'TEST-001',
+                'name': 'Test Student',
+                'gender': 'male'
+            }
+            
+            # Temporarily set RFID student for testing
+            global rfid_last_student, rfid_consecutive_non_compliant, rfid_last_compliance_status, rfid_current_uid_violated, rfid_present
+            rfid_last_student = test_student
+            rfid_consecutive_non_compliant = 3  # Force violation recording
+            rfid_last_compliance_status = 'NON-COMPLIANT'
+            rfid_current_uid_violated = False  # Reset violation flag
+            rfid_present = True  # Simulate RFID present
+            
+            print(f"DEBUG: Test student set: {test_student}")
+            print(f"DEBUG: Consecutive count: {rfid_consecutive_non_compliant}")
+            
+            # Perform detection on current frame
+            detections = detect_persons_frame_with_dress(current_frame)
+            print(f"DEBUG: Detections found: {len(detections)}")
+            
+            # Force non-compliant status for testing
+            for det in detections:
+                det['dress_validation'] = {
+                    'overall_status': 'NON-COMPLIANT',
+                    'compliance_status': {
+                        'polo_shirt': {'present': False, 'name': 'Polo Shirt'},
+                        'pants': {'present': True, 'name': 'Pants'},
+                        'shoes': {'present': False, 'name': 'Shoes'}
+                    }
+                }
+            
+            print("DEBUG: Forced non-compliant status on detections")
+            
+            # Record violation
+            admin_user = session.get('admin') or {}
+            print(f"DEBUG: Admin user available: {admin_user is not None}")
+            
+            violation_id = _maybe_record_violation(current_frame, detections, admin_user)
+            
+            print(f"DEBUG: Violation ID returned: {violation_id}")
+            
+            # Reset test state
+            rfid_last_student = None
+            rfid_consecutive_non_compliant = 0
+            rfid_last_compliance_status = None
+            rfid_current_uid_violated = False
+            rfid_present = False
+            
+            if violation_id:
+                return jsonify({
+                    'success': True, 
+                    'violation_id': violation_id,
+                    'message': 'Test violation recorded successfully',
+                    'detections': len(detections)
+                })
+            else:
+                return jsonify({
+                    'success': False, 
+                    'message': 'Failed to record test violation',
+                    'detections': len(detections)
+                })
+                
+    except Exception as e:
+        print(f"DEBUG: Test violation error: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/violation_report')
+def violation_report():
+    """Generate comprehensive violation report"""
+    try:
+        if not get_connection:
+            return jsonify({'error': 'Database not available'}), 500
+            
+        # Get date range from query parameters
+        start_date = request.args.get('start_date')
+        end_date = request.args.get('end_date')
+        
+        conn = get_connection()
+        with conn.cursor() as cur:
+            # Build query with optional date filtering
+            where_clause = ""
+            params = []
+            
+            if start_date and end_date:
+                where_clause = "WHERE v.timestamp BETWEEN %s AND %s"
+                params = [start_date, end_date]
+            
+            # Get violations with student details
+            query = f"""
+                SELECT v.violation_id, v.student_id, v.violation_type, v.timestamp, v.image_proof,
+                       s.name as student_name, s.gender, s.course, s.college, s.student_id as student_number
+                FROM violations v 
+                LEFT JOIN students s ON v.student_id = s.student_id
+                {where_clause}
+                ORDER BY v.timestamp DESC
+            """
+            
+            cur.execute(query, params)
+            violations = cur.fetchall() or []
+            
+            # Get summary statistics
+            cur.execute(f"""
+                SELECT 
+                    COUNT(*) as total_violations,
+                    COUNT(DISTINCT v.student_id) as unique_students,
+                    COUNT(CASE WHEN s.gender = 'male' THEN 1 END) as male_violations,
+                    COUNT(CASE WHEN s.gender = 'female' THEN 1 END) as female_violations
+                FROM violations v 
+                LEFT JOIN students s ON v.student_id = s.student_id
+                {where_clause}
+            """, params)
+            
+            stats = cur.fetchone() or {}
+            
+        return jsonify({
+            'success': True,
+            'violations': violations,
+            'statistics': stats,
+            'report_generated': time.strftime('%Y-%m-%d %H:%M:%S'),
+            'date_range': {'start': start_date, 'end': end_date}
+        })
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+    finally:
+        if 'conn' in locals():
+            conn.close()
+
 @app.route('/video_feed')
 def video_feed():
     """Video streaming route"""
@@ -711,8 +1938,8 @@ def video_feed():
 
 @app.route('/start_camera', methods=['POST'])
 def start_camera():
-    """Start webcam (or return status if already running)"""
-    global camera, selected_camera_id
+    """Start webcam and RFID monitoring (or return status if already running)"""
+    global camera, selected_camera_id, rfid_event_queue, rfid_enabled
     try:
         # Try to get camera_id from JSON, fallback to selected_camera_id
         camera_id = selected_camera_id
@@ -727,7 +1954,25 @@ def start_camera():
             camera = cv2.VideoCapture(camera_id)
             if camera.isOpened():
                 selected_camera_id = camera_id  # Update global selected camera ID
-                return jsonify({'success': True, 'message': f'Camera {camera_id} started successfully'})
+                
+                # Initialize and start RFID monitoring when camera starts
+                if RFID_AVAILABLE:
+                    try:
+                        # Initialize RFID if not already done
+                        if rfid_event_queue is None:
+                            initialize_rfid()
+                        else:
+                            start_rfid_monitoring()
+                        
+                        # Enable RFID processing
+                        rfid_enabled = True
+                        set_rfid_enabled(True)  # Enable RFID polling
+                        print(f"DEBUG: RFID enabled set to True, rfid_enabled: {rfid_enabled}")
+                        print("RFID monitoring started with camera")
+                    except Exception as e:
+                        print(f"Warning: Could not start RFID monitoring: {e}")
+                
+                return jsonify({'success': True, 'message': f'Camera {camera_id} and RFID monitoring started successfully'})
             else:
                 camera = None
                 return jsonify({'success': False, 'message': f'Failed to open camera {camera_id}'}), 500
@@ -738,8 +1983,8 @@ def start_camera():
 
 @app.route('/change_camera', methods=['POST'])
 def change_camera():
-    """Change to a different camera"""
-    global camera, detection_enabled, selected_camera_id
+    """Change to a different camera and enable RFID monitoring"""
+    global camera, detection_enabled, selected_camera_id, rfid_enabled, rfid_event_queue
     try:
         data = request.get_json()
         camera_id = data.get('camera_id', 0)
@@ -754,7 +1999,24 @@ def change_camera():
         if camera.isOpened():
             selected_camera_id = camera_id  # Update global selected camera ID
             detection_enabled = False  # Reset detection when changing camera
-            return jsonify({'success': True, 'message': f'Switched to camera {camera_id}'})
+            
+            # Enable RFID monitoring when camera is started via switching
+            if RFID_AVAILABLE:
+                try:
+                    if rfid_event_queue is None:
+                        initialize_rfid()
+                    else:
+                        start_rfid_monitoring()
+                    
+                    # Enable RFID processing
+                    rfid_enabled = True
+                    set_rfid_enabled(True)  # Enable RFID polling
+                    print(f"DEBUG: RFID enabled via camera switch, rfid_enabled: {rfid_enabled}")
+                    print("RFID monitoring started with camera switch")
+                except Exception as e:
+                    print(f"Warning: Could not start RFID monitoring during camera switch: {e}")
+            
+            return jsonify({'success': True, 'message': f'Switched to camera {camera_id} and enabled RFID monitoring'})
         else:
             camera = None
             return jsonify({'success': False, 'message': f'Failed to open camera {camera_id}'}), 500
@@ -763,14 +2025,44 @@ def change_camera():
 
 @app.route('/stop_camera', methods=['POST'])
 def stop_camera():
-    """Stop webcam"""
-    global camera, detection_enabled
+    """Stop webcam and RFID monitoring"""
+    global camera, detection_enabled, rfid_event_queue, rfid_enabled
     try:
         if camera is not None:
             camera.release()
             camera = None
             detection_enabled = False  # Also disable detection when camera stops
-            return jsonify({'success': True, 'message': 'Camera stopped successfully'})
+            
+            # Stop RFID monitoring when camera stops
+            if RFID_AVAILABLE:
+                try:
+                    # Disable RFID processing first
+                    rfid_enabled = False
+                    set_rfid_enabled(False)  # Disable RFID polling
+                    print(f"DEBUG: RFID enabled set to False, rfid_enabled: {rfid_enabled}")
+                    
+                    stop_rfid_monitoring()
+                    
+                    # Unsubscribe from RFID events to completely stop monitoring
+                    if rfid_event_queue is not None:
+                        unsubscribe_from_rfid_events(rfid_event_queue)
+                        rfid_event_queue = None
+                    
+                    print("RFID monitoring completely stopped with camera")
+                    
+                    # Reset RFID state
+                    with rfid_lock:
+                        rfid_present = False
+                        rfid_last_student = None
+                        rfid_consecutive_non_compliant = 0
+                        rfid_last_compliance_status = None
+                        rfid_current_uid_violated = False
+                        rfid_last_uid = None
+                        
+                except Exception as e:
+                    print(f"Warning: Could not stop RFID monitoring: {e}")
+            
+            return jsonify({'success': True, 'message': 'Camera and RFID monitoring stopped successfully'})
         else:
             return jsonify({'success': True, 'message': 'Camera was not running'})
     except Exception as e:
@@ -814,21 +2106,19 @@ def capture_frame():
                     # Draw detections on frame
                     frame_with_detections = draw_detections_frame(current_frame.copy(), detections)
                     
-                    # Add status overlay based on mode
-                    if test_mode_active:
-                        cv2.putText(frame_with_detections, "TEST MODE: Detection Always Active", (10, 30), 
-                                   cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 165, 0), 2)  # Orange color
-                    else:
-                        cv2.putText(frame_with_detections, f"RFID: ACTIVE - {rfid_last_uid}", (10, 30), 
-                                   cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
+                    # Status overlay removed as requested
+                    pass
+
+                    # Attempt to record violation if non-compliant
+                    admin_user = session.get('admin') or {}
+                    _maybe_record_violation(current_frame, detections, admin_user)
                 else:
                     # No detection, just return original frame
                     detections = []
                     frame_with_detections = current_frame.copy()
                     
-                    # Add RFID status overlay
-                    cv2.putText(frame_with_detections, "RFID: WAITING - Scan Card to Enable Detection", (10, 30), 
-                               cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
+                    # Status overlay removed as requested
+                    pass
                 
                 # Encode frame as base64
                 ret, buffer = cv2.imencode('.jpg', frame_with_detections)
@@ -852,15 +2142,64 @@ def get_cameras():
     """Get list of available cameras"""
     try:
         cameras = []
-        # Test cameras 0-9
-        for i in range(10):
-            cap = cv2.VideoCapture(i)
-            if cap.isOpened():
-                cameras.append({
-                    'id': i,
-                    'name': f'Camera {i}'
-                })
-                cap.release()
+        import platform
+        
+        # Try to get system-specific camera names
+        system = platform.system().lower()
+        
+        # Test cameras 0-5 (reduced range to avoid errors)
+        for i in range(6):
+            try:
+                cap = cv2.VideoCapture(i)
+                if cap.isOpened():
+                    # Try to get camera properties for better naming
+                    width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+                    height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+                    fps = cap.get(cv2.CAP_PROP_FPS)
+                    
+                    # Try to get camera backend info
+                    backend = cap.getBackendName()
+                    
+                    # Try to get more descriptive names based on system
+                    camera_name = None
+                    
+                    if system == "windows":
+                        # On Windows, try to get device names
+                        try:
+                            import subprocess
+                            result = subprocess.run(['wmic', 'path', 'win32_pnpentity', 'where', 'name like "%camera%"', 'get', 'name'], 
+                                                  capture_output=True, text=True, timeout=3)
+                            if result.returncode == 0:
+                                lines = result.stdout.strip().split('\n')
+                                for line in lines[1:]:  # Skip header
+                                    if line.strip() and 'camera' in line.lower():
+                                        camera_name = line.strip()
+                                        break
+                        except:
+                            pass
+                    
+                    # Fallback to generic naming with more details
+                    if not camera_name:
+                        if i == 0:
+                            camera_name = f"Default Camera ({width}x{height})"
+                        else:
+                            camera_name = f"Camera {i} ({width}x{height})"
+                    
+                    # Add backend info if available
+                    if backend and backend != "UNKNOWN":
+                        camera_name += f" [{backend}]"
+                    
+                    cameras.append({
+                        'id': i,
+                        'name': camera_name,
+                        'resolution': f"{width}x{height}",
+                        'fps': fps,
+                        'backend': backend
+                    })
+                    cap.release()
+            except Exception as e:
+                # Skip cameras that cause errors
+                continue
         
         return jsonify({'success': True, 'cameras': cameras})
     except Exception as e:
@@ -880,17 +2219,36 @@ def reset_tracker():
 @app.route('/rfid/status', methods=['GET'])
 def rfid_status():
     """Get RFID scanner status"""
-    global rfid_last_uid, rfid_present, detection_enabled, rfid_lock
+    global rfid_last_uid, rfid_present, detection_enabled, rfid_lock, rfid_last_student, rfid_enabled
     try:
         with rfid_lock:
-            status = get_rfid_status()
-            status.update({
-                'last_uid': rfid_last_uid,
-                'present': rfid_present,
-                'detection_enabled': detection_enabled
-            })
+            print(f"DEBUG: RFID status check - rfid_enabled: {rfid_enabled}, rfid_present: {rfid_present}")
+            
+            # If RFID is disabled, return inactive status
+            if not rfid_enabled:
+                status = {
+                    'available': RFID_AVAILABLE,
+                    'present': False,
+                    'last_uid': None,
+                    'detection_enabled': False,
+                    'student': None,
+                    'enabled': False
+                }
+                print("DEBUG: RFID disabled, returning inactive status")
+            else:
+                # RFID is enabled, get actual status
+                status = get_rfid_status()
+                status.update({
+                    'last_uid': rfid_last_uid,
+                    'present': rfid_present,
+                    'detection_enabled': detection_enabled,
+                    'student': rfid_last_student,
+                    'enabled': True
+                })
+                print(f"DEBUG: RFID enabled, returning status: {status}")
         return jsonify({'success': True, 'status': status})
     except Exception as e:
+        print(f"DEBUG: RFID status error: {e}")
         return jsonify({'success': False, 'message': f'Error getting RFID status: {str(e)}'}), 500
 
 @app.route('/rfid/read', methods=['POST'])
@@ -899,7 +2257,18 @@ def rfid_read():
     try:
         uid, error = get_rfid_uid(timeout_seconds=3)
         if uid:
-            return jsonify({'success': True, 'uid': uid})
+            # Lookup and log immediately
+            student = None
+            if get_connection is not None:
+                try:
+                    student = find_student_by_rfid(uid) if find_student_by_rfid else None
+                    if student and insert_rfid_log:
+                        insert_rfid_log(uid, student.get('student_id'), 'valid')
+                    elif insert_rfid_log:
+                        insert_rfid_log(uid, None, 'unregistered')
+                except Exception as e:
+                    print(f"RFID read DB error: {e}")
+            return jsonify({'success': True, 'uid': uid, 'student': student})
         else:
             return jsonify({'success': False, 'message': error or 'No card detected'}), 404
     except Exception as e:

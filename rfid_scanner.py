@@ -205,6 +205,8 @@ _rfid_last_uid = None
 _rfid_last_time = 0.0
 _rfid_presence_lock = threading.Lock()
 _rfid_present = False
+_rfid_enabled = False  # Global flag to control RFID polling
+_rfid_enabled_lock = threading.Lock()
 
 def _rfid_set_present(present: bool):
     global _rfid_present
@@ -228,6 +230,13 @@ def _rfid_poll_loop():
     global _rfid_last_uid, _rfid_last_time
     debounce_seconds = 2.0
     while not _rfid_thread_stop.is_set():
+        # Only poll if RFID is enabled
+        with _rfid_enabled_lock:
+            if not _rfid_enabled:
+                # RFID is disabled, sleep longer and continue
+                time.sleep(1.0)
+                continue
+        
         uid, err = get_rfid_uid(timeout_seconds=1)
         now = time.time()
         if uid:
@@ -251,16 +260,33 @@ def _ensure_rfid_thread_running():
 
 def start_rfid_monitoring():
     """Start RFID monitoring in background"""
+    global _rfid_enabled
+    with _rfid_enabled_lock:
+        _rfid_enabled = True
     _ensure_rfid_thread_running()
     logger.info("RFID monitoring started")
 
 def stop_rfid_monitoring():
     """Stop RFID monitoring"""
-    global _rfid_thread
+    global _rfid_thread, _rfid_enabled
+    with _rfid_enabled_lock:
+        _rfid_enabled = False
     _rfid_thread_stop.set()
     if _rfid_thread and _rfid_thread.is_alive():
         _rfid_thread.join(timeout=2)
     logger.info("RFID monitoring stopped")
+
+def set_rfid_enabled(enabled: bool):
+    """Enable or disable RFID polling without stopping the thread"""
+    global _rfid_enabled
+    with _rfid_enabled_lock:
+        _rfid_enabled = enabled
+    logger.info(f"RFID polling {'enabled' if enabled else 'disabled'}")
+
+def is_rfid_enabled():
+    """Check if RFID polling is enabled"""
+    with _rfid_enabled_lock:
+        return _rfid_enabled
 
 def subscribe_to_rfid_events() -> Queue:
     """Subscribe to RFID events, returns a queue for receiving events"""
@@ -281,6 +307,7 @@ def get_rfid_status() -> Dict[str, Any]:
         'last_uid': _rfid_last_uid,
         'last_time': _rfid_last_time,
         'monitoring': _rfid_thread is not None and _rfid_thread.is_alive(),
+        'enabled': is_rfid_enabled(),
         'subscribers': len(_rfid_subscribers)
     }
 
