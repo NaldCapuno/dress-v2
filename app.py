@@ -260,13 +260,13 @@ def validate_dress_code(detected_items, gender='male'):
             compliance_status[required_item] = {
                 'present': True,
                 'name': item_names[required_item],
-                'status': '✅'
+                'status': 'has:'
             }
         else:
             compliance_status[required_item] = {
                 'present': False,
                 'name': item_names[required_item],
-                'status': '❌'
+                'status': 'missing:'
             }
     
     # Calculate compliance percentage
@@ -404,12 +404,25 @@ def detect_persons_with_dress(image_path):
             
             # Create a compliance summary for display
             compliance_status = dress_validation['compliance_status']
-            compliance_items = []
+            
+            # Group items by status
+            has_items = []
+            missing_items = []
             for item_key, item_status in compliance_status.items():
-                compliance_items.append(f"{item_status['status']} {item_status['name']}")
+                if item_status['present']:
+                    has_items.append(item_status['name'].lower().replace(' ', '_'))
+                else:
+                    missing_items.append(item_status['name'].lower().replace(' ', '_'))
+            
+            # Format grouped details (only show categories that have items)
+            detail_parts = []
+            if has_items:
+                detail_parts.append(f"has: {', '.join(has_items)}")
+            if missing_items:
+                detail_parts.append(f"missing: {', '.join(missing_items)}")
             
             detection['dress_summary'] = f"{dress_validation['overall_status']} ({dress_validation['compliance_percentage']:.0f}%)"
-            detection['dress_details'] = " | ".join(compliance_items)
+            detection['dress_details'] = "\n".join(detail_parts)
         
         # Update tracker with detections for static image
         if detections:
@@ -507,17 +520,33 @@ def draw_detections(image_path, detections, output_path):
                 cv2.putText(image, gender_text, (x1 + 2, current_y - 2), 
                            cv2.FONT_HERSHEY_SIMPLEX, 0.4, (0, 0, 0), 1)
                 
-                # Draw each required item with status
+                # Group items by status and display
+                has_items = []
+                missing_items = []
                 for item_key, item_status in compliance_status.items():
+                    if item_status['present']:
+                        has_items.append(item_status['name'].lower().replace(' ', '_'))
+                    else:
+                        missing_items.append(item_status['name'].lower().replace(' ', '_'))
+                
+                # Draw has items (only if present)
+                if has_items:
+                    has_text = f"has: {', '.join(has_items)}"
                     current_y -= 20
-                    status_icon = "✅" if item_status['present'] else "❌"
-                    item_text = f"{status_icon} {item_status['name']}"
-                    item_size = cv2.getTextSize(item_text, cv2.FONT_HERSHEY_SIMPLEX, 0.4, 1)[0]
-                    
-                    # Draw background for each item
-                    cv2.rectangle(image, (x1, current_y - item_size[1] - 5), 
-                                 (x1 + item_size[0] + 5, current_y + 5), color, -1)
-                    cv2.putText(image, item_text, (x1 + 2, current_y - 2), 
+                    has_size = cv2.getTextSize(has_text, cv2.FONT_HERSHEY_SIMPLEX, 0.4, 1)[0]
+                    cv2.rectangle(image, (x1, current_y - has_size[1] - 5), 
+                                 (x1 + has_size[0] + 5, current_y + 5), color, -1)
+                    cv2.putText(image, has_text, (x1 + 2, current_y - 2), 
+                               cv2.FONT_HERSHEY_SIMPLEX, 0.4, (0, 0, 0), 1)
+                
+                # Draw missing items (only if present)
+                if missing_items:
+                    missing_text = f"missing: {', '.join(missing_items)}"
+                    current_y -= 20
+                    missing_size = cv2.getTextSize(missing_text, cv2.FONT_HERSHEY_SIMPLEX, 0.4, 1)[0]
+                    cv2.rectangle(image, (x1, current_y - missing_size[1] - 5), 
+                                 (x1 + missing_size[0] + 5, current_y + 5), color, -1)
+                    cv2.putText(image, missing_text, (x1 + 2, current_y - 2), 
                                cv2.FONT_HERSHEY_SIMPLEX, 0.4, (0, 0, 0), 1)
             else:
                 # No dress code validation available
@@ -584,12 +613,25 @@ def detect_persons_frame_with_dress(frame):
             
             # Create a compliance summary for display
             compliance_status = dress_validation['compliance_status']
-            compliance_items = []
+            
+            # Group items by status
+            has_items = []
+            missing_items = []
             for item_key, item_status in compliance_status.items():
-                compliance_items.append(f"{item_status['status']} {item_status['name']}")
+                if item_status['present']:
+                    has_items.append(item_status['name'].lower().replace(' ', '_'))
+                else:
+                    missing_items.append(item_status['name'].lower().replace(' ', '_'))
+            
+            # Format grouped details (only show categories that have items)
+            detail_parts = []
+            if has_items:
+                detail_parts.append(f"has: {', '.join(has_items)}")
+            if missing_items:
+                detail_parts.append(f"missing: {', '.join(missing_items)}")
             
             detection['dress_summary'] = f"{dress_validation['overall_status']} ({dress_validation['compliance_percentage']:.0f}%)"
-            detection['dress_details'] = " | ".join(compliance_items)
+            detection['dress_details'] = "\n".join(detail_parts)
         
         # Update tracker with detections
         if detections:
@@ -680,17 +722,33 @@ def draw_detections_frame(frame, detections):
                 cv2.putText(frame, gender_text, (x1 + 2, current_y - 2), 
                            cv2.FONT_HERSHEY_SIMPLEX, 0.4, (0, 0, 0), 1)
                 
-                # Draw each required item with status
+                # Group items by status and display
+                has_items = []
+                missing_items = []
                 for item_key, item_status in compliance_status.items():
+                    if item_status['present']:
+                        has_items.append(item_status['name'].lower().replace(' ', '_'))
+                    else:
+                        missing_items.append(item_status['name'].lower().replace(' ', '_'))
+                
+                # Draw has items (only if present)
+                if has_items:
+                    has_text = f"has: {', '.join(has_items)}"
                     current_y -= 20
-                    status_icon = "✅" if item_status['present'] else "❌"
-                    item_text = f"{status_icon} {item_status['name']}"
-                    item_size = cv2.getTextSize(item_text, cv2.FONT_HERSHEY_SIMPLEX, 0.4, 1)[0]
-                    
-                    # Draw background for each item
-                    cv2.rectangle(frame, (x1, current_y - item_size[1] - 5), 
-                                 (x1 + item_size[0] + 5, current_y + 5), color, -1)
-                    cv2.putText(frame, item_text, (x1 + 2, current_y - 2), 
+                    has_size = cv2.getTextSize(has_text, cv2.FONT_HERSHEY_SIMPLEX, 0.4, 1)[0]
+                    cv2.rectangle(frame, (x1, current_y - has_size[1] - 5), 
+                                 (x1 + has_size[0] + 5, current_y + 5), color, -1)
+                    cv2.putText(frame, has_text, (x1 + 2, current_y - 2), 
+                               cv2.FONT_HERSHEY_SIMPLEX, 0.4, (0, 0, 0), 1)
+                
+                # Draw missing items (only if present)
+                if missing_items:
+                    missing_text = f"missing: {', '.join(missing_items)}"
+                    current_y -= 20
+                    missing_size = cv2.getTextSize(missing_text, cv2.FONT_HERSHEY_SIMPLEX, 0.4, 1)[0]
+                    cv2.rectangle(frame, (x1, current_y - missing_size[1] - 5), 
+                                 (x1 + missing_size[0] + 5, current_y + 5), color, -1)
+                    cv2.putText(frame, missing_text, (x1 + 2, current_y - 2), 
                                cv2.FONT_HERSHEY_SIMPLEX, 0.4, (0, 0, 0), 1)
             
         return frame
