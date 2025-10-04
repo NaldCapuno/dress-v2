@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Admin Login - DRESS System</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body class="login-body">
+    <div class="login-container floating-card">
+        <div class="login-illustration">
+            <img src="{{ url_for('static', filename='images/login_logo.png') }}" alt="Login Illustration" />
+        </div>
+        <div class="login-header">
+            <h1>Admin Login</h1>
+            <p>Enter valid username & password to continue</p>
+        </div>
+
+        <div id="message-container"></div>
+
+        <form id="login-form" class="login-form">
+            <div class="form-group">
+                <label for="username">Username</label>
+                <input type="text" id="username" name="username" required>
+            </div>
+
+            <div class="form-group">
+                <label for="password">Password</label>
+                <input type="password" id="password" name="password" required>
+            </div>
+
+            <button type="submit" class="login-btn" id="login-btn">
+                Login
+            </button>
+        </form>
+
+
+        <div class="loading" id="loading">
+            <p>Authenticating...</p>
+        </div>
+    </div>
+
+    <script>
+        document.getElementById('login-form').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            
+            const username = document.getElementById('username').value;
+            const password = document.getElementById('password').value;
+            
+            const loginBtn = document.getElementById('login-btn');
+            const loading = document.getElementById('loading');
+            const messageContainer = document.getElementById('message-container');
+
+            // Clear previous messages
+            messageContainer.innerHTML = '';
+
+            // Show loading state
+            loginBtn.style.display = 'none';
+            loading.classList.add('show');
+
+            try {
+                const response = await fetch('/login', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        username: username,
+                        password: password
+                    })
+                });
+
+                const data = await response.json();
+
+                if (data.success) {
+                    // Show success message
+                    messageContainer.innerHTML = `
+                        <div class="success-message">
+                            Login successful! Redirecting to security dashboard...
+                        </div>
+                    `;
+                    
+                    // Redirect based on role after a short delay
+                    setTimeout(() => {
+                        const role = (data.admin && data.admin.role || '').toLowerCase();
+                        if (role === 'security') {
+                            window.location.href = '/';
+                        } else if (role === 'osas') {
+                            window.location.href = '/osas';
+                        } else if (role === 'dean') {
+                            window.location.href = '/dean';
+                        } else {
+                            window.location.href = '/';
+                        }
+                    }, 1500);
+                } else {
+                    // Show error message
+                    messageContainer.innerHTML = `
+                        <div class="error-message">
+                            ${data.error || 'Login failed. Please check your credentials.'}
+                        </div>
+                    `;
+                }
+            } catch (error) {
+                console.error('Login error:', error);
+                messageContainer.innerHTML = `
+                    <div class="error-message">
+                        Network error. Please try again.
+                    </div>
+                `;
+            } finally {
+                // Hide loading state
+                loginBtn.style.display = 'block';
+                loading.classList.remove('show');
+            }
+        });
+    </script>
+</body>
+</html>
