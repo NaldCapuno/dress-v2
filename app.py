@@ -139,8 +139,7 @@ def rfid_event_handler():
                     with rfid_lock:
                         rfid_last_uid = event['uid']
                         rfid_present = True
-                        detection_enabled = True
-                        # Reset per-scan counters
+                        # Reset per-scan counters on every RFID scan
                         rfid_current_uid_checks = 0
                         rfid_current_uid_violated = False
                         rfid_consecutive_non_compliant = 0
@@ -155,9 +154,18 @@ def rfid_event_handler():
                                 elif insert_rfid_log:
                                     insert_rfid_log(rfid_last_uid, None, 'unregistered')
                             rfid_last_student = student
+                            
+                            # Only enable detection if student record was found in database
+                            detection_enabled = student is not None
+                            
+                            detection_status = "ENABLED" if detection_enabled else "DISABLED (no database record)"
+                            
                         except Exception as e:
                             print(f"RFID DB handling error: {e}")
-                    print(f"RFID Card detected: {event['uid']} - Detection ENABLED")
+                            detection_enabled = False
+                            detection_status = "DISABLED (database error)"
+                    
+                    print(f"RFID Card scanned: {event['uid']} - Detection {detection_status}")
                 else:
                     with rfid_lock:
                         rfid_present = False
@@ -182,17 +190,40 @@ def rfid_event_handler():
                 with rfid_lock:
                     if rfid_present != current_present:
                         rfid_present = current_present
-                        detection_enabled = current_present
+                        
                         if not current_present:
+                            # RFID card removed - disable detection
+                            detection_enabled = False
                             rfid_last_student = None
                             rfid_current_uid_checks = 0
                             rfid_current_uid_violated = False
                             rfid_consecutive_non_compliant = 0
                             rfid_last_compliance_status = None
-                        if current_present:
-                            print("RFID Card present - Detection ENABLED")
-                        else:
                             print("RFID Card removed - Detection DISABLED")
+                        else:
+                            # RFID card present - check database record
+                            if rfid_last_uid:
+                                try:
+                                    student = None
+                                    if get_connection is not None and rfid_last_uid:
+                                        student = find_student_by_rfid(rfid_last_uid) if find_student_by_rfid else None
+                                    rfid_last_student = student
+                                    
+                                    # Only enable detection if student record exists
+                                    detection_enabled = student is not None
+                                    detection_status = "ENABLED" if detection_enabled else "DISABLED (no database record)"
+                                    print(f"RFID Card present - Detection {detection_status}")
+                                    
+                                except Exception as e:
+                                    print(f"RFID DB handling error: {e}")
+                                    detection_enabled = False
+                                    rfid_last_student = None
+                                    print("RFID Card present - Detection DISABLED (database error)")
+                            else:
+                                # No UID available yet, keep detection disabled
+                                detection_enabled = False
+                                rfid_last_student = None
+                                print("RFID Card present - Detection DISABLED (no UID)")
             else:
                 # RFID disabled or camera off, ensure RFID is inactive
                 with rfid_lock:
