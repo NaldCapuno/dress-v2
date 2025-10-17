@@ -1,4 +1,5 @@
 from flask import Flask, render_template, request, jsonify, send_from_directory, Response, session, redirect, url_for
+from flask_mail import Mail, Message
 import cv2
 import numpy as np
 from ultralytics import YOLO
@@ -50,6 +51,17 @@ except ImportError as e:
 app = Flask(__name__)
 # Secret key for session management (can be overridden via environment variable)
 app.secret_key = os.getenv('FLASK_SECRET_KEY', 'change-this-in-production')
+# Flask-Mail configuration
+app.config['MAIL_SERVER'] = os.getenv('MAIL_SERVER', 'smtp.gmail.com')
+app.config['MAIL_PORT'] = int(os.getenv('MAIL_PORT', '587'))
+app.config['MAIL_USE_TLS'] = os.getenv('MAIL_USE_TLS', 'true').lower() in {'1','true','yes','on'}
+app.config['MAIL_USE_SSL'] = os.getenv('MAIL_USE_SSL', 'false').lower() in {'1','true','yes','on'}
+app.config['MAIL_USERNAME'] = os.getenv('MAIL_USERNAME', '')
+app.config['MAIL_PASSWORD'] = os.getenv('MAIL_PASSWORD', '')
+app.config['MAIL_DEFAULT_SENDER'] = os.getenv('MAIL_DEFAULT_SENDER', os.getenv('MAIL_USERNAME', ''))
+
+mail = Mail(app)
+
 
 # Configure upload folder
 UPLOAD_FOLDER = 'uploads'
@@ -976,6 +988,84 @@ def _maybe_record_violation(frame, detections, admin_user):
                 print(f"  - Type: {violation_type}")
                 print(f"  - Proof Image: {proof_name}")
                 print(f"  - Consecutive Non-Compliant Detections: {rfid_consecutive_non_compliant}")
+                # Attempt to send email notification to student (with strike count)
+                try:
+                    student_email = (rfid_last_student or {}).get('email')
+                    student_name = (rfid_last_student or {}).get('name', 'Student')
+                    student_id = (rfid_last_student or {}).get('student_id')
+                    if not student_email and (rfid_last_student or {}).get('student_id'):
+                        try:
+                            from config import find_student_by_id as _find_student_by_id
+                        except Exception:
+                            _find_student_by_id = None
+                        if _find_student_by_id:
+                            stu = _find_student_by_id(student_id)
+                            if stu:
+                                student_email = stu.get('email') or student_email
+                                student_name = stu.get('name') or student_name
+                                student_id = stu.get('student_id') or student_id
+                    if student_email:
+                        # Determine strike number (cap at 3)
+                        strike_num = 1
+                        try:
+                            from config import get_student_violation_count as _get_v_cnt, get_student_violations as _get_v_list
+                        except Exception:
+                            _get_v_cnt = None
+                            _get_v_list = None
+                        if _get_v_cnt and student_id:
+                            total = int(_get_v_cnt(student_id) or 1)
+                            strike_num = max(1, min(3, total))
+                        # Build violation list lines
+                        violation_lines = []
+                        if _get_v_list and student_id:
+                            try:
+                                vlist = _get_v_list(student_id) or []
+                                for v in vlist:
+                                    tstr = str(v.get('timestamp') or '')
+                                    vtype = str(v.get('violation_type') or '')
+                                    violation_lines.append(f"- {tstr} – {vtype}")
+                            except Exception:
+                                pass
+                        dt_str = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(now_ts))
+                        # Compose strike-specific subject/body
+                        if strike_num == 1:
+                            subject = 'Dress Code Violation - 1st Offense (Warning)'
+                            offense_line = '1st Offense - Warning'
+                        elif strike_num == 2:
+                            subject = 'Dress Code Violation - 2nd Offense (5-day Suspension)'
+                            offense_line = '2nd Offense - Suspension for five (5) days'
+                        else:
+                            subject = 'Dress Code Violation - 3rd Offense (Up to 1 month Suspension)'
+                            offense_line = '3rd Offense - Suspension for two (2) weeks to one (1) month'
+
+                        body = (
+                            f"Good day {student_name},\n\n"
+                            f"This is to inform you that based on the monitoring of the DRESS (Dress-code Recognition Surveillance System), you were observed to be non-compliant with the university's dress code policy on {dt_str}.\n\n"
+                            f"Please be reminded that adherence to the prescribed dress code is part of maintaining discipline and professionalism within the university premises. We kindly ask you to correct your attire and comply with the dress code on your next visit.\n\n"
+                            f"Current strike count: {strike_num} of 3.\n\n"
+                            f"Your recorded violations:\n"
+                            f"{('\n'.join(violation_lines) if violation_lines else '- No history available')}\n\n"
+                            f"As stated in the university guidelines, dress code violations have the following corresponding consequences:\n"
+                            f"1st Offense - Warning\n"
+                            f"2nd Offense - Suspension for five (5) days\n"
+                            f"3rd Offense - Suspension for two (2) weeks to one (1) month\n\n"
+                            f"Your current offense: {offense_line}\n\n"
+                            f"Repeated violations may lead to the corresponding disciplinary actions stated above, in accordance with university policy.\n\n"
+                            f"Thank you for your understanding and cooperation.\n\n"
+                            f"Respectfully,\n"
+                            f"DRESS Monitoring Team\n"
+                            f"Palawan State University\n"
+                        )
+                        try:
+                            msg = Message(subject=subject, recipients=[student_email], body=body)
+                            mail.send(msg)
+                            print(f"Violation email sent to {student_email}")
+                        except Exception as _em:
+                            print(f"Failed to send violation email to {student_email}: {_em}")
+                    else:
+                        print("No student email available; skipping email notification")
+                except Exception as _e:
+                    print(f"Violation email error: {_e}")
                 
                 return vid
             else:
