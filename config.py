@@ -42,7 +42,7 @@ def find_student_by_rfid(rfid_uid: str):
         with conn.cursor() as cur:
             cur.execute(
                 """
-                SELECT student_id, rfid_uid, name, gender, year_level, course, college
+                SELECT student_id, rfid_uid, name, gender, year_level, course, college, email
                 FROM students
                 WHERE rfid_uid = %s
                 LIMIT 1
@@ -52,6 +52,73 @@ def find_student_by_rfid(rfid_uid: str):
             return cur.fetchone()
     finally:
         conn.close()
+
+def find_student_by_id(student_id: str):
+    """Return student dict for given student_id, or None."""
+    if not student_id:
+        return None
+    conn = get_connection()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT student_id, rfid_uid, name, gender, year_level, course, college, email
+                FROM students
+                WHERE student_id = %s
+                LIMIT 1
+                """,
+                (student_id,)
+            )
+            return cur.fetchone()
+    finally:
+        conn.close()
+
+
+def get_student_violation_count(student_id: str) -> int:
+    """Return total count of violations for a given student_id."""
+    if not student_id:
+        return 0
+    conn = get_connection()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT COUNT(*) AS cnt
+                FROM violations
+                WHERE student_id = %s
+                """,
+                (student_id,)
+            )
+            row = cur.fetchone() or {}
+            return int(row.get('cnt') or 0)
+    except Exception:
+        return 0
+    finally:
+        conn.close()
+
+
+def get_student_violations(student_id: str):
+    """Return list of violations for a given student_id (timestamp and type)."""
+    if not student_id:
+        return []
+    conn = get_connection()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT violation_id, violation_type, timestamp, status
+                FROM violations
+                WHERE student_id = %s
+                ORDER BY timestamp ASC
+                """,
+                (student_id,)
+            )
+            return cur.fetchall() or []
+    except Exception:
+        return []
+    finally:
+        conn.close()
+
 
 
 def insert_rfid_log(rfid_uid: str, student_id, status: str) -> bool:
