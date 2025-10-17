@@ -5,6 +5,20 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Dean Dashboard</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <style>
+        .notification-dot {
+            color: #ff4444;
+            font-size: 20px;
+            font-weight: bold;
+            margin-left: 8px;
+            animation: pulse 1.5s infinite;
+        }
+        @keyframes pulse {
+            0% { opacity: 1; }
+            50% { opacity: 0.5; }
+            100% { opacity: 1; }
+        }
+    </style>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script>
         async function fetchJSON(url) {
@@ -22,7 +36,8 @@
             const params = new URLSearchParams(getFilterParams());
             const data = await fetchJSON(`/dean/analytics?${params.toString()}`);
             if (!data.success) return;
-            document.getElementById('total-violations').textContent = data.total;
+            const totalEl = document.getElementById('total-violations');
+            if (totalEl) totalEl.textContent = data.total;
             renderBarChart('byProgramChart', data.by_program);
             renderPieChart('byGenderChart', data.by_gender);
             renderPieChart('byStatusChart', data.by_status);
@@ -75,7 +90,9 @@
             }
             
             try {
+                console.log(`Updating violation ${id} to status: ${val}`);
                 const res = await postJSON(`/dean/violation/${id}/status`, { status: val });
+                console.log('Status update response:', res);
                 
                 if (dropdownContainer) {
                     dropdownContainer.classList.remove('loading');
@@ -162,6 +179,10 @@
                 <button class="nav-item active" data-target="overview-section">Overview</button>
                 <button class="nav-item" data-target="statistics-section">Statistics</button>
                 <button class="nav-item" data-target="violations-section">Violations</button>
+                <button class="nav-item" data-target="notifications-section">
+                    Notifications
+                    <span id="notification-dot" class="notification-dot" style="display: none;">•</span>
+                </button>
             </nav>
             <div class="sidebar-footer">
                 <button class="nav-item muted" id="logout-btn-side">Logout</button>
@@ -226,14 +247,6 @@
             </div>
 
             <div class="grid">
-                <div class="card">
-                    <div class="card-header">
-                        <h3>Top College</h3>
-                    </div>
-                    <div class="card-body">
-                        <div id="ov-top-college" class="metric-value" style="font-size:1.2rem;">-</div>
-                    </div>
-                </div>
                 <div class="card">
                     <div class="card-header">
                         <h3>Top Programs</h3>
@@ -347,6 +360,31 @@
                 </div>
             </div>
         </div>
+
+        <div id="notifications-section" style="display:none;">
+            <div class="card">
+                <div class="card-header">
+                    <h3>Notifications</h3>
+                </div>
+                <div class="card-body">
+                    <div id="alert-message" class="alert" style="display:none; cursor:pointer; padding:12px 14px; border-radius:6px; background:#fff8e1; border:1px solid #ffe082;">
+                        There are <strong id="alert-count">0</strong> students with more than 3 days pending violation. Click to view.
+                    </div>
+                    <div id="alert-students" style="display:none; margin-top:10px;">
+                        <table class="table">
+                            <thead>
+                                <tr>
+                                    <th>Student ID</th>
+                                    <th>Name</th>
+                                    <th>Program</th>
+                                </tr>
+                            </thead>
+                            <tbody id="alert-students-body"></tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
         </div>
         </main>
         </div>
@@ -360,8 +398,17 @@
                 document.getElementById('overview-section').style.display = target === 'overview-section' ? '' : 'none';
                 document.getElementById('statistics-section').style.display = target === 'statistics-section' ? '' : 'none';
                 document.getElementById('violations-section').style.display = target === 'violations-section' ? '' : 'none';
+                document.getElementById('notifications-section').style.display = target === 'notifications-section' ? '' : 'none';
                 if (target === 'overview-section') { renderOverview(); }
                 if (target === 'statistics-section') { loadAnalytics(); }
+                if (target === 'notifications-section') { 
+                    loadNotifications();
+                    // Hide notification dot when user views notifications
+                    const notificationDot = document.getElementById('notification-dot');
+                    if (notificationDot) {
+                        notificationDot.style.display = 'none';
+                    }
+                }
             }
             sideButtons.forEach(btn => {
                 btn.addEventListener('click', () => {
@@ -393,9 +440,18 @@
             } catch (e) {}
             // Initial render
             renderOverview();
+            // Preload notifications so the tab isn't empty on first click
+            try { await loadNotifications(); } catch (e) { console.error('loadNotifications error:', e); }
         });
 
         // Overview rendering using analytics data (reuse OSAS endpoints filtered by college server-side if available)
+        function formatTs(ts){
+            if (!ts) return '';
+            const d = new Date(ts);
+            if (isNaN(d)) return String(ts).replace(/GMT.*$/,'').trim().replace('T',' ').replace('Z','');
+            const pad = n => String(n).padStart(2,'0');
+            return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+        }
         async function renderOverview() {
             const params = new URLSearchParams(getFilterParams());
             const data = await fetchJSON(`/dean/analytics?${params.toString()}`);
@@ -408,8 +464,6 @@
             document.getElementById('ov-unresolved').textContent = unresolved;
             document.getElementById('ov-resolved').textContent = resolved;
 
-            const topCollege = (data.by_college || [])[0];
-            document.getElementById('ov-top-college').textContent = topCollege ? `${topCollege.label} (${topCollege.cnt})` : '-';
             const topPrograms = (data.by_program || []).slice(0,3);
             const list = document.getElementById('ov-top-programs');
             list.innerHTML = '';
@@ -431,6 +485,60 @@
             const ctx = document.getElementById(id).getContext('2d');
             charts[id]?.destroy?.();
             charts[id] = new Chart(ctx, { type: 'line', data: { labels: trend.labels, datasets: [{ label: 'Violations', data: trend.rows, borderColor: '#007FFF', backgroundColor: 'rgba(0,127,255,0.15)', tension: 0.3 }] }, options: { responsive: true, plugins: { legend: { display: false } } } });
+        }
+
+        async function loadNotifications(){
+            // Load alert summary
+            try {
+                const res = await fetch('/dean/alerts');
+                const data = await res.json();
+                console.log('Alerts payload:', data);
+                const msg = document.getElementById('alert-message');
+                const countEl = document.getElementById('alert-count');
+                const notificationDot = document.getElementById('notification-dot');
+                
+                // Show notification if it was ever triggered (when count >= 10), regardless of current count
+                if (data && data.success && data.notification_triggered) {
+                    // Show notification dot
+                    if (notificationDot) {
+                        notificationDot.style.display = 'inline';
+                    }
+                    
+                    if (msg) {
+                        msg.style.display = '';
+                        if (countEl) countEl.textContent = data.num_students;
+                        msg.onclick = async () => {
+                            const res2 = await fetch('/dean/alerts/students');
+                            const payload = await res2.json();
+                            console.log('Alert students payload:', payload);
+                            const body = document.getElementById('alert-students-body');
+                            const wrap = document.getElementById('alert-students');
+                            if (payload.success && Array.isArray(payload.rows)) {
+                                if (wrap && wrap.style.display === 'none') {
+                                    // Show the list
+                                    body.innerHTML = payload.rows.map(s=>`
+                                        <tr><td>${s.student_id||''}</td><td>${s.name||''}</td><td>${s.course||''}</td></tr>
+                                    `).join('');
+                                    wrap.style.display = '';
+                                } else if (wrap) {
+                                    // Hide the list
+                                    wrap.style.display = 'none';
+                                }
+                            }
+                        };
+                    }
+                } else {
+                    // Hide notification dot and message when no notifications
+                    if (notificationDot) {
+                        notificationDot.style.display = 'none';
+                    }
+                    if (msg) {
+                        msg.style.display = 'none';
+                    }
+                }
+            } catch (e) {
+                console.error('alerts fetch failed', e);
+            }
         }
     </script>
 </body>

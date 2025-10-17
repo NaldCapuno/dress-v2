@@ -75,17 +75,17 @@ def insert_rfid_log(rfid_uid: str, student_id, status: str) -> bool:
         conn.close()
 
 
-def insert_violation(student_id, violation_type: str, image_proof_rel_path: str | None, recorded_by: int | None = None):
+def insert_violation(student_id, violation_type: str, image_proof_rel_path: str | None):
     """Insert a violation and return the new violation_id (or None on failure)."""
     conn = get_connection()
     try:
         with conn.cursor() as cur:
             cur.execute(
                 """
-                INSERT INTO violations (student_id, recorded_by, violation_type, image_proof)
-                VALUES (%s, %s, %s, %s)
+                INSERT INTO violations (student_id, violation_type, image_proof)
+                VALUES (%s, %s, %s)
                 """,
-                (student_id, recorded_by, violation_type, image_proof_rel_path)
+                (student_id, violation_type, image_proof_rel_path)
             )
             return cur.lastrowid
     except Exception:

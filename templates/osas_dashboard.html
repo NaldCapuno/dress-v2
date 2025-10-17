@@ -22,7 +22,8 @@
             const params = new URLSearchParams(getFilterParams());
             const data = await fetchJSON(`/osas/analytics?${params.toString()}`);
             if (!data.success) return;
-            document.getElementById('total-violations').textContent = data.total;
+            const totalEl = document.getElementById('total-violations');
+            if (totalEl) totalEl.textContent = data.total;
             renderBarChart('byCollegeChart', data.by_college);
             renderBarChart('byProgramChart', data.by_program);
             renderPieChart('byGenderChart', data.by_gender);
@@ -53,7 +54,6 @@
                             <select onchange="updateStatus(${v.violation_id}, this.value)">
                                 <option value="">Update...</option>
                                 <option value="forwarded_dean">Forward to Dean</option>
-                                <option value="forwarded_guidance">Forward to Guidance</option>
                                 <option value="resolved">Resolved</option>
                                 <option value="pending">Pending</option>
                             </select>
@@ -77,7 +77,9 @@
             }
             
             try {
+                console.log(`Updating violation ${id} to status: ${val}`);
                 const res = await postJSON(`/osas/violation/${id}/status`, { status: val });
+                console.log('Status update response:', res);
                 
                 if (dropdownContainer) {
                     dropdownContainer.classList.remove('loading');
