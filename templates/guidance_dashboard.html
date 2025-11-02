@@ -3,22 +3,8 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Dean Dashboard</title>
+    <title>Guidance Dashboard</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
-    <style>
-        .notification-dot {
-            color: #ff4444;
-            font-size: 20px;
-            font-weight: bold;
-            margin-left: 8px;
-            animation: pulse 1.5s infinite;
-        }
-        @keyframes pulse {
-            0% { opacity: 1; }
-            50% { opacity: 0.5; }
-            100% { opacity: 1; }
-        }
-    </style>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script>
         async function fetchJSON(url) {
@@ -34,10 +20,11 @@
 
         async function loadAnalytics() {
             const params = new URLSearchParams(getFilterParams());
-            const data = await fetchJSON(`/dean/analytics?${params.toString()}`);
+            const data = await fetchJSON(`/guidance/analytics?${params.toString()}`);
             if (!data.success) return;
             const totalEl = document.getElementById('total-violations');
             if (totalEl) totalEl.textContent = data.total;
+            renderBarChart('byCollegeChart', data.by_college);
             renderBarChart('byProgramChart', data.by_program);
             renderPieChart('byGenderChart', data.by_gender);
             renderPieChart('byStatusChart', data.by_status);
@@ -46,7 +33,7 @@
             const params = new URLSearchParams(getFilterParams());
             params.set('page', page);
             params.set('page_size', pageSize);
-            const data = await fetchJSON(`/dean/violations?${params.toString()}`);
+            const data = await fetchJSON(`/guidance/violations?${params.toString()}`);
             if (!data.success) return;
             const tbody = document.getElementById('violations-body');
             tbody.innerHTML = '';
@@ -61,12 +48,65 @@
                     <td>${v.course || ''}</td>
                     <td>${v.gender || ''}</td>
                     <td>${v.violation_type || ''}</td>
-                    <td><span class=\"status ${v.status}\">${v.status}</span></td>
+                    <td><span class="status ${v.status}">${v.status}</span></td>
+                    <td>
+                        <div class="action-dropdown compact status-${v.status}">
+                            <select onchange="updateStatus(${v.violation_id}, this.value)">
+                                <option value="">Update...</option>
+                                <option value="resolved">Resolved</option>
+                                <option value="pending">Pending</option>
+                            </select>
+                        </div>
+                    </td>
                 `;
                 tbody.appendChild(tr);
             });
             document.getElementById('total-count').textContent = data.total;
             document.getElementById('page').textContent = page;
+        }
+        async function updateStatus(id, val) {
+            if (!val) return;
+            const dropdown = document.querySelector(`select[onchange*="${id}"]`);
+            const dropdownContainer = dropdown?.closest('.action-dropdown');
+            if (dropdownContainer) {
+                dropdownContainer.classList.add('loading');
+            }
+            try {
+                const res = await postJSON(`/guidance/violation/${id}/status`, { status: val });
+                if (dropdownContainer) {
+                    dropdownContainer.classList.remove('loading');
+                    if (res.success) {
+                        dropdownContainer.classList.add('success-animation');
+                        setTimeout(() => {
+                            dropdownContainer.classList.remove('success-animation');
+                            loadViolations();
+                            loadAnalytics();
+                        }, 600);
+                    } else {
+                        dropdownContainer.classList.add('error-animation');
+                        setTimeout(() => {
+                            dropdownContainer.classList.remove('error-animation');
+                        }, 600);
+                        alert(res.error || 'Failed to update');
+                    }
+                } else {
+                    if (res.success) {
+                        loadViolations();
+                        loadAnalytics();
+                    } else {
+                        alert(res.error || 'Failed to update');
+                    }
+                }
+            } catch (error) {
+                if (dropdownContainer) {
+                    dropdownContainer.classList.remove('loading');
+                    dropdownContainer.classList.add('error-animation');
+                    setTimeout(() => {
+                        dropdownContainer.classList.remove('error-animation');
+                    }, 600);
+                }
+                alert('Network error: ' + error.message);
+            }
         }
         function getFilterParams() {
             return {
@@ -74,9 +114,6 @@
                 end: document.getElementById('end').value,
                 academic_year: document.getElementById('academic_year').value,
                 semester: document.getElementById('semester').value,
-                college: '',
-                program: document.getElementById('program').value,
-                group_by: document.getElementById('group_by').value,
             };
         }
         function applyFilters() { page = 1; loadViolations(); loadAnalytics(); }
@@ -98,29 +135,66 @@
             charts[id]?.destroy?.();
             charts[id] = new Chart(ctx, { type: 'pie', data: { labels, datasets: [{ data, backgroundColor: ['#4CAF50','#FF9800','#03A9F4','#E91E63','#9C27B0','#795548'] }] }, options: { responsive: true } });
         }
-        window.addEventListener('DOMContentLoaded', () => { loadViolations(); loadAnalytics(); });
+        function renderLine(id, trend){
+            const ctx = document.getElementById(id).getContext('2d');
+            charts[id]?.destroy?.();
+            charts[id] = new Chart(ctx, { type: 'line', data: { labels: trend.labels, datasets: [{ label: 'Violations', data: trend.rows, borderColor: '#007FFF', backgroundColor: 'rgba(0,127,255,0.15)', tension: 0.3 }] }, options: { responsive: true, plugins: { legend: { display: false } } } });
+        }
+
+        async function renderOverview() {
+            const params = new URLSearchParams(getFilterParams());
+            const data = await fetchJSON(`/guidance/analytics?${params.toString()}`);
+            if (!data.success) return;
+            const total = data.total || 0;
+            const byStatus = (data.by_status || []).reduce((acc, r) => { acc[String(r.label||'').toLowerCase()] = r.cnt||0; return acc; }, {});
+            const resolved = byStatus['resolved'] || 0;
+            const unresolved = total - resolved;
+            const totalEl = document.getElementById('ov-total');
+            const unresolvedEl = document.getElementById('ov-unresolved');
+            const resolvedEl = document.getElementById('ov-resolved');
+            const pending3dEl = document.getElementById('ov-pending-3d');
+            if (totalEl) totalEl.textContent = total;
+            if (unresolvedEl) unresolvedEl.textContent = unresolved;
+            if (resolvedEl) resolvedEl.textContent = resolved;
+            if (pending3dEl) pending3dEl.textContent = byStatus['pending'] || 0;
+
+            // Top college/programs
+            const topCollege = (data.by_college || [])[0];
+            const topCollegeEl = document.getElementById('ov-top-college');
+            if (topCollegeEl) topCollegeEl.textContent = topCollege ? `${topCollege.label} (${topCollege.cnt})` : '-';
+            const topPrograms = (data.by_program || []).slice(0,3);
+            const list = document.getElementById('ov-top-programs');
+            if (list) {
+                list.innerHTML = '';
+                topPrograms.forEach(p=>{
+                    const li = document.createElement('li');
+                    li.textContent = `${p.label} (${p.cnt})`;
+                    list.appendChild(li);
+                });
+            }
+
+            // Trend
+            const trendGroup = 'day';
+            const trend = await fetchJSON(`/guidance/trend?${params.toString()}&group_by=${trendGroup}`);
+            const trendPayload = { labels: (trend.series || []).map(p=>p.label), rows: (trend.series || []).map(p=>p.cnt) };
+            renderLine('ov-trend', trendPayload);
+            renderPieChart('ov-resolve-pie', [ { label: 'Resolved', cnt: resolved }, { label: 'Unresolved', cnt: Math.max(0, total - resolved) } ]);
+            renderBarChart('ov-gender', data.by_gender || []);
+        }
+
+        window.addEventListener('DOMContentLoaded', () => { renderOverview(); loadViolations(); loadAnalytics(); });
     </script>
 </head>
 <body>
     <div class="dashboard-shell">
         <aside class="sidebar">
             <div class="sidebar-header">
-                <div class="brand">DEAN</div>
-                {% set adm = session.get('admin') %}
-                {% if college %}
-                <div style="margin-top:6px; font-size:0.9rem; color:#666;">{{ college }}</div>
-                {% elif adm and adm.get('college') %}
-                <div style="margin-top:6px; font-size:0.9rem; color:#666;">{{ adm.get('college') }}</div>
-                {% endif %}
+                <div class="brand">GUIDANCE</div>
             </div>
             <nav class="sidebar-nav">
                 <button class="nav-item active" data-target="overview-section">Overview</button>
                 <button class="nav-item" data-target="statistics-section">Statistics</button>
                 <button class="nav-item" data-target="violations-section">Violations</button>
-                <button class="nav-item" data-target="notifications-section">
-                    Notifications
-                    <span id="notification-dot" class="notification-dot" style="display: none;">•</span>
-                </button>
             </nav>
             <div class="sidebar-footer">
                 <button class="nav-item muted" id="logout-btn-side">Logout</button>
@@ -163,7 +237,7 @@
                         </div>
                     </div>
                 </div>
-            </div>
+    </div>
 
             <div class="grid">
                 <div class="card">
@@ -185,6 +259,14 @@
             </div>
 
             <div class="grid">
+                <div class="card">
+                    <div class="card-header">
+                        <h3>Top College</h3>
+                    </div>
+                    <div class="card-body">
+                        <div id="ov-top-college" class="metric-value" style="font-size:1.2rem;">-</div>
+                    </div>
+                </div>
                 <div class="card">
                     <div class="card-header">
                         <h3>Top Programs</h3>
@@ -213,6 +295,14 @@
                     </div>
                     <div class="card-body">
                         <canvas id="byStatusChart" height="160"></canvas>
+                    </div>
+                </div>
+                <div class="card">
+                    <div class="card-header">
+                        <h3>By College</h3>
+                    </div>
+                    <div class="card-body">
+                        <canvas id="byCollegeChart" height="160"></canvas>
                     </div>
                 </div>
                 <div class="card">
@@ -249,14 +339,6 @@
                             <option value="1">1</option>
                             <option value="2">2</option>
                         </select>
-                        <select id="program" class="form-control">
-                            <option value="">All Programs (Your College)</option>
-                        </select>
-                        <select id="group_by" class="form-control">
-                            <option value="day">Day</option>
-                            <option value="week">Week</option>
-                            <option value="month">Month</option>
-                        </select>
                         <button class="btn btn-primary" onclick="applyFilters()">Apply</button>
                     </div>
                 </div>
@@ -289,34 +371,10 @@
                                     <th>Gender</th>
                                     <th>Type</th>
                                     <th>Status</th>
+                                    <th>Action</th>
                                 </tr>
                             </thead>
                             <tbody id="violations-body"></tbody>
-                        </table>
-                    </div>
-                </div>
-            </div>
-        </div>
-
-        <div id="notifications-section" style="display:none;">
-            <div class="card">
-                <div class="card-header">
-                    <h3>Notifications</h3>
-                </div>
-                <div class="card-body">
-                    <div id="alert-message" class="alert" style="display:none; cursor:pointer; padding:12px 14px; border-radius:6px; background:#fff8e1; border:1px solid #ffe082;">
-                        There are <strong id="alert-count">0</strong> students with more than 3 days pending violation. Click to view.
-                    </div>
-                    <div id="alert-students" style="display:none; margin-top:10px;">
-                        <table class="table">
-                            <thead>
-                                <tr>
-                                    <th>Student ID</th>
-                                    <th>Name</th>
-                                    <th>Program</th>
-                                </tr>
-                            </thead>
-                            <tbody id="alert-students-body"></tbody>
                         </table>
                     </div>
                 </div>
@@ -328,24 +386,16 @@
 
     <script>
         // Sidebar-only navigation
-        document.addEventListener('DOMContentLoaded', async () => {
+        document.addEventListener('DOMContentLoaded', () => {
             const sideButtons = document.querySelectorAll('.sidebar .nav-item');
             function showSection(target){
                 sideButtons.forEach(b=>b.classList.toggle('active', b.dataset.target===target));
                 document.getElementById('overview-section').style.display = target === 'overview-section' ? '' : 'none';
                 document.getElementById('statistics-section').style.display = target === 'statistics-section' ? '' : 'none';
                 document.getElementById('violations-section').style.display = target === 'violations-section' ? '' : 'none';
-                document.getElementById('notifications-section').style.display = target === 'notifications-section' ? '' : 'none';
                 if (target === 'overview-section') { renderOverview(); }
                 if (target === 'statistics-section') { loadAnalytics(); }
-                if (target === 'notifications-section') { 
-                    loadNotifications();
-                    // Hide notification dot when user views notifications
-                    const notificationDot = document.getElementById('notification-dot');
-                    if (notificationDot) {
-                        notificationDot.style.display = 'none';
-                    }
-                }
+                if (target === 'violations-section') { loadViolations(); }
             }
             sideButtons.forEach(btn => {
                 btn.addEventListener('click', () => {
@@ -361,124 +411,11 @@
                     window.location.href = '/login';
                 });
             }
-            // Load programs for this dean's college
-            try {
-                const res = await fetch('/dean/programs');
-                const data = await res.json();
-                if (data.success) {
-                    const sel = document.getElementById('program');
-                    (data.programs || []).forEach(p => {
-                        const opt = document.createElement('option');
-                        opt.value = p;
-                        opt.textContent = p;
-                        sel.appendChild(opt);
-                    });
-                }
-            } catch (e) {}
             // Initial render
             renderOverview();
-            // Preload notifications so the tab isn't empty on first click
-            try { await loadNotifications(); } catch (e) { console.error('loadNotifications error:', e); }
+            loadAnalytics();
+            loadViolations();
         });
-
-        // Overview rendering using analytics data (reuse OSAS endpoints filtered by college server-side if available)
-        function formatTs(ts){
-            if (!ts) return '';
-            const d = new Date(ts);
-            if (isNaN(d)) return String(ts).replace(/GMT.*$/,'').trim().replace('T',' ').replace('Z','');
-            const pad = n => String(n).padStart(2,'0');
-            return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
-        }
-        async function renderOverview() {
-            const params = new URLSearchParams(getFilterParams());
-            const data = await fetchJSON(`/dean/analytics?${params.toString()}`);
-            if (!data.success) return;
-            const total = data.total || 0;
-            const byStatus = (data.by_status || []).reduce((acc, r) => { acc[String(r.label||'').toLowerCase()] = r.cnt||0; return acc; }, {});
-            const resolved = byStatus['resolved'] || 0;
-            const unresolved = total - resolved;
-            document.getElementById('ov-total').textContent = total;
-            document.getElementById('ov-unresolved').textContent = unresolved;
-            document.getElementById('ov-resolved').textContent = resolved;
-
-            const topPrograms = (data.by_program || []).slice(0,3);
-            const list = document.getElementById('ov-top-programs');
-            list.innerHTML = '';
-            topPrograms.forEach(p=>{
-                const li = document.createElement('li');
-                li.textContent = `${p.label} (${p.cnt})`;
-                list.appendChild(li);
-            });
-
-            const trendGroup = 'day';
-            const trend = await fetchJSON(`/dean/trend?${params.toString()}&group_by=${trendGroup}`);
-            const trendPayload = { labels: (trend.series || []).map(p=>p.label), rows: (trend.series || []).map(p=>p.cnt) };
-            renderLine('ov-trend', trendPayload);
-            renderPieChart('ov-resolve-pie', [ { label: 'Resolved', cnt: resolved }, { label: 'Unresolved', cnt: Math.max(0, total - resolved) } ]);
-            renderBarChart('ov-gender', data.by_gender || []);
-        }
-
-        function renderLine(id, trend){
-            const ctx = document.getElementById(id).getContext('2d');
-            charts[id]?.destroy?.();
-            charts[id] = new Chart(ctx, { type: 'line', data: { labels: trend.labels, datasets: [{ label: 'Violations', data: trend.rows, borderColor: '#007FFF', backgroundColor: 'rgba(0,127,255,0.15)', tension: 0.3 }] }, options: { responsive: true, plugins: { legend: { display: false } } } });
-        }
-
-        async function loadNotifications(){
-            // Load alert summary
-            try {
-                const res = await fetch('/dean/alerts');
-                const data = await res.json();
-                console.log('Alerts payload:', data);
-                const msg = document.getElementById('alert-message');
-                const countEl = document.getElementById('alert-count');
-                const notificationDot = document.getElementById('notification-dot');
-                
-                // Show notification if it was ever triggered (when count >= 10), regardless of current count
-                if (data && data.success && data.notification_triggered) {
-                    // Show notification dot
-                    if (notificationDot) {
-                        notificationDot.style.display = 'inline';
-                    }
-                    
-                    if (msg) {
-                        msg.style.display = '';
-                        if (countEl) countEl.textContent = data.num_students;
-                        msg.onclick = async () => {
-                            const res2 = await fetch('/dean/alerts/students');
-                            const payload = await res2.json();
-                            console.log('Alert students payload:', payload);
-                            const body = document.getElementById('alert-students-body');
-                            const wrap = document.getElementById('alert-students');
-                            if (payload.success && Array.isArray(payload.rows)) {
-                                if (wrap && wrap.style.display === 'none') {
-                                    // Show the list
-                                    body.innerHTML = payload.rows.map(s=>`
-                                        <tr><td>${s.student_id||''}</td><td>${s.name||''}</td><td>${s.course||''}</td></tr>
-                                    `).join('');
-                                    wrap.style.display = '';
-                                } else if (wrap) {
-                                    // Hide the list
-                                    wrap.style.display = 'none';
-                                }
-                            }
-                        };
-                    }
-                } else {
-                    // Hide notification dot and message when no notifications
-                    if (notificationDot) {
-                        notificationDot.style.display = 'none';
-                    }
-                    if (msg) {
-                        msg.style.display = 'none';
-                    }
-                }
-            } catch (e) {
-                console.error('alerts fetch failed', e);
-            }
-        }
     </script>
 </body>
 </html>
-
-

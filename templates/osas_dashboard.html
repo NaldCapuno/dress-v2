@@ -22,7 +22,8 @@
             const params = new URLSearchParams(getFilterParams());
             const data = await fetchJSON(`/osas/analytics?${params.toString()}`);
             if (!data.success) return;
-            document.getElementById('total-violations').textContent = data.total;
+            const totalEl = document.getElementById('total-violations');
+            if (totalEl) totalEl.textContent = data.total;
             renderBarChart('byCollegeChart', data.by_college);
             renderBarChart('byProgramChart', data.by_program);
             renderPieChart('byGenderChart', data.by_gender);
@@ -48,72 +49,11 @@
                     <td>${v.gender || ''}</td>
                     <td>${v.violation_type || ''}</td>
                     <td><span class="status ${v.status}">${v.status}</span></td>
-                    <td>
-                        <div class="action-dropdown compact status-${v.status}">
-                            <select onchange="updateStatus(${v.violation_id}, this.value)">
-                                <option value="">Update...</option>
-                                <option value="forwarded_dean">Forward to Dean</option>
-                                <option value="forwarded_guidance">Forward to Guidance</option>
-                                <option value="resolved">Resolved</option>
-                                <option value="pending">Pending</option>
-                            </select>
-                        </div>
-                    </td>
                 `;
                 tbody.appendChild(tr);
             });
             document.getElementById('total-count').textContent = data.total;
             document.getElementById('page').textContent = page;
-        }
-        async function updateStatus(id, val) {
-            if (!val) return;
-            
-            // Find the dropdown element and add loading state
-            const dropdown = document.querySelector(`select[onchange*="${id}"]`);
-            const dropdownContainer = dropdown?.closest('.action-dropdown');
-            
-            if (dropdownContainer) {
-                dropdownContainer.classList.add('loading');
-            }
-            
-            try {
-                const res = await postJSON(`/osas/violation/${id}/status`, { status: val });
-                
-                if (dropdownContainer) {
-                    dropdownContainer.classList.remove('loading');
-                    
-                    if (res.success) {
-                        dropdownContainer.classList.add('success-animation');
-                        setTimeout(() => {
-                            dropdownContainer.classList.remove('success-animation');
-                            loadViolations();
-                            loadAnalytics();
-                        }, 600);
-                    } else {
-                        dropdownContainer.classList.add('error-animation');
-                        setTimeout(() => {
-                            dropdownContainer.classList.remove('error-animation');
-                        }, 600);
-                        alert(res.error || 'Failed to update');
-                    }
-                } else {
-                    if (res.success) {
-                        loadViolations();
-                        loadAnalytics();
-                    } else {
-                        alert(res.error || 'Failed to update');
-                    }
-                }
-            } catch (error) {
-                if (dropdownContainer) {
-                    dropdownContainer.classList.remove('loading');
-                    dropdownContainer.classList.add('error-animation');
-                    setTimeout(() => {
-                        dropdownContainer.classList.remove('error-animation');
-                    }, 600);
-                }
-                alert('Network error: ' + error.message);
-            }
         }
         function getFilterParams() {
             return {
@@ -331,7 +271,6 @@
                                     <th>Gender</th>
                                     <th>Type</th>
                                     <th>Status</th>
-                                    <th>Action</th>
                                 </tr>
                             </thead>
                             <tbody id="violations-body"></tbody>
