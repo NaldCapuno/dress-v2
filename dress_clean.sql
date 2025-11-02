@@ -1,8 +1,8 @@
--- MySQL dump 10.13  Distrib 8.0.41, for Win64 (x86_64)
+-- MySQL dump 10.13  Distrib 8.0.43, for Win64 (x86_64)
 --
 -- Host: localhost    Database: dress
 -- ------------------------------------------------------
--- Server version	8.0.41
+-- Server version	8.0.43
 
 /*!40101 SET @OLD_CHARACTER_SET_CLIENT=@@CHARACTER_SET_CLIENT */;
 /*!40101 SET @OLD_CHARACTER_SET_RESULTS=@@CHARACTER_SET_RESULTS */;
@@ -27,10 +27,11 @@ CREATE TABLE `admins` (
   `username` varchar(50) NOT NULL,
   `password_hash` varchar(255) NOT NULL,
   `role` enum('security','osas','dean','guidance') DEFAULT NULL,
+  `college` enum('College of Sciences','College of Engineering','College of Architecture and Design','College of Arts and Humanities','College of Business and Accountancy','College of Criminal Justice Education','College of Hospitality Management and Tourism','College of Nursing and Health Sciences','College of Teacher Education') DEFAULT NULL,
   `created_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (`admin_id`),
   UNIQUE KEY `username` (`username`)
-) ENGINE=InnoDB AUTO_INCREMENT=4 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=6 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -39,7 +40,6 @@ CREATE TABLE `admins` (
 
 LOCK TABLES `admins` WRITE;
 /*!40000 ALTER TABLE `admins` DISABLE KEYS */;
-INSERT INTO `admins` VALUES (1,'admin','scrypt:32768:8:1$ueUxwCT3C1znkuH5$898fbea9faacad693c9675e859cf229d88c33ae0c3a06b66de12d78bda4cfa363206449a8a4a2b12ee1a85c0c37223391d582d21e62995c25d24fa8380543eea','security','2025-09-30 13:27:54'),(2,'dean','scrypt:32768:8:1$af4cOzXynIAF05SY$2b0466e75c93402e114d021fdfc30d9f4a9618fdf72ad58078467a45d3a019470d870e39e3eca111d7d5461fd633d2821fc39011a0df59bc85ea98617cab5df6','dean','2025-09-30 13:30:24'),(3,'osas','scrypt:32768:8:1$J8No78GxoCQ8MNuo$6ff2039ea26f753373927c024e737fc1d8383f2b6fef6653483e6eaf9c6f5eda752315e88ad02af7af777d409a231af500d16ad7d696f1ab14955ec967a05719','osas','2025-09-30 13:57:18');
 /*!40000 ALTER TABLE `admins` ENABLE KEYS */;
 UNLOCK TABLES;
 
@@ -112,8 +112,7 @@ CREATE TABLE `students` (
   `gender` enum('male','female') DEFAULT NULL,
   `year_level` int DEFAULT NULL,
   `course` varchar(50) DEFAULT NULL,
-  `college` varchar(45) DEFAULT NULL,
-  `photo` varchar(255) DEFAULT NULL,
+  `college` enum('College of Sciences','College of Engineering','College of Architecture and Design','College of Arts and Humanities','College of Business and Accountancy','College of Criminal Justice Education','College of Hospitality Management and Tourism','College of Nursing and Health Sciences','College of Teacher Education') DEFAULT NULL,
   `created_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (`student_id`),
   UNIQUE KEY `rfid_uid` (`rfid_uid`)
@@ -139,15 +138,12 @@ DROP TABLE IF EXISTS `violations`;
 CREATE TABLE `violations` (
   `violation_id` int NOT NULL AUTO_INCREMENT,
   `student_id` varchar(20) DEFAULT NULL,
-  `recorded_by` int DEFAULT NULL,
   `violation_type` varchar(100) DEFAULT NULL,
   `timestamp` timestamp NULL DEFAULT CURRENT_TIMESTAMP,
   `image_proof` varchar(255) DEFAULT NULL,
   `status` enum('pending','forwarded_dean','forwarded_guidance','resolved') DEFAULT 'pending',
   PRIMARY KEY (`violation_id`),
   KEY `student_id` (`student_id`),
-  KEY `fk_violations_admin` (`recorded_by`),
-  CONSTRAINT `fk_violations_admin` FOREIGN KEY (`recorded_by`) REFERENCES `admins` (`admin_id`) ON DELETE SET NULL ON UPDATE CASCADE,
   CONSTRAINT `violations_ibfk_1` FOREIGN KEY (`student_id`) REFERENCES `students` (`student_id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
@@ -170,4 +166,4 @@ UNLOCK TABLES;
 /*!40101 SET COLLATION_CONNECTION=@OLD_COLLATION_CONNECTION */;
 /*!40111 SET SQL_NOTES=@OLD_SQL_NOTES */;
 
--- Dump completed on 2025-09-30 23:11:37
+-- Dump completed on 2025-10-17 21:30:16

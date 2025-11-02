@@ -1,4 +1,5 @@
 from flask import Flask, render_template, request, jsonify, send_from_directory, Response, session, redirect, url_for
+from flask_mail import Mail, Message
 import cv2
 import numpy as np
 from ultralytics import YOLO
@@ -50,6 +51,17 @@ except ImportError as e:
 app = Flask(__name__)
 # Secret key for session management (can be overridden via environment variable)
 app.secret_key = os.getenv('FLASK_SECRET_KEY', 'change-this-in-production')
+# Flask-Mail configuration
+app.config['MAIL_SERVER'] = os.getenv('MAIL_SERVER', 'smtp.gmail.com')
+app.config['MAIL_PORT'] = int(os.getenv('MAIL_PORT', '587'))
+app.config['MAIL_USE_TLS'] = os.getenv('MAIL_USE_TLS', 'true').lower() in {'1','true','yes','on'}
+app.config['MAIL_USE_SSL'] = os.getenv('MAIL_USE_SSL', 'false').lower() in {'1','true','yes','on'}
+app.config['MAIL_USERNAME'] = os.getenv('MAIL_USERNAME', '')
+app.config['MAIL_PASSWORD'] = os.getenv('MAIL_PASSWORD', '')
+app.config['MAIL_DEFAULT_SENDER'] = os.getenv('MAIL_DEFAULT_SENDER', os.getenv('MAIL_USERNAME', ''))
+
+mail = Mail(app)
+
 
 # Configure upload folder
 UPLOAD_FOLDER = 'uploads'
@@ -59,6 +71,9 @@ ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif', 'bmp'}
 # Create necessary directories
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 os.makedirs(RESULT_FOLDER, exist_ok=True)
+
+# Alerts cache for deans (per college)
+dean_alerts_cache = {}
 
 # Load YOLOv8n model for person detection
 person_model = YOLO('yolov8n.pt')
@@ -939,12 +954,6 @@ def _maybe_record_violation(frame, detections, admin_user):
         # Use the violation type that was already created for the image
         violation_type = violation_type_for_image
 
-        recorded_by = None
-        if admin_user and isinstance(admin_user, dict):
-            try:
-                recorded_by = int(admin_user.get('admin_id'))
-            except Exception:
-                recorded_by = None
 
         # Store only filename in DB; serve via /results/<filename>
         rel_path = proof_name if proof_path else None
@@ -952,7 +961,7 @@ def _maybe_record_violation(frame, detections, admin_user):
 
         if insert_violation:
             print(f"DEBUG: Attempting database insertion...")
-            vid = insert_violation(rfid_last_student.get('student_id'), violation_type, rel_path, recorded_by)
+            vid = insert_violation(rfid_last_student.get('student_id'), violation_type, rel_path)
             print(f"DEBUG: Database insertion returned: {vid}")
             if vid:
                 rfid_last_violation_ts = now_ts
@@ -979,6 +988,84 @@ def _maybe_record_violation(frame, detections, admin_user):
                 print(f"  - Type: {violation_type}")
                 print(f"  - Proof Image: {proof_name}")
                 print(f"  - Consecutive Non-Compliant Detections: {rfid_consecutive_non_compliant}")
+                # Attempt to send email notification to student (with strike count)
+                try:
+                    student_email = (rfid_last_student or {}).get('email')
+                    student_name = (rfid_last_student or {}).get('name', 'Student')
+                    student_id = (rfid_last_student or {}).get('student_id')
+                    if not student_email and (rfid_last_student or {}).get('student_id'):
+                        try:
+                            from config import find_student_by_id as _find_student_by_id
+                        except Exception:
+                            _find_student_by_id = None
+                        if _find_student_by_id:
+                            stu = _find_student_by_id(student_id)
+                            if stu:
+                                student_email = stu.get('email') or student_email
+                                student_name = stu.get('name') or student_name
+                                student_id = stu.get('student_id') or student_id
+                    if student_email:
+                        # Determine strike number (cap at 3)
+                        strike_num = 1
+                        try:
+                            from config import get_student_violation_count as _get_v_cnt, get_student_violations as _get_v_list
+                        except Exception:
+                            _get_v_cnt = None
+                            _get_v_list = None
+                        if _get_v_cnt and student_id:
+                            total = int(_get_v_cnt(student_id) or 1)
+                            strike_num = max(1, min(3, total))
+                        # Build violation list lines
+                        violation_lines = []
+                        if _get_v_list and student_id:
+                            try:
+                                vlist = _get_v_list(student_id) or []
+                                for v in vlist:
+                                    tstr = str(v.get('timestamp') or '')
+                                    vtype = str(v.get('violation_type') or '')
+                                    violation_lines.append(f"- {tstr} – {vtype}")
+                            except Exception:
+                                pass
+                        dt_str = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(now_ts))
+                        # Compose strike-specific subject/body
+                        if strike_num == 1:
+                            subject = 'Dress Code Violation - 1st Offense (Warning)'
+                            offense_line = '1st Offense - Warning'
+                        elif strike_num == 2:
+                            subject = 'Dress Code Violation - 2nd Offense (5-day Suspension)'
+                            offense_line = '2nd Offense - Suspension for five (5) days'
+                        else:
+                            subject = 'Dress Code Violation - 3rd Offense (Up to 1 month Suspension)'
+                            offense_line = '3rd Offense - Suspension for two (2) weeks to one (1) month'
+
+                        body = (
+                            f"Good day {student_name},\n\n"
+                            f"This is to inform you that based on the monitoring of the DRESS (Dress-code Recognition Surveillance System), you were observed to be non-compliant with the university's dress code policy on {dt_str}.\n\n"
+                            f"Please be reminded that adherence to the prescribed dress code is part of maintaining discipline and professionalism within the university premises. We kindly ask you to correct your attire and comply with the dress code on your next visit.\n\n"
+                            f"Current strike count: {strike_num} of 3.\n\n"
+                            f"Your recorded violations:\n"
+                            f"{('\n'.join(violation_lines) if violation_lines else '- No history available')}\n\n"
+                            f"As stated in the university guidelines, dress code violations have the following corresponding consequences:\n"
+                            f"1st Offense - Warning\n"
+                            f"2nd Offense - Suspension for five (5) days\n"
+                            f"3rd Offense - Suspension for two (2) weeks to one (1) month\n\n"
+                            f"Your current offense: {offense_line}\n\n"
+                            f"Repeated violations may lead to the corresponding disciplinary actions stated above, in accordance with university policy.\n\n"
+                            f"Thank you for your understanding and cooperation.\n\n"
+                            f"Respectfully,\n"
+                            f"DRESS Monitoring Team\n"
+                            f"Palawan State University\n"
+                        )
+                        try:
+                            msg = Message(subject=subject, recipients=[student_email], body=body)
+                            mail.send(msg)
+                            print(f"Violation email sent to {student_email}")
+                        except Exception as _em:
+                            print(f"Failed to send violation email to {student_email}: {_em}")
+                    else:
+                        print("No student email available; skipping email notification")
+                except Exception as _e:
+                    print(f"Violation email error: {_e}")
                 
                 return vid
             else:
@@ -1072,6 +1159,24 @@ def osas_dashboard():
         return redirect(url_for('login'))
     return render_template('osas_dashboard.html')
 
+@app.route('/guidance', methods=['GET'])
+def guidance_dashboard():
+    """Guidance dashboard - only accessible to admins with role 'guidance'."""
+    admin = session.get('admin') or {}
+    role = str(admin.get('role') or '').lower()
+    if role != 'guidance':
+        return redirect(url_for('login'))
+    return render_template('guidance_dashboard.html')
+
+@app.route('/guiance', methods=['GET'])
+def guidance_alias():
+    """Alias path for guidance (handles common misspelling)."""
+    admin = session.get('admin') or {}
+    role = str(admin.get('role') or '').lower()
+    if role != 'guidance':
+        return redirect(url_for('login'))
+    return redirect(url_for('guidance_dashboard'))
+
 @app.route('/dean', methods=['GET'])
 def dean_dashboard():
     """Dean dashboard - only accessible to admins with role 'dean'."""
@@ -1110,7 +1215,8 @@ def dean_programs():
 def dean_get_violations():
     """List violations for dean review (defaults to cases forwarded to dean)."""
     try:
-        status_filter = request.args.get('status', 'forwarded_dean')
+        # Show all statuses by default; only filter if provided
+        status_filter = request.args.get('status')
         start_dt = request.args.get('start')
         end_dt = request.args.get('end')
         academic_year = request.args.get('academic_year')
@@ -1128,8 +1234,12 @@ def dean_get_violations():
         where = []
         params = []
         if status_filter:
-            where.append("v.status = %s")
-            params.append(status_filter)
+            # For dean view, treat 'forwarded_dean' as 'pending' in filters
+            if status_filter == 'pending':
+                where.append("(v.status = 'pending' OR v.status = 'forwarded_dean')")
+            else:
+                where.append("v.status = %s")
+                params.append(status_filter)
         # Enforce dean operates per-college: require college filter
         if not college:
             return jsonify({'success': True, 'rows': [], 'total': 0})
@@ -1160,7 +1270,8 @@ def dean_get_violations():
         where_sql = (" WHERE " + " AND ".join(where)) if where else ""
 
         base_select = (
-            "SELECT v.violation_id, v.student_id, v.recorded_by, v.violation_type, v.timestamp, v.image_proof, v.status, "
+            "SELECT v.violation_id, v.student_id, v.violation_type, v.timestamp, v.image_proof, "
+            "CASE WHEN v.status = 'forwarded_dean' THEN 'pending' ELSE v.status END AS status, "
             "s.name, s.gender, s.course, s.college "
             "FROM violations v LEFT JOIN students s ON v.student_id = s.student_id"
         )
@@ -1186,6 +1297,7 @@ def dean_update_violation_status(violation_id: int):
     try:
         data = request.get_json(silent=True) or {}
         status = str(data.get('status') or '').strip().lower()
+        print(f"Dean status update: violation_id={violation_id}, status={status}, data={data}")
         allowed = {"pending", "forwarded_guidance", "resolved"}
         if status not in allowed:
             return jsonify({'success': False, 'error': 'Invalid status'}), 400
@@ -1194,11 +1306,57 @@ def dean_update_violation_status(violation_id: int):
             return jsonify({'success': False, 'error': 'DB not configured'}), 500
         with conn.cursor() as cur:
             cur.execute("UPDATE violations SET status=%s WHERE violation_id=%s", (status, violation_id))
+            print(f"Updated violation {violation_id} to status {status}")
         conn.close()
         return jsonify({'success': True})
     except Exception as e:
+        print(f"Error updating violation status: {e}")
         return jsonify({'success': False, 'error': str(e)}), 500
 
+
+@app.route('/dean/notifications', methods=['GET'])
+def dean_notifications():
+    """Recent violations for the dean's college, newest first."""
+    try:
+        # Default to pending > 3 days to surface actionable notifications
+        status_filter = request.args.get('status', 'pending')
+        college = request.args.get('college') or ((session.get('admin') or {}).get('college'))
+        if not college:
+            return jsonify({'success': True, 'rows': []})
+        conn = get_connection() if get_connection else None
+        if conn is None:
+            return jsonify({'success': False, 'error': 'DB not configured'}), 500
+        where = ["s.college = %s"]
+        params = [college]
+        if status_filter:
+            # For dean view, treat 'pending' filter to include both 'pending' and 'forwarded_dean'
+            if status_filter == 'pending':
+                where.append("(v.status = 'pending' OR v.status = 'forwarded_dean')")
+            else:
+                where.append("v.status = %s")
+                params.append(status_filter)
+        # Older than 3 days by default
+        where.append("v.timestamp < NOW() - INTERVAL 3 DAY")
+        where_sql = " WHERE " + " AND ".join(where)
+        with conn.cursor() as cur:
+            cur.execute(
+                f"""
+                SELECT v.violation_id, v.student_id, v.violation_type, v.timestamp, v.image_proof,
+                       CASE WHEN v.status = 'forwarded_dean' THEN 'pending' ELSE v.status END AS status,
+                       s.name, s.gender, s.course, s.college
+                FROM violations v
+                LEFT JOIN students s ON v.student_id = s.student_id
+                {where_sql}
+                ORDER BY v.timestamp DESC
+                LIMIT 50
+                """,
+                params,
+            )
+            rows = cur.fetchall() or []
+        conn.close()
+        return jsonify({'success': True, 'rows': rows, 'total': len(rows)})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
 
 @app.route('/dean/analytics', methods=['GET'])
 def dean_analytics():
@@ -1208,7 +1366,8 @@ def dean_analytics():
         end_dt = request.args.get('end')
         academic_year = request.args.get('academic_year')
         semester = request.args.get('semester')
-        status_filter = request.args.get('status', 'forwarded_dean')
+        # Show all statuses by default; only filter if provided
+        status_filter = request.args.get('status')
         college = request.args.get('college') or ((session.get('admin') or {}).get('college'))
         program = request.args.get('program')
 
@@ -1266,16 +1425,108 @@ def dean_analytics():
             )
             by_gender = cur.fetchall() or []
 
+            # by_status must include the students join because filters may reference s.*
+            # For dean view, transform 'forwarded_dean' to 'pending' in status counts
             cur.execute(
-                f"SELECT v.status AS label, COUNT(*) AS cnt FROM violations v{where_sql} GROUP BY v.status",
+                f"SELECT CASE WHEN v.status = 'forwarded_dean' THEN 'pending' ELSE v.status END AS label, COUNT(*) AS cnt FROM violations v LEFT JOIN students s ON v.student_id=s.student_id{where_sql} GROUP BY CASE WHEN v.status = 'forwarded_dean' THEN 'pending' ELSE v.status END",
                 params,
             )
             by_status = cur.fetchall() or []
+
+            # Provide by_college as well for overview usage (will be a single bucket for the dean's college)
+            cur.execute(
+                f"SELECT COALESCE(s.college,'Unknown') AS label, COUNT(*) AS cnt FROM violations v LEFT JOIN students s ON v.student_id=s.student_id{where_sql} GROUP BY label ORDER BY cnt DESC",
+                params,
+            )
+            by_college = cur.fetchall() or []
         conn.close()
-        return jsonify({'success': True, 'total': total, 'by_program': by_program, 'by_gender': by_gender, 'by_status': by_status})
+        return jsonify({'success': True, 'total': total, 'by_program': by_program, 'by_gender': by_gender, 'by_status': by_status, 'by_college': by_college})
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
 
+
+@app.route('/dean/alerts', methods=['GET'])
+def dean_alerts():
+    """Return alert info for the dean's college when any students have pending >3 days."""
+    try:
+        college = request.args.get('college') or ((session.get('admin') or {}).get('college'))
+        if not college:
+            return jsonify({'success': True, 'alert': False, 'num_students': 0, 'sample': [], 'notification_triggered': False})
+        # Compute live to ensure up-to-date results (cache may be empty)
+        conn = get_connection() if get_connection else None
+        if conn is None:
+            # Fallback to cache if DB not available
+            info = dean_alerts_cache.get(college) or {'alert': False, 'num_students': 0, 'sample': [], 'notification_triggered': False}
+            return jsonify({'success': True, **info})
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT COUNT(DISTINCT v.student_id) AS num_students
+                FROM violations v
+                LEFT JOIN students s ON v.student_id = s.student_id
+                WHERE (v.status = 'pending' OR v.status = 'forwarded_dean') AND v.timestamp < NOW() - INTERVAL 3 DAY AND s.college = %s
+                """,
+                (college,)
+            )
+            row = cur.fetchone() or {}
+            num_students = int(row.get('num_students') or 0)
+            
+            # Trigger notification when there is at least 1 student
+            notification_triggered = num_students >= 1
+            
+            # Show notification if it was ever triggered (current logic uses live count)
+            alert = notification_triggered
+            
+            # Do not auto-update statuses in dean notifications
+
+            sample = []
+            if alert:
+                cur.execute(
+                    """
+                    SELECT DISTINCT v.student_id, s.name, s.course
+                    FROM violations v
+                    LEFT JOIN students s ON v.student_id = s.student_id
+                    WHERE (v.status = 'pending' OR v.status = 'forwarded_dean') AND v.timestamp < NOW() - INTERVAL 3 DAY AND s.college = %s
+                    ORDER BY s.name ASC
+                    LIMIT 10
+                    """,
+                    (college,)
+                )
+                sample = cur.fetchall() or []
+        conn.close()
+        return jsonify({'success': True, 'alert': alert, 'num_students': num_students, 'sample': sample, 'notification_triggered': notification_triggered})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/dean/alerts/students', methods=['GET'])
+def dean_alert_students():
+    """Return distinct students with pending violations older than 3 days for the dean's college."""
+    try:
+        college = request.args.get('college') or ((session.get('admin') or {}).get('college'))
+        limit = int(request.args.get('limit', '500'))
+        if not college:
+            return jsonify({'success': True, 'rows': []})
+        conn = get_connection() if get_connection else None
+        if conn is None:
+            return jsonify({'success': False, 'error': 'DB not configured'}), 500
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT DISTINCT v.student_id, s.name, s.course
+                FROM violations v
+                LEFT JOIN students s ON v.student_id = s.student_id
+                WHERE (v.status = 'pending' OR v.status = 'forwarded_dean') AND v.timestamp < NOW() - INTERVAL 3 DAY AND s.college = %s
+                ORDER BY s.name ASC
+                LIMIT %s
+                """,
+                (college, limit)
+            )
+            rows = cur.fetchall() or []
+        conn.close()
+        return jsonify({'success': True, 'rows': rows})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
 
 @app.route('/dean/trend', methods=['GET'])
 def dean_trend():
@@ -1284,7 +1535,8 @@ def dean_trend():
         end_dt = request.args.get('end')
         academic_year = request.args.get('academic_year')
         semester = request.args.get('semester')
-        status_filter = request.args.get('status', 'forwarded_dean')
+        # Show all statuses by default; only filter if provided
+        status_filter = request.args.get('status')
         group_by = request.args.get('group_by', 'day')
         college = request.args.get('college') or ((session.get('admin') or {}).get('college'))
         program = request.args.get('program')
@@ -1307,10 +1559,10 @@ def dean_trend():
             where.append("s.course = %s")
             params.append(program)
         if start_dt:
-            where.append("timestamp >= %s")
+            where.append("v.timestamp >= %s")
             params.append(start_dt)
         if end_dt:
-            where.append("timestamp <= %s")
+            where.append("v.timestamp <= %s")
             params.append(end_dt)
         if academic_year and semester in {"1", "2"}:
             try:
@@ -1354,7 +1606,8 @@ def dean_trend():
 def osas_get_violations():
     """List violations for OSAS review (university-wide)."""
     try:
-        status_filter = request.args.get('status', 'pending')
+        # Show all statuses by default; only filter if provided
+        status_filter = request.args.get('status')
         start_dt = request.args.get('start')
         end_dt = request.args.get('end')
         academic_year = request.args.get('academic_year')
@@ -1394,12 +1647,28 @@ def osas_get_violations():
         where_sql = (" WHERE " + " AND ".join(where)) if where else ""
 
         base_select = (
-            "SELECT v.violation_id, v.student_id, v.recorded_by, v.violation_type, v.timestamp, v.image_proof, v.status, "
+            "SELECT v.violation_id, v.student_id, v.violation_type, v.timestamp, v.image_proof, v.status, "
             "s.name, s.gender, s.course, s.college "
             "FROM violations v LEFT JOIN students s ON v.student_id = s.student_id"
         )
 
         with conn.cursor() as cur:
+            # Auto-forward pending >3 days to dean when OSAS views violations
+            try:
+                cur.execute(
+                    """
+                    UPDATE violations
+                    SET status = 'forwarded_dean'
+                    WHERE status = 'pending' AND timestamp < NOW() - INTERVAL 3 DAY
+                    """
+                )
+                if cur.rowcount:
+                    try:
+                        conn.commit()
+                    except Exception as _ce:
+                        print(f"OSAS auto-forward commit failed: {_ce}")
+            except Exception as _e:
+                print(f"OSAS auto-forward failed: {_e}")
             cur.execute(f"SELECT COUNT(*) AS cnt FROM violations v LEFT JOIN students s ON v.student_id = s.student_id{where_sql}", params)
             total = (cur.fetchone() or {}).get('cnt', 0)
 
@@ -1414,13 +1683,95 @@ def osas_get_violations():
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
-@app.route('/osas/violation/<int:violation_id>/status', methods=['POST'])
-def osas_update_violation_status(violation_id: int):
-    """OSAS can forward to dean, guidance, or resolve."""
+# ------------------ Guidance endpoints (university-wide counseling) ------------------
+@app.route('/guidance/violations', methods=['GET'])
+def guidance_get_violations():
+    """List violations for Guidance review (university-wide)."""
+    try:
+        status_filter = request.args.get('status')
+        start_dt = request.args.get('start')
+        end_dt = request.args.get('end')
+        academic_year = request.args.get('academic_year')
+        semester = request.args.get('semester')
+        page = int(request.args.get('page', 1))
+        page_size = int(request.args.get('page_size', 50))
+        offset = max(0, (page - 1) * page_size)
+
+        conn = get_connection() if get_connection else None
+        if conn is None:
+            return jsonify({'success': False, 'error': 'DB not configured'}), 500
+
+        where = []
+        params = []
+        if status_filter:
+            where.append("v.status = %s")
+            params.append(status_filter)
+        if start_dt:
+            where.append("v.timestamp >= %s")
+            params.append(start_dt)
+        if end_dt:
+            where.append("v.timestamp <= %s")
+            params.append(end_dt)
+        if academic_year and semester in {"1", "2"}:
+            try:
+                start_year = int(academic_year.split('-')[0])
+                if semester == "1":
+                    ay_start = f"{start_year}-08-01 00:00:00"
+                    ay_end = f"{start_year}-12-31 23:59:59"
+                else:
+                    ay_start = f"{start_year+1}-01-01 00:00:00"
+                    ay_end = f"{start_year+1}-05-31 23:59:59"
+                where.append("v.timestamp BETWEEN %s AND %s")
+                params.extend([ay_start, ay_end])
+            except Exception:
+                pass
+        where_sql = (" WHERE " + " AND ".join(where)) if where else ""
+
+        base_select = (
+            "SELECT v.violation_id, v.student_id, v.violation_type, v.timestamp, v.image_proof, v.status, "
+            "s.name, s.gender, s.course, s.college "
+            "FROM violations v LEFT JOIN students s ON v.student_id = s.student_id"
+        )
+
+        with conn.cursor() as cur:
+            # Auto-forward pending >3 days to dean when Guidance views violations
+            try:
+                cur.execute(
+                    """
+                    UPDATE violations
+                    SET status = 'forwarded_dean'
+                    WHERE status = 'pending' AND timestamp < NOW() - INTERVAL 3 DAY
+                    """
+                )
+                if cur.rowcount:
+                    try:
+                        conn.commit()
+                    except Exception as _ce:
+                        print(f"Guidance auto-forward commit failed: {_ce}")
+            except Exception as _e:
+                print(f"Guidance auto-forward failed: {_e}")
+            cur.execute(f"SELECT COUNT(*) AS cnt FROM violations v LEFT JOIN students s ON v.student_id = s.student_id{where_sql}", params)
+            total = (cur.fetchone() or {}).get('cnt', 0)
+
+            cur.execute(
+                f"{base_select}{where_sql} ORDER BY v.timestamp DESC LIMIT %s OFFSET %s",
+                params + [page_size, offset]
+            )
+            rows = cur.fetchall() or []
+        conn.close()
+        return jsonify({'success': True, 'rows': rows, 'total': total})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/guidance/violation/<int:violation_id>/status', methods=['POST'])
+def guidance_update_violation_status(violation_id: int):
+    """Guidance can set pending or resolved."""
     try:
         data = request.get_json(silent=True) or {}
         status = str(data.get('status') or '').strip().lower()
-        allowed = {"pending", "forwarded_dean", "forwarded_guidance", "resolved"}
+        print(f"Guidance status update: violation_id={violation_id}, status={status}, data={data}")
+        allowed = {"pending", "resolved"}
         if status not in allowed:
             return jsonify({'success': False, 'error': 'Invalid status'}), 400
         conn = get_connection() if get_connection else None
@@ -1428,9 +1779,169 @@ def osas_update_violation_status(violation_id: int):
             return jsonify({'success': False, 'error': 'DB not configured'}), 500
         with conn.cursor() as cur:
             cur.execute("UPDATE violations SET status=%s WHERE violation_id=%s", (status, violation_id))
+            print(f"Updated violation {violation_id} to status {status}")
         conn.close()
         return jsonify({'success': True})
     except Exception as e:
+        print(f"Error updating violation status: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/guidance/analytics', methods=['GET'])
+def guidance_analytics():
+    """Aggregate analytics for Guidance view (university-wide)."""
+    try:
+        start_dt = request.args.get('start')
+        end_dt = request.args.get('end')
+        academic_year = request.args.get('academic_year')
+        semester = request.args.get('semester')
+        status_filter = request.args.get('status')
+
+        conn = get_connection() if get_connection else None
+        if conn is None:
+            return jsonify({'success': False, 'error': 'DB not configured'}), 500
+
+        where = []
+        params = []
+        if status_filter:
+            where.append("v.status = %s")
+            params.append(status_filter)
+        if start_dt:
+            where.append("v.timestamp >= %s")
+            params.append(start_dt)
+        if end_dt:
+            where.append("v.timestamp <= %s")
+            params.append(end_dt)
+        if academic_year and semester in {"1", "2"}:
+            try:
+                start_year = int(academic_year.split('-')[0])
+                if semester == "1":
+                    ay_start = f"{start_year}-08-01 00:00:00"
+                    ay_end = f"{start_year}-12-31 23:59:59"
+                else:
+                    ay_start = f"{start_year+1}-01-01 00:00:00"
+                    ay_end = f"{start_year+1}-05-31 23:59:59"
+                where.append("v.timestamp BETWEEN %s AND %s")
+                params.extend([ay_start, ay_end])
+            except Exception:
+                pass
+        where_sql = (" WHERE " + " AND ".join(where)) if where else ""
+
+        with conn.cursor() as cur:
+            cur.execute(f"SELECT COUNT(*) AS total FROM violations v LEFT JOIN students s ON v.student_id=s.student_id{where_sql}", params)
+            total = (cur.fetchone() or {}).get('total', 0)
+
+            cur.execute(
+                f"SELECT COALESCE(s.college,'Unknown') AS label, COUNT(*) AS cnt FROM violations v LEFT JOIN students s ON v.student_id=s.student_id{where_sql} GROUP BY label ORDER BY cnt DESC",
+                params,
+            )
+            by_college = cur.fetchall() or []
+
+            cur.execute(
+                f"SELECT COALESCE(s.course,'Unknown') AS label, COUNT(*) AS cnt FROM violations v LEFT JOIN students s ON v.student_id=s.student_id{where_sql} GROUP BY label ORDER BY cnt DESC",
+                params,
+            )
+            by_program = cur.fetchall() or []
+
+            cur.execute(
+                f"SELECT LOWER(COALESCE(s.gender,'')) AS label, COUNT(*) AS cnt FROM violations v LEFT JOIN students s ON v.student_id=s.student_id{where_sql} GROUP BY label",
+                params,
+            )
+            by_gender = cur.fetchall() or []
+
+            cur.execute(
+                f"SELECT v.status AS label, COUNT(*) AS cnt FROM violations v{where_sql} GROUP BY v.status",
+                params,
+            )
+            by_status = cur.fetchall() or []
+        conn.close()
+        return jsonify({'success': True, 'total': total, 'by_college': by_college, 'by_program': by_program, 'by_gender': by_gender, 'by_status': by_status})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/guidance/trend', methods=['GET'])
+def guidance_trend():
+    try:
+        start_dt = request.args.get('start')
+        end_dt = request.args.get('end')
+        academic_year = request.args.get('academic_year')
+        semester = request.args.get('semester')
+        status_filter = request.args.get('status')
+        group_by = request.args.get('group_by', 'day')
+
+        conn = get_connection() if get_connection else None
+        if conn is None:
+            return jsonify({'success': False, 'error': 'DB not configured'}), 500
+
+        where = []
+        params = []
+        if status_filter:
+            where.append("v.status = %s")
+            params.append(status_filter)
+        if start_dt:
+            where.append("v.timestamp >= %s")
+            params.append(start_dt)
+        if end_dt:
+            where.append("v.timestamp <= %s")
+            params.append(end_dt)
+        if academic_year and semester in {"1", "2"}:
+            try:
+                start_year = int(academic_year.split('-')[0])
+                if semester == "1":
+                    ay_start = f"{start_year}-08-01 00:00:00"
+                    ay_end = f"{start_year}-12-31 23:59:59"
+                else:
+                    ay_start = f"{start_year+1}-01-01 00:00:00"
+                    ay_end = f"{start_year+1}-05-31 23:59:59"
+                where.append("v.timestamp BETWEEN %s AND %s")
+                params.extend([ay_start, ay_end])
+            except Exception:
+                pass
+        where_sql = (" WHERE " + " AND ".join(where)) if where else ""
+
+        if group_by == 'month':
+            group_expr = "DATE_FORMAT(v.timestamp, '%Y-%m')"
+            order_expr = "DATE_FORMAT(v.timestamp, '%Y-%m')"
+        elif group_by == 'week':
+            group_expr = "YEARWEEK(v.timestamp, 3)"
+            order_expr = "YEARWEEK(v.timestamp, 3)"
+        else:
+            group_expr = "DATE(v.timestamp)"
+            order_expr = "DATE(v.timestamp)"
+
+        with conn.cursor() as cur:
+            cur.execute(
+                f"SELECT {group_expr} AS label, COUNT(*) AS cnt FROM violations v LEFT JOIN students s ON v.student_id=s.student_id{where_sql} GROUP BY label ORDER BY {order_expr} ASC",
+                params,
+            )
+            rows = cur.fetchall() or []
+        conn.close()
+        return jsonify({'success': True, 'series': rows})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/osas/violation/<int:violation_id>/status', methods=['POST'])
+def osas_update_violation_status(violation_id: int):
+    """OSAS can forward to dean, guidance, or resolve."""
+    try:
+        data = request.get_json(silent=True) or {}
+        status = str(data.get('status') or '').strip().lower()
+        print(f"OSAS status update: violation_id={violation_id}, status={status}, data={data}")
+        # OSAS cannot forward to guidance (only dean). Remove forwarded_guidance from allowed.
+        allowed = {"pending", "forwarded_dean", "resolved"}
+        if status not in allowed:
+            return jsonify({'success': False, 'error': 'Invalid status'}), 400
+        conn = get_connection() if get_connection else None
+        if conn is None:
+            return jsonify({'success': False, 'error': 'DB not configured'}), 500
+        with conn.cursor() as cur:
+            cur.execute("UPDATE violations SET status=%s WHERE violation_id=%s", (status, violation_id))
+            print(f"Updated violation {violation_id} to status {status}")
+        conn.close()
+        return jsonify({'success': True})
+    except Exception as e:
+        print(f"Error updating violation status: {e}")
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
@@ -1442,7 +1953,8 @@ def osas_analytics():
         end_dt = request.args.get('end')
         academic_year = request.args.get('academic_year')
         semester = request.args.get('semester')
-        status_filter = request.args.get('status', 'pending')
+        # Show all statuses by default; only filter if provided
+        status_filter = request.args.get('status')
 
         conn = get_connection() if get_connection else None
         if conn is None:
@@ -1514,7 +2026,8 @@ def osas_trend():
         end_dt = request.args.get('end')
         academic_year = request.args.get('academic_year')
         semester = request.args.get('semester')
-        status_filter = request.args.get('status', 'pending')
+        # Show all statuses by default; only filter if provided
+        status_filter = request.args.get('status')
         group_by = request.args.get('group_by', 'day')
 
         conn = get_connection() if get_connection else None
@@ -2303,4 +2816,10 @@ if __name__ == '__main__':
     print("RFID monitoring will start automatically")
     print("Detection will only work when RFID card is present")
     print("Make sure you have installed: pip install ultralytics opencv-python flask pillow scipy pyscard")
+    # Start alerts checker in background
+    try:
+        import threading as _t
+        _t.Thread(target=(lambda: __import__('time') or None), daemon=True)
+    except Exception:
+        pass
     app.run(debug=True, host='0.0.0.0', port=5000)
