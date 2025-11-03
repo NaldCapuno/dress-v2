@@ -103,6 +103,7 @@ rfid_last_student = None  # Holds last looked-up student dict or None
 rfid_last_violation_ts = 0  # last violation timestamp to throttle duplicates
 rfid_current_uid_checks = 0  # number of detection checks for current RFID UID
 rfid_current_uid_violated = False  # whether a violation has been issued for current UID session
+rfid_current_uid_snapshot_saved = False  # whether a clean snapshot was saved for current UID
 rfid_consecutive_non_compliant = 0  # counter for consecutive non-compliant detections
 rfid_last_compliance_status = None  # track last compliance status to detect changes
 rfid_enabled = False  # flag to completely disable RFID processing
@@ -155,14 +156,18 @@ def rfid_event_handler():
                 event = rfid_event_queue.get(timeout=1.0)
                 if event['type'] == 'uid':
                     with rfid_lock:
-                        rfid_last_uid = event['uid']
+                        incoming_uid = event['uid']
+                        is_same_uid = (rfid_present and rfid_last_uid == incoming_uid)
+                        rfid_last_uid = incoming_uid
                         rfid_present = True
                         detection_enabled = True
-                        # Reset per-scan counters
-                        rfid_current_uid_checks = 0
-                        rfid_current_uid_violated = False
-                        rfid_consecutive_non_compliant = 0
-                        rfid_last_compliance_status = None
+                        # Only reset per-scan counters on NEW UID (or after removal), not on repeated same-UID events
+                        if not is_same_uid:
+                            rfid_current_uid_checks = 0
+                            rfid_current_uid_violated = False
+                            rfid_consecutive_non_compliant = 0
+                            rfid_last_compliance_status = None
+                            rfid_current_uid_snapshot_saved = False
                         # Perform DB lookup and log
                         try:
                             student = None
@@ -176,6 +181,69 @@ def rfid_event_handler():
                         except Exception as e:
                             print(f"RFID DB handling error: {e}")
                     print(f"RFID Card detected: {event['uid']} - Detection ENABLED")
+                    # Capture a clean snapshot on each RFID scan (no overlays/bounding boxes) - only once per UID
+                    try:
+                        snapshot = None
+                        with frame_lock:
+                            if current_frame is not None:
+                                snapshot = current_frame.copy()
+                        save_snapshot = False
+                        with rfid_lock:
+                            if not rfid_current_uid_snapshot_saved:
+                                save_snapshot = True
+                                rfid_current_uid_snapshot_saved = True
+                        if snapshot is not None and save_snapshot:
+                            ts = int(time.time())
+                            sid = (rfid_last_student or {}).get('student_id', 'unknown')
+                            snap_name = f"scan_{ts}_{sid}.jpg"
+                            os.makedirs(RESULT_FOLDER, exist_ok=True)
+                            snap_path = os.path.join(RESULT_FOLDER, snap_name)
+                            cv2.imwrite(snap_path, snapshot)
+                            print(f"DEBUG: Saved clean RFID snapshot (non-violation): {snap_path}")
+
+                            # Create a duplicate with dress code bounding boxes (no labels/text)
+                            try:
+                                boxed = snapshot.copy()
+                                # Run dress model directly on the full snapshot
+                                results = dress_model(snapshot)
+                                for r in results:
+                                    boxes = r.boxes
+                                    if boxes is None:
+                                        continue
+                                    for box in boxes:
+                                        conf = float(box.conf[0]) if hasattr(box, 'conf') else 0.0
+                                        if conf < 0.50:
+                                            continue
+                                        x1, y1, x2, y2 = box.xyxy[0].cpu().numpy()
+                                        # Use a constant blue box for dress items to distinguish from violations
+                                        cv2.rectangle(boxed, (int(x1), int(y1)), (int(x2), int(y2)), (255, 0, 0), 2)
+                                        # Label with class name and confidence
+                                        try:
+                                            class_id = int(box.cls[0]) if hasattr(box, 'cls') else None
+                                            class_name = dress_model.names[class_id] if class_id is not None else 'item'
+                                        except Exception:
+                                            class_name = 'item'
+                                        label_text = f"{class_name} {conf*100:.0f}%"
+                                        label_scale = 0.4
+                                        label_thickness = 1
+                                        (tw, th), _ = cv2.getTextSize(label_text, cv2.FONT_HERSHEY_SIMPLEX, label_scale, label_thickness)
+                                        pad = 3
+                                        bx1, by1 = int(x1), int(y1)
+                                        # Draw filled background above the box if room, otherwise inside
+                                        rect_top = by1 - th - pad*2 if by1 - th - pad*2 > 0 else by1 + pad
+                                        rect_bottom = rect_top + th + pad*2
+                                        cv2.rectangle(boxed, (bx1, rect_top), (bx1 + tw + pad*2, rect_bottom), (255, 0, 0), -1)
+                                        cv2.putText(boxed, label_text, (bx1 + pad, rect_bottom - pad), cv2.FONT_HERSHEY_SIMPLEX, label_scale, (255, 255, 255), label_thickness)
+                                boxed_name = f"scan_{ts}_{sid}_dress.jpg"
+                                boxed_path = os.path.join(RESULT_FOLDER, boxed_name)
+                                cv2.imwrite(boxed_path, boxed)
+                                print(f"DEBUG: Saved dress-boxed RFID snapshot: {boxed_path}")
+                            except Exception as e:
+                                print(f"DEBUG: Error creating dress-boxed RFID snapshot: {e}")
+                        else:
+                            print("DEBUG: No current_frame to save RFID snapshot")
+                    except Exception as e:
+                        print(f"DEBUG: Error saving RFID snapshot: {e}")
                 else:
                     with rfid_lock:
                         rfid_present = False
@@ -185,6 +253,7 @@ def rfid_event_handler():
                         rfid_current_uid_violated = False
                         rfid_consecutive_non_compliant = 0
                         rfid_last_compliance_status = None
+                        rfid_current_uid_snapshot_saved = False
                     print("RFID Card removed - Detection DISABLED")
             elif rfid_event_queue:
                 # RFID disabled or camera off, just consume events without processing
@@ -222,6 +291,7 @@ def rfid_event_handler():
                         rfid_current_uid_violated = False
                         rfid_consecutive_non_compliant = 0
                         rfid_last_compliance_status = None
+                        rfid_current_uid_snapshot_saved = False
                         rfid_last_uid = None
                         print("RFID disabled or camera off - RFID forced inactive")
         time.sleep(0.1)
