@@ -275,13 +275,13 @@ def validate_dress_code(detected_items, gender='male'):
             compliance_status[required_item] = {
                 'present': True,
                 'name': item_names[required_item],
-                'status': 'has:'
+                'status': 'compliant:'
             }
         else:
             compliance_status[required_item] = {
                 'present': False,
                 'name': item_names[required_item],
-                'status': 'missing:'
+                'status': 'non-compliant:'
             }
     
     # Calculate compliance percentage
@@ -421,20 +421,20 @@ def detect_persons_with_dress(image_path):
             compliance_status = dress_validation['compliance_status']
             
             # Group items by status
-            has_items = []
-            missing_items = []
+            compliant_items = []
+            noncompliant_items = []
             for item_key, item_status in compliance_status.items():
                 if item_status['present']:
-                    has_items.append(item_status['name'].lower().replace(' ', '_'))
+                    compliant_items.append(item_status['name'].lower().replace(' ', '_'))
                 else:
-                    missing_items.append(item_status['name'].lower().replace(' ', '_'))
+                    noncompliant_items.append(item_status['name'].lower().replace(' ', '_'))
             
             # Format grouped details (only show categories that have items)
             detail_parts = []
-            if has_items:
-                detail_parts.append(f"has: {', '.join(has_items)}")
-            if missing_items:
-                detail_parts.append(f"missing: {', '.join(missing_items)}")
+            if compliant_items:
+                detail_parts.append(f"compliant: {', '.join(compliant_items)}")
+            if noncompliant_items:
+                detail_parts.append(f"non-compliant: {', '.join(noncompliant_items)}")
             
             detection['dress_summary'] = f"{dress_validation['overall_status']} ({dress_validation['compliance_percentage']:.0f}%)"
             detection['dress_details'] = "\n".join(detail_parts)
@@ -519,7 +519,7 @@ def draw_detections(image_path, detections, output_path):
             cv2.putText(image, compliance_text, (x1 + 2, current_y - 2), 
                        cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 0), 2)
             
-            # Draw detailed dress code items with present/missing status
+            # Draw detailed dress code items with present/non-compliant status
             compliance_status = dress_validation.get('compliance_status', {})
             if compliance_status:
                 current_y -= 25
@@ -536,17 +536,17 @@ def draw_detections(image_path, detections, output_path):
                            cv2.FONT_HERSHEY_SIMPLEX, 0.4, (0, 0, 0), 1)
                 
                 # Group items by status and display
-                has_items = []
-                missing_items = []
+                compliant_items = []
+                noncompliant_items = []
                 for item_key, item_status in compliance_status.items():
                     if item_status['present']:
-                        has_items.append(item_status['name'].lower().replace(' ', '_'))
+                        compliant_items.append(item_status['name'].lower().replace(' ', '_'))
                     else:
-                        missing_items.append(item_status['name'].lower().replace(' ', '_'))
+                        noncompliant_items.append(item_status['name'].lower().replace(' ', '_'))
                 
                 # Draw has items (only if present)
-                if has_items:
-                    has_text = f"has: {', '.join(has_items)}"
+                if compliant_items:
+                    has_text = f"has: {', '.join(compliant_items)}"
                     current_y -= 20
                     has_size = cv2.getTextSize(has_text, cv2.FONT_HERSHEY_SIMPLEX, 0.4, 1)[0]
                     cv2.rectangle(image, (x1, current_y - has_size[1] - 5), 
@@ -554,14 +554,14 @@ def draw_detections(image_path, detections, output_path):
                     cv2.putText(image, has_text, (x1 + 2, current_y - 2), 
                                cv2.FONT_HERSHEY_SIMPLEX, 0.4, (0, 0, 0), 1)
                 
-                # Draw missing items (only if present)
-                if missing_items:
-                    missing_text = f"missing: {', '.join(missing_items)}"
+                # Draw non-compliant items (only if present)
+                if noncompliant_items:
+                    noncompliant_text = f"non-compliant: {', '.join(noncompliant_items)}"
                     current_y -= 20
-                    missing_size = cv2.getTextSize(missing_text, cv2.FONT_HERSHEY_SIMPLEX, 0.4, 1)[0]
-                    cv2.rectangle(image, (x1, current_y - missing_size[1] - 5), 
-                                 (x1 + missing_size[0] + 5, current_y + 5), color, -1)
-                    cv2.putText(image, missing_text, (x1 + 2, current_y - 2), 
+                    noncompliant_size = cv2.getTextSize(noncompliant_text, cv2.FONT_HERSHEY_SIMPLEX, 0.4, 1)[0]
+                    cv2.rectangle(image, (x1, current_y - noncompliant_size[1] - 5), 
+                                 (x1 + noncompliant_size[0] + 5, current_y + 5), color, -1)
+                    cv2.putText(image, noncompliant_text, (x1 + 2, current_y - 2), 
                                cv2.FONT_HERSHEY_SIMPLEX, 0.4, (0, 0, 0), 1)
             else:
                 # No dress code validation available
@@ -630,20 +630,20 @@ def detect_persons_frame_with_dress(frame):
             compliance_status = dress_validation['compliance_status']
             
             # Group items by status
-            has_items = []
-            missing_items = []
+            compliant_items = []
+            noncompliant_items = []
             for item_key, item_status in compliance_status.items():
                 if item_status['present']:
-                    has_items.append(item_status['name'].lower().replace(' ', '_'))
+                    compliant_items.append(item_status['name'].lower().replace(' ', '_'))
                 else:
-                    missing_items.append(item_status['name'].lower().replace(' ', '_'))
+                    noncompliant_items.append(item_status['name'].lower().replace(' ', '_'))
             
             # Format grouped details (only show categories that have items)
             detail_parts = []
-            if has_items:
-                detail_parts.append(f"has: {', '.join(has_items)}")
-            if missing_items:
-                detail_parts.append(f"missing: {', '.join(missing_items)}")
+            if compliant_items:
+                detail_parts.append(f"compliant: {', '.join(compliant_items)}")
+            if noncompliant_items:
+                detail_parts.append(f"non-compliant: {', '.join(noncompliant_items)}")
             
             detection['dress_summary'] = f"{dress_validation['overall_status']} ({dress_validation['compliance_percentage']:.0f}%)"
             detection['dress_details'] = "\n".join(detail_parts)
@@ -721,7 +721,7 @@ def draw_detections_frame(frame, detections):
             cv2.putText(frame, compliance_text, (x1 + 2, current_y - 2), 
                        cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 0), 2)
             
-            # Draw detailed dress code items with present/missing status
+            # Draw detailed dress code items with present/non-compliant status
             compliance_status = dress_validation.get('compliance_status', {})
             if compliance_status:
                 current_y -= 25
@@ -738,17 +738,17 @@ def draw_detections_frame(frame, detections):
                            cv2.FONT_HERSHEY_SIMPLEX, 0.4, (0, 0, 0), 1)
                 
                 # Group items by status and display
-                has_items = []
-                missing_items = []
+                compliant_items = []
+                noncompliant_items = []
                 for item_key, item_status in compliance_status.items():
                     if item_status['present']:
-                        has_items.append(item_status['name'].lower().replace(' ', '_'))
+                        compliant_items.append(item_status['name'].lower().replace(' ', '_'))
                     else:
-                        missing_items.append(item_status['name'].lower().replace(' ', '_'))
+                        noncompliant_items.append(item_status['name'].lower().replace(' ', '_'))
                 
                 # Draw has items (only if present)
-                if has_items:
-                    has_text = f"has: {', '.join(has_items)}"
+                if compliant_items:
+                    has_text = f"has: {', '.join(compliant_items)}"
                     current_y -= 20
                     has_size = cv2.getTextSize(has_text, cv2.FONT_HERSHEY_SIMPLEX, 0.4, 1)[0]
                     cv2.rectangle(frame, (x1, current_y - has_size[1] - 5), 
@@ -756,14 +756,14 @@ def draw_detections_frame(frame, detections):
                     cv2.putText(frame, has_text, (x1 + 2, current_y - 2), 
                                cv2.FONT_HERSHEY_SIMPLEX, 0.4, (0, 0, 0), 1)
                 
-                # Draw missing items (only if present)
-                if missing_items:
-                    missing_text = f"missing: {', '.join(missing_items)}"
+                # Draw non-compliant items (only if present)
+                if noncompliant_items:
+                    noncompliant_text = f"non-compliant: {', '.join(noncompliant_items)}"
                     current_y -= 20
-                    missing_size = cv2.getTextSize(missing_text, cv2.FONT_HERSHEY_SIMPLEX, 0.4, 1)[0]
-                    cv2.rectangle(frame, (x1, current_y - missing_size[1] - 5), 
-                                 (x1 + missing_size[0] + 5, current_y + 5), color, -1)
-                    cv2.putText(frame, missing_text, (x1 + 2, current_y - 2), 
+                    noncompliant_size = cv2.getTextSize(noncompliant_text, cv2.FONT_HERSHEY_SIMPLEX, 0.4, 1)[0]
+                    cv2.rectangle(frame, (x1, current_y - noncompliant_size[1] - 5), 
+                                 (x1 + noncompliant_size[0] + 5, current_y + 5), color, -1)
+                    cv2.putText(frame, noncompliant_text, (x1 + 2, current_y - 2), 
                                cv2.FONT_HERSHEY_SIMPLEX, 0.4, (0, 0, 0), 1)
             
         return frame
@@ -882,8 +882,8 @@ def _maybe_record_violation(frame, detections, admin_user):
             with rfid_lock:
                 current_gender = (rfid_last_student or {}).get('gender')
             gender_label = str(current_gender or 'unknown').lower()
-            missing = ", ".join(violation_details) if violation_details else "Missing required items"
-            violation_type_for_image = f"{gender_label} dress code violation: {missing}"
+            noncompliant = ", ".join(violation_details) if violation_details else "Non-Compliant Items"
+            violation_type_for_image = f"{gender_label} dress code violation: {noncompliant}"
             
             # Add violation information overlay
             violation_text = f"VIOLATION RECORDED - {violation_type_for_image}"
@@ -921,14 +921,14 @@ def _maybe_record_violation(frame, detections, admin_user):
                     
                     # Add violation details
                     comp = dv.get('compliance_status') or {}
-                    missing_items = []
+                    noncompliant_items = []
                     for key, val in comp.items():
                         if not val.get('present'):
-                            missing_items.append(val.get('name') or key)
+                            noncompliant_items.append(val.get('name') or key)
                     
-                    if missing_items:
-                        missing_text = f"Missing: {', '.join(missing_items)}"
-                        cv2.putText(proof_frame, missing_text, (x1, y1 - 10), 
+                    if noncompliant_items:
+                        noncompliant_text = f"Non-Compliant: {', '.join(noncompliant_items)}"
+                        cv2.putText(proof_frame, noncompliant_text, (x1, y1 - 10), 
                                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 255), 2)
             
             print(f"DEBUG: Added bounding boxes, attempting to save image")
@@ -977,7 +977,7 @@ def _maybe_record_violation(frame, detections, admin_user):
                     'violation_type': violation_type,
                     'timestamp': time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(now_ts)),
                     'proof_image': proof_name,
-                    'missing_items': violation_details,
+                    'noncompliant_items': violation_details,
                     'consecutive_detections': rfid_consecutive_non_compliant
                 }
                 
