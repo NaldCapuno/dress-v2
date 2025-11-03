@@ -66,11 +66,14 @@ mail = Mail(app)
 # Configure upload folder
 UPLOAD_FOLDER = 'uploads'
 RESULT_FOLDER = 'results'
+VIOLATION_SUBDIR = 'violations'
+VIOLATION_FOLDER = os.path.join(RESULT_FOLDER, VIOLATION_SUBDIR)
 ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif', 'bmp'}
 
 # Create necessary directories
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 os.makedirs(RESULT_FOLDER, exist_ok=True)
+os.makedirs(VIOLATION_FOLDER, exist_ok=True)
 
 # Alerts cache for deans (per college)
 dean_alerts_cache = {}
@@ -867,46 +870,88 @@ def _maybe_record_violation(frame, detections, admin_user):
 
         # Save enhanced proof image with annotations
         proof_name = f"violation_{int(now_ts)}_{rfid_last_student.get('student_id', 'unknown')}.jpg"
-        proof_path = os.path.join(RESULT_FOLDER, proof_name)
+        proof_path = os.path.join(VIOLATION_FOLDER, proof_name)
         print(f"DEBUG: Proof image path: {proof_path}")
         
         try:
-            os.makedirs(RESULT_FOLDER, exist_ok=True)
-            print(f"DEBUG: Created/verified results folder: {RESULT_FOLDER}")
+            os.makedirs(VIOLATION_FOLDER, exist_ok=True)
+            print(f"DEBUG: Created/verified violation folder: {VIOLATION_FOLDER}")
             
             # Create an enhanced proof image with violation details
             proof_frame = frame.copy()
             print(f"DEBUG: Created proof frame copy, shape: {proof_frame.shape}")
             
-            # Build violation type text (gender-aware) for image annotation
-            with rfid_lock:
-                current_gender = (rfid_last_student or {}).get('gender')
-            gender_label = str(current_gender or 'unknown').lower()
-            noncompliant = ", ".join(violation_details) if violation_details else "Non-Compliant Items"
-            violation_type_for_image = f"{gender_label} dress code violation: {noncompliant}"
+            # Build violation type text for image annotation
+            noncompliant = ", ".join(violation_details) if violation_details else "non-compliant items"
+            violation_type_for_image = f"non-compliant: {noncompliant}"
             
-            # Add violation information overlay
+            # Add violation information overlay (with word wrapping)
             violation_text = f"VIOLATION RECORDED - {violation_type_for_image}"
             timestamp_text = f"Time: {time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(now_ts))}"
             student_text = f"Student ID: {rfid_last_student.get('student_id', 'Unknown')}"
             rfid_text = f"RFID: {rfid_last_uid}"
-            
+
             print(f"DEBUG: Adding text overlays to proof image")
-            
-            # Draw semi-transparent background for text
+
+            # Prepare wrapping
+            margin_left = 20
+            margin_top = 20
+            margin_right = 20
+            line_spacing = 6
+            title_scale = 0.7
+            info_scale = 0.5
+            thickness = 2
+            max_text_width = proof_frame.shape[1] - (margin_left + margin_right)
+
+            def wrap_lines(text, scale):
+                words = (text or '').split()
+                lines = []
+                current = ''
+                for w in words:
+                    trial = (current + ' ' + w).strip()
+                    size = cv2.getTextSize(trial, cv2.FONT_HERSHEY_SIMPLEX, scale, thickness)[0]
+                    if size[0] <= max_text_width or not current:
+                        current = trial
+                    else:
+                        lines.append(current)
+                        current = w
+                if current:
+                    lines.append(current)
+                return lines
+
+            wrapped_title = wrap_lines(violation_text, title_scale)
+            # Timestamp, student, RFID are short; keep one line each
+            info_lines = [timestamp_text, student_text, rfid_text]
+
+            # Calculate total background height
+            y = margin_top
+            total_height = 0
+            # Title block
+            for ln in wrapped_title:
+                sz = cv2.getTextSize(ln, cv2.FONT_HERSHEY_SIMPLEX, title_scale, thickness)[0]
+                total_height += sz[1] + line_spacing
+            # Info lines
+            for ln in info_lines:
+                sz = cv2.getTextSize(ln, cv2.FONT_HERSHEY_SIMPLEX, info_scale, thickness)[0]
+                total_height += sz[1] + line_spacing
+            total_height += 5  # bottom padding
+
+            # Draw semi-transparent background rectangle sized to content
             overlay = proof_frame.copy()
-            cv2.rectangle(overlay, (10, 10), (proof_frame.shape[1] - 10, 120), (0, 0, 0), -1)
+            cv2.rectangle(overlay, (10, 10), (proof_frame.shape[1] - 10, 10 + total_height), (0, 0, 0), -1)
             cv2.addWeighted(overlay, 0.7, proof_frame, 0.3, 0, proof_frame)
-            
-            # Add violation text
-            cv2.putText(proof_frame, violation_text, (20, 35), 
-                       cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 255), 2)  # Red text
-            cv2.putText(proof_frame, timestamp_text, (20, 60), 
-                       cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)  # White text
-            cv2.putText(proof_frame, student_text, (20, 85), 
-                       cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)  # White text
-            cv2.putText(proof_frame, rfid_text, (20, 110), 
-                       cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)  # White text
+
+            # Draw wrapped title lines
+            y = margin_top
+            for ln in wrapped_title:
+                cv2.putText(proof_frame, ln, (margin_left, y + cv2.getTextSize(ln, cv2.FONT_HERSHEY_SIMPLEX, title_scale, thickness)[0][1]),
+                           cv2.FONT_HERSHEY_SIMPLEX, title_scale, (0, 0, 255), thickness)
+                y += cv2.getTextSize(ln, cv2.FONT_HERSHEY_SIMPLEX, title_scale, thickness)[0][1] + line_spacing
+            # Draw info lines
+            for ln in info_lines:
+                cv2.putText(proof_frame, ln, (margin_left, y + cv2.getTextSize(ln, cv2.FONT_HERSHEY_SIMPLEX, info_scale, thickness)[0][1]),
+                           cv2.FONT_HERSHEY_SIMPLEX, info_scale, (255, 255, 255), thickness)
+                y += cv2.getTextSize(ln, cv2.FONT_HERSHEY_SIMPLEX, info_scale, thickness)[0][1] + line_spacing
             
             print(f"DEBUG: Added text overlays, now adding bounding boxes")
             
@@ -926,10 +971,7 @@ def _maybe_record_violation(frame, detections, admin_user):
                         if not val.get('present'):
                             noncompliant_items.append(val.get('name') or key)
                     
-                    if noncompliant_items:
-                        noncompliant_text = f"Non-Compliant: {', '.join(noncompliant_items)}"
-                        cv2.putText(proof_frame, noncompliant_text, (x1, y1 - 10), 
-                                   cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 255), 2)
+                    # Removed per-person non-compliant text near the bounding box as requested
             
             print(f"DEBUG: Added bounding boxes, attempting to save image")
             
@@ -955,8 +997,8 @@ def _maybe_record_violation(frame, detections, admin_user):
         violation_type = violation_type_for_image
 
 
-        # Store only filename in DB; serve via /results/<filename>
-        rel_path = proof_name if proof_path else None
+        # Store relative path in DB; serve via /results/violations/<filename>
+        rel_path = os.path.join(VIOLATION_SUBDIR, proof_name) if proof_path else None
         print(f"DEBUG: Database path: {rel_path}")
 
         if insert_violation:
@@ -1093,17 +1135,23 @@ def generate_frames():
                     test_mode_active = test_mode
                 
                 with rfid_lock:
-                    rfid_detection_enabled = detection_enabled and rfid_present
+                    _present = rfid_present
+                    _student_set = (rfid_last_student is not None)
+                    rfid_detection_enabled = detection_enabled and _present and _student_set
                 
+                # In test mode, detection always runs regardless of RFID
                 detection_enabled_for_frame = rfid_detection_enabled or test_mode_active
                 
                 if detection_enabled_for_frame:
+                    # Keep a clean copy of the frame (without live overlays) for proof image
+                    clean_frame_for_proof = frame.copy()
+                    
                     detections = detect_persons_frame_with_dress(frame)
                     frame = draw_detections_frame(frame, detections)
                     
-                    # Attempt to record violation if non-compliant (for live monitoring)
+                    # Attempt to record violation using the CLEAN frame (no overlay text)
                     # Note: admin_user is None in background thread, will be handled in violation function
-                    _maybe_record_violation(frame, detections, None)
+                    _maybe_record_violation(clean_frame_for_proof, detections, None)
                     
                     # Status overlay removed as requested
                     pass
@@ -2210,11 +2258,16 @@ def detect_from_url():
 def uploaded_file(filename):
     return send_from_directory(RESULT_FOLDER, filename)
 
+@app.route('/results/violations/<filename>')
+def uploaded_violation_file(filename):
+    return send_from_directory(VIOLATION_FOLDER, filename)
+
 @app.route('/violation_proof/<filename>')
 def violation_proof(filename):
     """Serve violation proof images with proper headers"""
     try:
-        return send_from_directory(RESULT_FOLDER, filename, as_attachment=False)
+        # Serve from violations subfolder by default
+        return send_from_directory(VIOLATION_FOLDER, filename, as_attachment=False)
     except Exception as e:
         return f"Error serving proof image: {e}", 404
 
@@ -2608,8 +2661,11 @@ def capture_frame():
                     test_mode_active = test_mode
                 
                 with rfid_lock:
-                    rfid_detection_enabled = detection_enabled and rfid_present
+                    _present = rfid_present
+                    _student_set = (rfid_last_student is not None)
+                    rfid_detection_enabled = detection_enabled and _present and _student_set
                 
+                # In test mode, detection always runs regardless of RFID
                 detection_enabled_for_capture = rfid_detection_enabled or test_mode_active
                 
                 if detection_enabled_for_capture:
