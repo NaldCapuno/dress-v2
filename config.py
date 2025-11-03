@@ -42,7 +42,7 @@ def find_student_by_rfid(rfid_uid: str):
         with conn.cursor() as cur:
             cur.execute(
                 """
-                SELECT student_id, rfid_uid, name, gender, year_level, course, college, email
+                SELECT student_id, rfid_uid, name, gender, year_level, course, college
                 FROM students
                 WHERE rfid_uid = %s
                 LIMIT 1
@@ -62,7 +62,7 @@ def find_student_by_id(student_id: str):
         with conn.cursor() as cur:
             cur.execute(
                 """
-                SELECT student_id, rfid_uid, name, gender, year_level, course, college, email
+                SELECT student_id, rfid_uid, name, gender, year_level, course, college
                 FROM students
                 WHERE student_id = %s
                 LIMIT 1
