@@ -7,10 +7,10 @@ import os
 import base64
 import threading
 import time
-from botsort_tracker import BotSORT
+from src.botsort_tracker import BotSORT
 from werkzeug.security import check_password_hash
 try:
-    from config import get_connection, find_student_by_rfid, insert_rfid_log, insert_violation
+    from src.config import get_connection, find_student_by_rfid, insert_rfid_log, insert_violation
 except Exception as e:
     get_connection = None
     find_student_by_rfid = None
@@ -19,7 +19,7 @@ except Exception as e:
     print(f"Warning: Database config not available: {e}")
 
 try:
-    from rfid_scanner import (
+    from src.rfid_scanner import (
         get_rfid_uid, start_rfid_monitoring, stop_rfid_monitoring, 
         subscribe_to_rfid_events, unsubscribe_from_rfid_events,
         get_rfid_status, _rfid_is_present, set_rfid_enabled, is_rfid_enabled
@@ -79,10 +79,10 @@ os.makedirs(VIOLATION_FOLDER, exist_ok=True)
 dean_alerts_cache = {}
 
 # Load YOLOv8n model for person detection
-person_model = YOLO('yolov8n.pt')
+person_model = YOLO('models/yolov8n.pt')
 
 # Load best.pt model for dress code detection
-dress_model = YOLO('best.pt')
+dress_model = YOLO('models/best.pt')
 
 # Initialize BotSort tracker
 tracker = BotSORT()
@@ -160,7 +160,6 @@ def rfid_event_handler():
                         is_same_uid = (rfid_present and rfid_last_uid == incoming_uid)
                         rfid_last_uid = incoming_uid
                         rfid_present = True
-                        detection_enabled = True
                         # Only reset per-scan counters on NEW UID (or after removal), not on repeated same-UID events
                         if not is_same_uid:
                             rfid_current_uid_checks = 0
@@ -180,70 +179,80 @@ def rfid_event_handler():
                             rfid_last_student = student
                         except Exception as e:
                             print(f"RFID DB handling error: {e}")
-                    print(f"RFID Card detected: {event['uid']} - Detection ENABLED")
-                    # Capture a clean snapshot on each RFID scan (no overlays/bounding boxes) - only once per UID
-                    try:
-                        snapshot = None
-                        with frame_lock:
-                            if current_frame is not None:
-                                snapshot = current_frame.copy()
-                        save_snapshot = False
+                    
+                    # Only enable detection and capture images if RFID has a record in database
+                    if rfid_last_student is not None:
                         with rfid_lock:
-                            if not rfid_current_uid_snapshot_saved:
-                                save_snapshot = True
-                                rfid_current_uid_snapshot_saved = True
-                        if snapshot is not None and save_snapshot:
-                            ts = int(time.time())
-                            sid = (rfid_last_student or {}).get('student_id', 'unknown')
-                            snap_name = f"scan_{ts}_{sid}.jpg"
-                            os.makedirs(RESULT_FOLDER, exist_ok=True)
-                            snap_path = os.path.join(RESULT_FOLDER, snap_name)
-                            cv2.imwrite(snap_path, snapshot)
-                            print(f"DEBUG: Saved clean RFID snapshot (non-violation): {snap_path}")
+                            detection_enabled = True
+                        print(f"RFID Card detected: {event['uid']} - Student found: {rfid_last_student.get('name', 'Unknown')} - Detection ENABLED")
+                        # Capture a clean snapshot on each RFID scan (no overlays/bounding boxes) - only once per UID
+                        try:
+                            snapshot = None
+                            with frame_lock:
+                                if current_frame is not None:
+                                    snapshot = current_frame.copy()
+                            save_snapshot = False
+                            with rfid_lock:
+                                if not rfid_current_uid_snapshot_saved:
+                                    save_snapshot = True
+                                    rfid_current_uid_snapshot_saved = True
+                            if snapshot is not None and save_snapshot:
+                                ts = int(time.time())
+                                sid = (rfid_last_student or {}).get('student_id', 'unknown')
+                                snap_name = f"scan_{ts}_{sid}.jpg"
+                                os.makedirs(RESULT_FOLDER, exist_ok=True)
+                                snap_path = os.path.join(RESULT_FOLDER, snap_name)
+                                cv2.imwrite(snap_path, snapshot)
+                                print(f"DEBUG: Saved clean RFID snapshot (non-violation): {snap_path}")
 
-                            # Create a duplicate with dress code bounding boxes (no labels/text)
-                            try:
-                                boxed = snapshot.copy()
-                                # Run dress model directly on the full snapshot
-                                results = dress_model(snapshot)
-                                for r in results:
-                                    boxes = r.boxes
-                                    if boxes is None:
-                                        continue
-                                    for box in boxes:
-                                        conf = float(box.conf[0]) if hasattr(box, 'conf') else 0.0
-                                        if conf < 0.50:
+                                # Create a duplicate with dress code bounding boxes (no labels/text)
+                                try:
+                                    boxed = snapshot.copy()
+                                    # Run dress model directly on the full snapshot
+                                    results = dress_model(snapshot)
+                                    for r in results:
+                                        boxes = r.boxes
+                                        if boxes is None:
                                             continue
-                                        x1, y1, x2, y2 = box.xyxy[0].cpu().numpy()
-                                        # Use a constant blue box for dress items to distinguish from violations
-                                        cv2.rectangle(boxed, (int(x1), int(y1)), (int(x2), int(y2)), (255, 0, 0), 2)
-                                        # Label with class name and confidence
-                                        try:
-                                            class_id = int(box.cls[0]) if hasattr(box, 'cls') else None
-                                            class_name = dress_model.names[class_id] if class_id is not None else 'item'
-                                        except Exception:
-                                            class_name = 'item'
-                                        label_text = f"{class_name} {conf*100:.0f}%"
-                                        label_scale = 0.4
-                                        label_thickness = 1
-                                        (tw, th), _ = cv2.getTextSize(label_text, cv2.FONT_HERSHEY_SIMPLEX, label_scale, label_thickness)
-                                        pad = 3
-                                        bx1, by1 = int(x1), int(y1)
-                                        # Draw filled background above the box if room, otherwise inside
-                                        rect_top = by1 - th - pad*2 if by1 - th - pad*2 > 0 else by1 + pad
-                                        rect_bottom = rect_top + th + pad*2
-                                        cv2.rectangle(boxed, (bx1, rect_top), (bx1 + tw + pad*2, rect_bottom), (255, 0, 0), -1)
-                                        cv2.putText(boxed, label_text, (bx1 + pad, rect_bottom - pad), cv2.FONT_HERSHEY_SIMPLEX, label_scale, (255, 255, 255), label_thickness)
-                                boxed_name = f"scan_{ts}_{sid}_dress.jpg"
-                                boxed_path = os.path.join(RESULT_FOLDER, boxed_name)
-                                cv2.imwrite(boxed_path, boxed)
-                                print(f"DEBUG: Saved dress-boxed RFID snapshot: {boxed_path}")
-                            except Exception as e:
-                                print(f"DEBUG: Error creating dress-boxed RFID snapshot: {e}")
-                        else:
-                            print("DEBUG: No current_frame to save RFID snapshot")
-                    except Exception as e:
-                        print(f"DEBUG: Error saving RFID snapshot: {e}")
+                                        for box in boxes:
+                                            conf = float(box.conf[0]) if hasattr(box, 'conf') else 0.0
+                                            if conf < 0.50:
+                                                continue
+                                            x1, y1, x2, y2 = box.xyxy[0].cpu().numpy()
+                                            # Use a constant blue box for dress items to distinguish from violations
+                                            cv2.rectangle(boxed, (int(x1), int(y1)), (int(x2), int(y2)), (255, 0, 0), 2)
+                                            # Label with class name and confidence
+                                            try:
+                                                class_id = int(box.cls[0]) if hasattr(box, 'cls') else None
+                                                class_name = dress_model.names[class_id] if class_id is not None else 'item'
+                                            except Exception:
+                                                class_name = 'item'
+                                            label_text = f"{class_name} {conf*100:.0f}%"
+                                            label_scale = 0.4
+                                            label_thickness = 1
+                                            (tw, th), _ = cv2.getTextSize(label_text, cv2.FONT_HERSHEY_SIMPLEX, label_scale, label_thickness)
+                                            pad = 3
+                                            bx1, by1 = int(x1), int(y1)
+                                            # Draw filled background above the box if room, otherwise inside
+                                            rect_top = by1 - th - pad*2 if by1 - th - pad*2 > 0 else by1 + pad
+                                            rect_bottom = rect_top + th + pad*2
+                                            cv2.rectangle(boxed, (bx1, rect_top), (bx1 + tw + pad*2, rect_bottom), (255, 0, 0), -1)
+                                            cv2.putText(boxed, label_text, (bx1 + pad, rect_bottom - pad), cv2.FONT_HERSHEY_SIMPLEX, label_scale, (255, 255, 255), label_thickness)
+                                    boxed_name = f"scan_{ts}_{sid}_dress.jpg"
+                                    boxed_path = os.path.join(RESULT_FOLDER, boxed_name)
+                                    cv2.imwrite(boxed_path, boxed)
+                                    print(f"DEBUG: Saved dress-boxed RFID snapshot: {boxed_path}")
+                                except Exception as e:
+                                    print(f"DEBUG: Error creating dress-boxed RFID snapshot: {e}")
+                            else:
+                                print("DEBUG: No current_frame to save RFID snapshot")
+                        except Exception as e:
+                            print(f"DEBUG: Error saving RFID snapshot: {e}")
+                    else:
+                        print(f"RFID Card detected: {event['uid']} - No student record found in database - Detection DISABLED")
+                        # Disable detection if no student record found
+                        with rfid_lock:
+                            detection_enabled = False
                 else:
                     with rfid_lock:
                         rfid_present = False
@@ -1107,7 +1116,7 @@ def _maybe_record_violation(frame, detections, admin_user):
                     student_id = (rfid_last_student or {}).get('student_id')
                     if not student_email and (rfid_last_student or {}).get('student_id'):
                         try:
-                            from config import find_student_by_id as _find_student_by_id
+                            from src.config import find_student_by_id as _find_student_by_id
                         except Exception:
                             _find_student_by_id = None
                         if _find_student_by_id:
@@ -1120,7 +1129,7 @@ def _maybe_record_violation(frame, detections, admin_user):
                         # Determine strike number (cap at 3)
                         strike_num = 1
                         try:
-                            from config import get_student_violation_count as _get_v_cnt, get_student_violations as _get_v_list
+                            from src.config import get_student_violation_count as _get_v_cnt, get_student_violations as _get_v_list
                         except Exception:
                             _get_v_cnt = None
                             _get_v_list = None
