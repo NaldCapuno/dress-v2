@@ -161,3 +161,27 @@ def insert_violation(student_id, violation_type: str, image_proof_rel_path: str 
         conn.close()
 
 
+def has_student_violation_today(student_id: str) -> bool:
+    """Return True if the student already has a violation recorded today."""
+    if not student_id:
+        return False
+    conn = get_connection()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT COUNT(*) AS cnt
+                FROM violations
+                WHERE student_id = %s
+                  AND DATE(timestamp) = CURRENT_DATE
+                """,
+                (student_id,)
+            )
+            row = cur.fetchone() or {}
+            return int(row.get('cnt') or 0) > 0
+    except Exception:
+        return False
+    finally:
+        conn.close()
+
+
