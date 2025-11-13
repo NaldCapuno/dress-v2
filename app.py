@@ -10,22 +10,22 @@ import time
 from src.botsort_tracker import BotSORT
 from werkzeug.security import check_password_hash
 try:
-    from src.config import get_connection, find_student_by_rfid, insert_rfid_log, insert_violation
+    from src.config import get_connection, find_student_by_rfid, insert_rfid_log, insert_violation, has_student_violation_today
 except Exception as e:
     get_connection = None
     find_student_by_rfid = None
     insert_rfid_log = None
     insert_violation = None
+    has_student_violation_today = None
     print(f"Warning: Database config not available: {e}")
-
-try:
+else:
     from src.rfid_scanner import (
         get_rfid_uid, start_rfid_monitoring, stop_rfid_monitoring, 
         subscribe_to_rfid_events, unsubscribe_from_rfid_events,
         get_rfid_status, _rfid_is_present, set_rfid_enabled, is_rfid_enabled
     )
     RFID_AVAILABLE = True
-except ImportError as e:
+except Exception as e:
     print(f"Warning: RFID scanner not available: {e}")
     RFID_AVAILABLE = False
     # Define dummy functions
@@ -148,7 +148,7 @@ def initialize_rfid():
 
 def rfid_event_handler():
     """Handle RFID events in background thread"""
-    global rfid_last_uid, rfid_present, detection_enabled, rfid_lock, rfid_last_student, rfid_consecutive_non_compliant, rfid_last_compliance_status, camera, rfid_enabled
+    global rfid_last_uid, rfid_present, detection_enabled, rfid_lock, rfid_last_student, rfid_consecutive_non_compliant, rfid_last_compliance_status, rfid_last_violation_ts, camera, rfid_enabled, tracker
     
     while True:
         try:
@@ -167,6 +167,10 @@ def rfid_event_handler():
                             rfid_consecutive_non_compliant = 0
                             rfid_last_compliance_status = None
                             rfid_current_uid_snapshot_saved = False
+                            rfid_last_violation_ts = 0
+                            # Reset tracker for new RFID scan
+                            tracker = BotSORT()
+                            print("DEBUG: Tracker reset for new RFID scan")
                         # Perform DB lookup and log
                         try:
                             student = None
@@ -263,7 +267,10 @@ def rfid_event_handler():
                         rfid_consecutive_non_compliant = 0
                         rfid_last_compliance_status = None
                         rfid_current_uid_snapshot_saved = False
-                    print("RFID Card removed - Detection DISABLED")
+                        rfid_last_violation_ts = 0
+                        # Reset tracker when RFID card is removed
+                        tracker = BotSORT()
+                    print("RFID Card removed - Detection DISABLED - Tracker reset")
             elif rfid_event_queue:
                 # RFID disabled or camera off, just consume events without processing
                 try:
@@ -285,10 +292,12 @@ def rfid_event_handler():
                             rfid_current_uid_violated = False
                             rfid_consecutive_non_compliant = 0
                             rfid_last_compliance_status = None
+                            # Reset tracker when RFID card is removed
+                            tracker = BotSORT()
                         if current_present:
                             print("RFID Card present - Detection ENABLED")
                         else:
-                            print("RFID Card removed - Detection DISABLED")
+                            print("RFID Card removed - Detection DISABLED - Tracker reset")
             else:
                 # RFID disabled or camera off, ensure RFID is inactive
                 with rfid_lock:
@@ -302,7 +311,9 @@ def rfid_event_handler():
                         rfid_last_compliance_status = None
                         rfid_current_uid_snapshot_saved = False
                         rfid_last_uid = None
-                        print("RFID disabled or camera off - RFID forced inactive")
+                        # Reset tracker when RFID is disabled or camera is off
+                        tracker = BotSORT()
+                        print("RFID disabled or camera off - RFID forced inactive - Tracker reset")
         time.sleep(0.1)
 
 # Initialize RFID on startup (camera will be initialized when user starts it)
@@ -881,11 +892,13 @@ def draw_detections_frame(frame, detections):
 
 
 def _maybe_record_violation(frame, detections, admin_user):
-    """Record violation after 3 consecutive non-compliant detections for current RFID student.
+    """Record violation after 3 consecutive violation detections (non-compliant or partially compliant) for current RFID student.
     
     - Only records once per RFID scan session
-    - Requires 3 consecutive non-compliant detections before recording
-    - Resets counter if compliance status changes
+    - Requires 3 consecutive violation detections before recording
+    - Counts both NON-COMPLIANT and PARTIALLY COMPLIANT as violations
+    - Only resets counter when status changes from violation to COMPLIANT
+    - Does not reset counter on temporary NO_DETECTION (person out of frame)
     """
     global rfid_last_student, rfid_last_violation_ts, rfid_consecutive_non_compliant, rfid_last_compliance_status, rfid_current_uid_violated
     
@@ -894,30 +907,47 @@ def _maybe_record_violation(frame, detections, admin_user):
             print("DEBUG: No RFID student found, skipping violation check")
             return None
             
-        # Determine if any detection for this frame indicates NON-COMPLIANT
+        # Determine if any detection for this frame indicates NON-COMPLIANT or PARTIALLY COMPLIANT
         non_compliant = False
+        partially_compliant = False
         violation_details = []
         current_compliance_status = None
         
         # Process detections to determine overall compliance status
+        # Check ALL detections and use the worst status found
         if detections:
             for det in detections:
                 dv = det.get('dress_validation') or {}
                 overall_status = dv.get('overall_status')
-                # Always set the current compliance status (not just for non-compliant)
-                current_compliance_status = overall_status
                 
+                # Track the worst status found (NON-COMPLIANT > PARTIALLY COMPLIANT > COMPLIANT)
                 if overall_status == 'NON-COMPLIANT':
                     non_compliant = True
+                    current_compliance_status = 'NON-COMPLIANT'
                     comp = dv.get('compliance_status') or {}
                     for key, val in comp.items():
                         if not val.get('present'):
                             violation_details.append(val.get('name') or key)
+                elif overall_status == 'PARTIALLY COMPLIANT' and not non_compliant:
+                    # Only set partially compliant if we haven't found a non-compliant yet
+                    partially_compliant = True
+                    if current_compliance_status != 'NON-COMPLIANT':
+                        current_compliance_status = 'PARTIALLY COMPLIANT'
+                        comp = dv.get('compliance_status') or {}
+                        for key, val in comp.items():
+                            if not val.get('present'):
+                                violation_details.append(val.get('name') or key)
+                elif current_compliance_status is None:
+                    # Only set to COMPLIANT if no violations found yet
+                    current_compliance_status = overall_status
         else:
             # No detections - consider this as "no compliance status"
             current_compliance_status = 'NO_DETECTION'
         
-        print(f"DEBUG: Frame analysis - Non-compliant: {non_compliant}, Status: {current_compliance_status}, Detections: {len(detections)}")
+        # Consider both NON-COMPLIANT and PARTIALLY COMPLIANT as violations
+        has_violation = non_compliant or partially_compliant
+        
+        print(f"DEBUG: Frame analysis - Non-compliant: {non_compliant}, Partially compliant: {partially_compliant}, Status: {current_compliance_status}, Detections: {len(detections)}")
         
         # Only process if RFID card is present
         with rfid_lock:
@@ -937,31 +967,42 @@ def _maybe_record_violation(frame, detections, admin_user):
                     rfid_current_uid_violated = False
                     print(f"DEBUG: Violation timeout reached ({time_since_violation:.1f}s), resetting violation flag")
             
-            # Check if compliance status changed (reset counter if it did)
-            if rfid_last_compliance_status is not None and rfid_last_compliance_status != current_compliance_status:
-                rfid_consecutive_non_compliant = 0
-                print(f"DEBUG: Compliance status changed from {rfid_last_compliance_status} to {current_compliance_status}, resetting counter")
+            # Only reset counter if status changes from violation state (NON-COMPLIANT/PARTIALLY COMPLIANT) to COMPLIANT
+            # Don't reset if changing between NON-COMPLIANT and PARTIALLY COMPLIANT (both are violations)
+            if rfid_last_compliance_status is not None:
+                was_violation = rfid_last_compliance_status in ['NON-COMPLIANT', 'PARTIALLY COMPLIANT']
+                is_violation = current_compliance_status in ['NON-COMPLIANT', 'PARTIALLY COMPLIANT']
+                
+                # Reset counter only if we went from violation to compliant (or no detection)
+                if was_violation and not is_violation:
+                    rfid_consecutive_non_compliant = 0
+                    print(f"DEBUG: Compliance status changed from violation ({rfid_last_compliance_status}) to {current_compliance_status}, resetting counter")
+                elif not was_violation and is_violation:
+                    # Starting a new violation sequence
+                    print(f"DEBUG: Compliance status changed from {rfid_last_compliance_status} to violation ({current_compliance_status}), starting violation sequence")
             
             # Update last compliance status
             rfid_last_compliance_status = current_compliance_status
             
-            # Increment counter only for non-compliant detections
-            if non_compliant:
+            # Increment counter for both non-compliant and partially compliant detections
+            if has_violation:
                 rfid_consecutive_non_compliant += 1
-                print(f"DEBUG: Non-compliant detection #{rfid_consecutive_non_compliant} for student {rfid_last_student.get('student_id')}")
+                print(f"DEBUG: Violation detection #{rfid_consecutive_non_compliant} for student {rfid_last_student.get('student_id')} (Status: {current_compliance_status})")
             else:
-                # Reset counter if compliant or no detections
-                rfid_consecutive_non_compliant = 0
-                # Also reset the violation flag so they can be recorded again if they become non-compliant
-                rfid_current_uid_violated = False
+                # Only reset counter if fully compliant or no detections
                 if current_compliance_status == 'NO_DETECTION':
-                    print(f"DEBUG: No detections, resetting counter and violation flag for student {rfid_last_student.get('student_id')}")
-                else:
-                    print(f"DEBUG: Compliant detection, resetting counter and violation flag for student {rfid_last_student.get('student_id')}")
+                    # Don't reset counter on no detection - might be temporary
+                    print(f"DEBUG: No detections for student {rfid_last_student.get('student_id')}, keeping counter at {rfid_consecutive_non_compliant}")
+                elif current_compliance_status == 'COMPLIANT':
+                    # Reset counter only when fully compliant
+                    rfid_consecutive_non_compliant = 0
+                    # Also reset the violation flag so they can be recorded again if they become non-compliant
+                    rfid_current_uid_violated = False
+                    print(f"DEBUG: Fully compliant detection, resetting counter and violation flag for student {rfid_last_student.get('student_id')}")
             
-            # Only proceed if we have 3 consecutive non-compliant detections
+            # Only proceed if we have 3 consecutive violation detections (non-compliant or partially compliant)
             if rfid_consecutive_non_compliant < 3:
-                print(f"DEBUG: Need {3 - rfid_consecutive_non_compliant} more consecutive non-compliant detections")
+                print(f"DEBUG: Need {3 - rfid_consecutive_non_compliant} more consecutive violation detections")
                 return None
 
         # Throttle: avoid spamming the same student too frequently (10 seconds)
@@ -969,6 +1010,13 @@ def _maybe_record_violation(frame, detections, admin_user):
         if now_ts - rfid_last_violation_ts < 10:
             print(f"DEBUG: Throttled - last violation was {now_ts - rfid_last_violation_ts:.1f}s ago")
             return None
+
+        # Daily limit: only one recorded violation per student per day
+        student_id = (rfid_last_student or {}).get('student_id')
+        if has_student_violation_today and student_id:
+            if has_student_violation_today(student_id):
+                print(f"DEBUG: Daily limit reached - violation already recorded today for student {student_id}")
+                return None
 
         print(f"DEBUG: Recording violation for student {rfid_last_student.get('student_id')} after {rfid_consecutive_non_compliant} consecutive detections")
         print(f"DEBUG: Admin user: {admin_user is not None}")
@@ -1063,11 +1111,19 @@ def _maybe_record_violation(frame, detections, admin_user):
             # Draw bounding boxes and violation details on detected persons
             for det in detections or []:
                 dv = det.get('dress_validation') or {}
-                if dv.get('overall_status') == 'NON-COMPLIANT':
+                overall_status = dv.get('overall_status')
+                # Draw bounding box for both NON-COMPLIANT and PARTIALLY COMPLIANT
+                if overall_status in ['NON-COMPLIANT', 'PARTIALLY COMPLIANT']:
                     x1, y1, x2, y2 = det.get('bbox', [0, 0, 0, 0])
                     
-                    # Draw red bounding box for non-compliant person
-                    cv2.rectangle(proof_frame, (x1, y1), (x2, y2), (0, 0, 255), 3)
+                    # Draw red bounding box for non-compliant or partially compliant person
+                    # Use slightly different color for partially compliant (orange) vs non-compliant (red)
+                    if overall_status == 'PARTIALLY COMPLIANT':
+                        box_color = (0, 165, 255)  # Orange color for partially compliant
+                    else:
+                        box_color = (0, 0, 255)  # Red color for non-compliant
+                    
+                    cv2.rectangle(proof_frame, (int(x1), int(y1)), (int(x2), int(y2)), box_color, 3)
                     
                     # Add violation details
                     comp = dv.get('compliance_status') or {}
@@ -1185,13 +1241,16 @@ def _maybe_record_violation(frame, detections, admin_user):
                             subject = 'Dress Code Violation - 3rd Offense (Up to 1 month Suspension)'
                             offense_line = '3rd Offense - Suspension for two (2) weeks to one (1) month'
 
+                        # Join violation lines outside f-string to avoid backslash issue
+                        violation_text = '\n'.join(violation_lines) if violation_lines else '- No history available'
+                        
                         body = (
                             f"Good day {student_name},\n\n"
                             f"This is to inform you that based on the monitoring of the DRESS (Dress-code Recognition Surveillance System), you were observed to be non-compliant with the university's dress code policy on {dt_str}.\n\n"
                             f"Please be reminded that adherence to the prescribed dress code is part of maintaining discipline and professionalism within the university premises. We kindly ask you to correct your attire and comply with the dress code on your next visit.\n\n"
                             f"Current strike count: {strike_num} of 3.\n\n"
                             f"Your recorded violations:\n"
-                            f"{('\n'.join(violation_lines) if violation_lines else '- No history available')}\n\n"
+                            f"{violation_text}\n\n"
                             f"As stated in the university guidelines, dress code violations have the following corresponding consequences:\n"
                             f"1st Offense - Warning\n"
                             f"2nd Offense - Suspension for five (5) days\n"
