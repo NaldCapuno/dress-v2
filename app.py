@@ -479,11 +479,46 @@ def detect_persons_with_dress(image_path):
                             'class': 'person'
                         })
         
+        # Update tracker with detections for static image FIRST to get track IDs
+        if detections:
+            # Convert detections to tracker format [x, y, w, h, confidence]
+            dets = []
+            for det in detections:
+                x1, y1, x2, y2 = det['bbox']
+                w, h = x2 - x1, y2 - y1
+                dets.append([x1, y1, w, h, det['confidence']])
+            
+            dets = np.array(dets)
+            
+            # Update tracker
+            tracked_objects = tracker.update(dets, image)
+            
+            # Add tracking IDs to detections
+            for i, track in enumerate(tracked_objects):
+                if i < len(detections):
+                    detections[i]['track_id'] = int(track[4])
+                    # Convert back to [x1, y1, x2, y2] format
+                    x, y, w, h = track[0], track[1], track[2], track[3]
+                    detections[i]['bbox'] = [int(x), int(y), int(x + w), int(y + h)]
+        
         # Determine gender context (from last RFID student if present)
         with rfid_lock:
             current_gender = (rfid_last_student or {}).get('gender')
-        # Stage 2: Detect dress code for each person
+        # Stage 2: Detect dress code ONLY for person with track_id == 1
         for detection in detections:
+            # Only process dress detection for track_id == 1
+            if detection.get('track_id') != 1:
+                # Set empty dress validation for other IDs
+                detection['dress_validation'] = {
+                    'compliance_status': {},
+                    'overall_status': 'Not tracked',
+                    'compliance_percentage': 0,
+                    'status_color': 'info'
+                }
+                detection['dress_summary'] = "Not tracked (ID != 1)"
+                detection['dress_details'] = ""
+                continue
+            
             x1, y1, x2, y2 = detection['bbox']
             
             # Extract person crop with some padding
@@ -520,28 +555,6 @@ def detect_persons_with_dress(image_path):
             
             detection['dress_summary'] = f"{dress_validation['overall_status']} ({dress_validation['compliance_percentage']:.0f}%)"
             detection['dress_details'] = "\n".join(detail_parts)
-        
-        # Update tracker with detections for static image
-        if detections:
-            # Convert detections to tracker format [x, y, w, h, confidence]
-            dets = []
-            for det in detections:
-                x1, y1, x2, y2 = det['bbox']
-                w, h = x2 - x1, y2 - y1
-                dets.append([x1, y1, w, h, det['confidence']])
-            
-            dets = np.array(dets)
-            
-            # Update tracker
-            tracked_objects = tracker.update(dets, image)
-            
-            # Add tracking IDs to detections
-            for i, track in enumerate(tracked_objects):
-                if i < len(detections):
-                    detections[i]['track_id'] = int(track[4])
-                    # Convert back to [x1, y1, x2, y2] format
-                    x, y, w, h = track[0], track[1], track[2], track[3]
-                    detections[i]['bbox'] = [int(x), int(y), int(x + w), int(y + h)]
         
         return detections
     except Exception as e:
@@ -688,11 +701,46 @@ def detect_persons_frame_with_dress(frame):
                             'class': 'person'
                         })
         
+        # Update tracker with detections FIRST to get track IDs
+        if detections:
+            # Convert detections to tracker format [x, y, w, h, confidence]
+            dets = []
+            for det in detections:
+                x1, y1, x2, y2 = det['bbox']
+                w, h = x2 - x1, y2 - y1
+                dets.append([x1, y1, w, h, det['confidence']])
+            
+            dets = np.array(dets)
+            
+            # Update tracker
+            tracked_objects = tracker.update(dets, frame)
+            
+            # Add tracking IDs to detections
+            for i, track in enumerate(tracked_objects):
+                if i < len(detections):
+                    detections[i]['track_id'] = int(track[4])
+                    # Convert back to [x1, y1, x2, y2] format
+                    x, y, w, h = track[0], track[1], track[2], track[3]
+                    detections[i]['bbox'] = [int(x), int(y), int(x + w), int(y + h)]
+        
         # Determine gender context from current RFID student if available
         with rfid_lock:
             current_gender = (rfid_last_student or {}).get('gender')
-        # Stage 2: Detect dress code for each person
+        # Stage 2: Detect dress code ONLY for person with track_id == 1
         for detection in detections:
+            # Only process dress detection for track_id == 1
+            if detection.get('track_id') != 1:
+                # Set empty dress validation for other IDs
+                detection['dress_validation'] = {
+                    'compliance_status': {},
+                    'overall_status': 'Not tracked',
+                    'compliance_percentage': 0,
+                    'status_color': 'info'
+                }
+                detection['dress_summary'] = "Not tracked (ID != 1)"
+                detection['dress_details'] = ""
+                continue
+            
             x1, y1, x2, y2 = detection['bbox']
             
             # Extract person crop with some padding
@@ -729,28 +777,6 @@ def detect_persons_frame_with_dress(frame):
             
             detection['dress_summary'] = f"{dress_validation['overall_status']} ({dress_validation['compliance_percentage']:.0f}%)"
             detection['dress_details'] = "\n".join(detail_parts)
-        
-        # Update tracker with detections
-        if detections:
-            # Convert detections to tracker format [x, y, w, h, confidence]
-            dets = []
-            for det in detections:
-                x1, y1, x2, y2 = det['bbox']
-                w, h = x2 - x1, y2 - y1
-                dets.append([x1, y1, w, h, det['confidence']])
-            
-            dets = np.array(dets)
-            
-            # Update tracker
-            tracked_objects = tracker.update(dets, frame)
-            
-            # Add tracking IDs to detections
-            for i, track in enumerate(tracked_objects):
-                if i < len(detections):
-                    detections[i]['track_id'] = int(track[4])
-                    # Convert back to [x1, y1, x2, y2] format
-                    x, y, w, h = track[0], track[1], track[2], track[3]
-                    detections[i]['bbox'] = [int(x), int(y), int(x + w), int(y + h)]
         
         return detections
     except Exception as e:
