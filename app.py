@@ -7,10 +7,10 @@ import os
 import base64
 import threading
 import time
-from botsort_tracker import BotSORT
+from src.botsort_tracker import BotSORT
 from werkzeug.security import check_password_hash
 try:
-    from config import get_connection, find_student_by_rfid, insert_rfid_log, insert_violation
+    from src.config import get_connection, find_student_by_rfid, insert_rfid_log, insert_violation
 except Exception as e:
     get_connection = None
     find_student_by_rfid = None
@@ -19,7 +19,7 @@ except Exception as e:
     print(f"Warning: Database config not available: {e}")
 
 try:
-    from rfid_scanner import (
+    from src.rfid_scanner import (
         get_rfid_uid, start_rfid_monitoring, stop_rfid_monitoring, 
         subscribe_to_rfid_events, unsubscribe_from_rfid_events,
         get_rfid_status, _rfid_is_present, set_rfid_enabled, is_rfid_enabled
@@ -66,20 +66,23 @@ mail = Mail(app)
 # Configure upload folder
 UPLOAD_FOLDER = 'uploads'
 RESULT_FOLDER = 'results'
+VIOLATION_SUBDIR = 'violations'
+VIOLATION_FOLDER = os.path.join(RESULT_FOLDER, VIOLATION_SUBDIR)
 ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif', 'bmp'}
 
 # Create necessary directories
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 os.makedirs(RESULT_FOLDER, exist_ok=True)
+os.makedirs(VIOLATION_FOLDER, exist_ok=True)
 
 # Alerts cache for deans (per college)
 dean_alerts_cache = {}
 
 # Load YOLOv8n model for person detection
-person_model = YOLO('yolov8n.pt')
+person_model = YOLO('models/yolov8n.pt')
 
 # Load best.pt model for dress code detection
-dress_model = YOLO('best.pt')
+dress_model = YOLO('models/best.pt')
 
 # Initialize BotSort tracker
 tracker = BotSORT()
@@ -100,6 +103,7 @@ rfid_last_student = None  # Holds last looked-up student dict or None
 rfid_last_violation_ts = 0  # last violation timestamp to throttle duplicates
 rfid_current_uid_checks = 0  # number of detection checks for current RFID UID
 rfid_current_uid_violated = False  # whether a violation has been issued for current UID session
+rfid_current_uid_snapshot_saved = False  # whether a clean snapshot was saved for current UID
 rfid_consecutive_non_compliant = 0  # counter for consecutive non-compliant detections
 rfid_last_compliance_status = None  # track last compliance status to detect changes
 rfid_enabled = False  # flag to completely disable RFID processing
@@ -152,14 +156,17 @@ def rfid_event_handler():
                 event = rfid_event_queue.get(timeout=1.0)
                 if event['type'] == 'uid':
                     with rfid_lock:
-                        rfid_last_uid = event['uid']
+                        incoming_uid = event['uid']
+                        is_same_uid = (rfid_present and rfid_last_uid == incoming_uid)
+                        rfid_last_uid = incoming_uid
                         rfid_present = True
-                        detection_enabled = True
-                        # Reset per-scan counters
-                        rfid_current_uid_checks = 0
-                        rfid_current_uid_violated = False
-                        rfid_consecutive_non_compliant = 0
-                        rfid_last_compliance_status = None
+                        # Only reset per-scan counters on NEW UID (or after removal), not on repeated same-UID events
+                        if not is_same_uid:
+                            rfid_current_uid_checks = 0
+                            rfid_current_uid_violated = False
+                            rfid_consecutive_non_compliant = 0
+                            rfid_last_compliance_status = None
+                            rfid_current_uid_snapshot_saved = False
                         # Perform DB lookup and log
                         try:
                             student = None
@@ -172,7 +179,80 @@ def rfid_event_handler():
                             rfid_last_student = student
                         except Exception as e:
                             print(f"RFID DB handling error: {e}")
-                    print(f"RFID Card detected: {event['uid']} - Detection ENABLED")
+                    
+                    # Only enable detection and capture images if RFID has a record in database
+                    if rfid_last_student is not None:
+                        with rfid_lock:
+                            detection_enabled = True
+                        print(f"RFID Card detected: {event['uid']} - Student found: {rfid_last_student.get('name', 'Unknown')} - Detection ENABLED")
+                        # Capture a clean snapshot on each RFID scan (no overlays/bounding boxes) - only once per UID
+                        try:
+                            snapshot = None
+                            with frame_lock:
+                                if current_frame is not None:
+                                    snapshot = current_frame.copy()
+                            save_snapshot = False
+                            with rfid_lock:
+                                if not rfid_current_uid_snapshot_saved:
+                                    save_snapshot = True
+                                    rfid_current_uid_snapshot_saved = True
+                            if snapshot is not None and save_snapshot:
+                                ts = int(time.time())
+                                sid = (rfid_last_student or {}).get('student_id', 'unknown')
+                                snap_name = f"scan_{ts}_{sid}.jpg"
+                                os.makedirs(RESULT_FOLDER, exist_ok=True)
+                                snap_path = os.path.join(RESULT_FOLDER, snap_name)
+                                cv2.imwrite(snap_path, snapshot)
+                                print(f"DEBUG: Saved clean RFID snapshot (non-violation): {snap_path}")
+
+                                # Create a duplicate with dress code bounding boxes (no labels/text)
+                                try:
+                                    boxed = snapshot.copy()
+                                    # Run dress model directly on the full snapshot
+                                    results = dress_model(snapshot)
+                                    for r in results:
+                                        boxes = r.boxes
+                                        if boxes is None:
+                                            continue
+                                        for box in boxes:
+                                            conf = float(box.conf[0]) if hasattr(box, 'conf') else 0.0
+                                            if conf < 0.50:
+                                                continue
+                                            x1, y1, x2, y2 = box.xyxy[0].cpu().numpy()
+                                            # Use a constant blue box for dress items to distinguish from violations
+                                            cv2.rectangle(boxed, (int(x1), int(y1)), (int(x2), int(y2)), (255, 0, 0), 2)
+                                            # Label with class name and confidence
+                                            try:
+                                                class_id = int(box.cls[0]) if hasattr(box, 'cls') else None
+                                                class_name = dress_model.names[class_id] if class_id is not None else 'item'
+                                            except Exception:
+                                                class_name = 'item'
+                                            label_text = f"{class_name} {conf*100:.0f}%"
+                                            label_scale = 0.4
+                                            label_thickness = 1
+                                            (tw, th), _ = cv2.getTextSize(label_text, cv2.FONT_HERSHEY_SIMPLEX, label_scale, label_thickness)
+                                            pad = 3
+                                            bx1, by1 = int(x1), int(y1)
+                                            # Draw filled background above the box if room, otherwise inside
+                                            rect_top = by1 - th - pad*2 if by1 - th - pad*2 > 0 else by1 + pad
+                                            rect_bottom = rect_top + th + pad*2
+                                            cv2.rectangle(boxed, (bx1, rect_top), (bx1 + tw + pad*2, rect_bottom), (255, 0, 0), -1)
+                                            cv2.putText(boxed, label_text, (bx1 + pad, rect_bottom - pad), cv2.FONT_HERSHEY_SIMPLEX, label_scale, (255, 255, 255), label_thickness)
+                                    boxed_name = f"scan_{ts}_{sid}_dress.jpg"
+                                    boxed_path = os.path.join(RESULT_FOLDER, boxed_name)
+                                    cv2.imwrite(boxed_path, boxed)
+                                    print(f"DEBUG: Saved dress-boxed RFID snapshot: {boxed_path}")
+                                except Exception as e:
+                                    print(f"DEBUG: Error creating dress-boxed RFID snapshot: {e}")
+                            else:
+                                print("DEBUG: No current_frame to save RFID snapshot")
+                        except Exception as e:
+                            print(f"DEBUG: Error saving RFID snapshot: {e}")
+                    else:
+                        print(f"RFID Card detected: {event['uid']} - No student record found in database - Detection DISABLED")
+                        # Disable detection if no student record found
+                        with rfid_lock:
+                            detection_enabled = False
                 else:
                     with rfid_lock:
                         rfid_present = False
@@ -182,6 +262,7 @@ def rfid_event_handler():
                         rfid_current_uid_violated = False
                         rfid_consecutive_non_compliant = 0
                         rfid_last_compliance_status = None
+                        rfid_current_uid_snapshot_saved = False
                     print("RFID Card removed - Detection DISABLED")
             elif rfid_event_queue:
                 # RFID disabled or camera off, just consume events without processing
@@ -219,6 +300,7 @@ def rfid_event_handler():
                         rfid_current_uid_violated = False
                         rfid_consecutive_non_compliant = 0
                         rfid_last_compliance_status = None
+                        rfid_current_uid_snapshot_saved = False
                         rfid_last_uid = None
                         print("RFID disabled or camera off - RFID forced inactive")
         time.sleep(0.1)
@@ -275,13 +357,13 @@ def validate_dress_code(detected_items, gender='male'):
             compliance_status[required_item] = {
                 'present': True,
                 'name': item_names[required_item],
-                'status': 'has:'
+                'status': 'compliant:'
             }
         else:
             compliance_status[required_item] = {
                 'present': False,
                 'name': item_names[required_item],
-                'status': 'missing:'
+                'status': 'non-compliant:'
             }
     
     # Calculate compliance percentage
@@ -421,20 +503,20 @@ def detect_persons_with_dress(image_path):
             compliance_status = dress_validation['compliance_status']
             
             # Group items by status
-            has_items = []
-            missing_items = []
+            compliant_items = []
+            noncompliant_items = []
             for item_key, item_status in compliance_status.items():
                 if item_status['present']:
-                    has_items.append(item_status['name'].lower().replace(' ', '_'))
+                    compliant_items.append(item_status['name'].lower().replace(' ', '_'))
                 else:
-                    missing_items.append(item_status['name'].lower().replace(' ', '_'))
+                    noncompliant_items.append(item_status['name'].lower().replace(' ', '_'))
             
             # Format grouped details (only show categories that have items)
             detail_parts = []
-            if has_items:
-                detail_parts.append(f"has: {', '.join(has_items)}")
-            if missing_items:
-                detail_parts.append(f"missing: {', '.join(missing_items)}")
+            if compliant_items:
+                detail_parts.append(f"compliant: {', '.join(compliant_items)}")
+            if noncompliant_items:
+                detail_parts.append(f"non-compliant: {', '.join(noncompliant_items)}")
             
             detection['dress_summary'] = f"{dress_validation['overall_status']} ({dress_validation['compliance_percentage']:.0f}%)"
             detection['dress_details'] = "\n".join(detail_parts)
@@ -519,7 +601,7 @@ def draw_detections(image_path, detections, output_path):
             cv2.putText(image, compliance_text, (x1 + 2, current_y - 2), 
                        cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 0), 2)
             
-            # Draw detailed dress code items with present/missing status
+            # Draw detailed dress code items with present/non-compliant status
             compliance_status = dress_validation.get('compliance_status', {})
             if compliance_status:
                 current_y -= 25
@@ -536,17 +618,17 @@ def draw_detections(image_path, detections, output_path):
                            cv2.FONT_HERSHEY_SIMPLEX, 0.4, (0, 0, 0), 1)
                 
                 # Group items by status and display
-                has_items = []
-                missing_items = []
+                compliant_items = []
+                noncompliant_items = []
                 for item_key, item_status in compliance_status.items():
                     if item_status['present']:
-                        has_items.append(item_status['name'].lower().replace(' ', '_'))
+                        compliant_items.append(item_status['name'].lower().replace(' ', '_'))
                     else:
-                        missing_items.append(item_status['name'].lower().replace(' ', '_'))
+                        noncompliant_items.append(item_status['name'].lower().replace(' ', '_'))
                 
                 # Draw has items (only if present)
-                if has_items:
-                    has_text = f"has: {', '.join(has_items)}"
+                if compliant_items:
+                    has_text = f"has: {', '.join(compliant_items)}"
                     current_y -= 20
                     has_size = cv2.getTextSize(has_text, cv2.FONT_HERSHEY_SIMPLEX, 0.4, 1)[0]
                     cv2.rectangle(image, (x1, current_y - has_size[1] - 5), 
@@ -554,14 +636,14 @@ def draw_detections(image_path, detections, output_path):
                     cv2.putText(image, has_text, (x1 + 2, current_y - 2), 
                                cv2.FONT_HERSHEY_SIMPLEX, 0.4, (0, 0, 0), 1)
                 
-                # Draw missing items (only if present)
-                if missing_items:
-                    missing_text = f"missing: {', '.join(missing_items)}"
+                # Draw non-compliant items (only if present)
+                if noncompliant_items:
+                    noncompliant_text = f"non-compliant: {', '.join(noncompliant_items)}"
                     current_y -= 20
-                    missing_size = cv2.getTextSize(missing_text, cv2.FONT_HERSHEY_SIMPLEX, 0.4, 1)[0]
-                    cv2.rectangle(image, (x1, current_y - missing_size[1] - 5), 
-                                 (x1 + missing_size[0] + 5, current_y + 5), color, -1)
-                    cv2.putText(image, missing_text, (x1 + 2, current_y - 2), 
+                    noncompliant_size = cv2.getTextSize(noncompliant_text, cv2.FONT_HERSHEY_SIMPLEX, 0.4, 1)[0]
+                    cv2.rectangle(image, (x1, current_y - noncompliant_size[1] - 5), 
+                                 (x1 + noncompliant_size[0] + 5, current_y + 5), color, -1)
+                    cv2.putText(image, noncompliant_text, (x1 + 2, current_y - 2), 
                                cv2.FONT_HERSHEY_SIMPLEX, 0.4, (0, 0, 0), 1)
             else:
                 # No dress code validation available
@@ -630,20 +712,20 @@ def detect_persons_frame_with_dress(frame):
             compliance_status = dress_validation['compliance_status']
             
             # Group items by status
-            has_items = []
-            missing_items = []
+            compliant_items = []
+            noncompliant_items = []
             for item_key, item_status in compliance_status.items():
                 if item_status['present']:
-                    has_items.append(item_status['name'].lower().replace(' ', '_'))
+                    compliant_items.append(item_status['name'].lower().replace(' ', '_'))
                 else:
-                    missing_items.append(item_status['name'].lower().replace(' ', '_'))
+                    noncompliant_items.append(item_status['name'].lower().replace(' ', '_'))
             
             # Format grouped details (only show categories that have items)
             detail_parts = []
-            if has_items:
-                detail_parts.append(f"has: {', '.join(has_items)}")
-            if missing_items:
-                detail_parts.append(f"missing: {', '.join(missing_items)}")
+            if compliant_items:
+                detail_parts.append(f"compliant: {', '.join(compliant_items)}")
+            if noncompliant_items:
+                detail_parts.append(f"non-compliant: {', '.join(noncompliant_items)}")
             
             detection['dress_summary'] = f"{dress_validation['overall_status']} ({dress_validation['compliance_percentage']:.0f}%)"
             detection['dress_details'] = "\n".join(detail_parts)
@@ -721,7 +803,7 @@ def draw_detections_frame(frame, detections):
             cv2.putText(frame, compliance_text, (x1 + 2, current_y - 2), 
                        cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 0), 2)
             
-            # Draw detailed dress code items with present/missing status
+            # Draw detailed dress code items with present/non-compliant status
             compliance_status = dress_validation.get('compliance_status', {})
             if compliance_status:
                 current_y -= 25
@@ -738,17 +820,17 @@ def draw_detections_frame(frame, detections):
                            cv2.FONT_HERSHEY_SIMPLEX, 0.4, (0, 0, 0), 1)
                 
                 # Group items by status and display
-                has_items = []
-                missing_items = []
+                compliant_items = []
+                noncompliant_items = []
                 for item_key, item_status in compliance_status.items():
                     if item_status['present']:
-                        has_items.append(item_status['name'].lower().replace(' ', '_'))
+                        compliant_items.append(item_status['name'].lower().replace(' ', '_'))
                     else:
-                        missing_items.append(item_status['name'].lower().replace(' ', '_'))
+                        noncompliant_items.append(item_status['name'].lower().replace(' ', '_'))
                 
                 # Draw has items (only if present)
-                if has_items:
-                    has_text = f"has: {', '.join(has_items)}"
+                if compliant_items:
+                    has_text = f"has: {', '.join(compliant_items)}"
                     current_y -= 20
                     has_size = cv2.getTextSize(has_text, cv2.FONT_HERSHEY_SIMPLEX, 0.4, 1)[0]
                     cv2.rectangle(frame, (x1, current_y - has_size[1] - 5), 
@@ -756,14 +838,14 @@ def draw_detections_frame(frame, detections):
                     cv2.putText(frame, has_text, (x1 + 2, current_y - 2), 
                                cv2.FONT_HERSHEY_SIMPLEX, 0.4, (0, 0, 0), 1)
                 
-                # Draw missing items (only if present)
-                if missing_items:
-                    missing_text = f"missing: {', '.join(missing_items)}"
+                # Draw non-compliant items (only if present)
+                if noncompliant_items:
+                    noncompliant_text = f"non-compliant: {', '.join(noncompliant_items)}"
                     current_y -= 20
-                    missing_size = cv2.getTextSize(missing_text, cv2.FONT_HERSHEY_SIMPLEX, 0.4, 1)[0]
-                    cv2.rectangle(frame, (x1, current_y - missing_size[1] - 5), 
-                                 (x1 + missing_size[0] + 5, current_y + 5), color, -1)
-                    cv2.putText(frame, missing_text, (x1 + 2, current_y - 2), 
+                    noncompliant_size = cv2.getTextSize(noncompliant_text, cv2.FONT_HERSHEY_SIMPLEX, 0.4, 1)[0]
+                    cv2.rectangle(frame, (x1, current_y - noncompliant_size[1] - 5), 
+                                 (x1 + noncompliant_size[0] + 5, current_y + 5), color, -1)
+                    cv2.putText(frame, noncompliant_text, (x1 + 2, current_y - 2), 
                                cv2.FONT_HERSHEY_SIMPLEX, 0.4, (0, 0, 0), 1)
             
         return frame
@@ -867,46 +949,88 @@ def _maybe_record_violation(frame, detections, admin_user):
 
         # Save enhanced proof image with annotations
         proof_name = f"violation_{int(now_ts)}_{rfid_last_student.get('student_id', 'unknown')}.jpg"
-        proof_path = os.path.join(RESULT_FOLDER, proof_name)
+        proof_path = os.path.join(VIOLATION_FOLDER, proof_name)
         print(f"DEBUG: Proof image path: {proof_path}")
         
         try:
-            os.makedirs(RESULT_FOLDER, exist_ok=True)
-            print(f"DEBUG: Created/verified results folder: {RESULT_FOLDER}")
+            os.makedirs(VIOLATION_FOLDER, exist_ok=True)
+            print(f"DEBUG: Created/verified violation folder: {VIOLATION_FOLDER}")
             
             # Create an enhanced proof image with violation details
             proof_frame = frame.copy()
             print(f"DEBUG: Created proof frame copy, shape: {proof_frame.shape}")
             
-            # Build violation type text (gender-aware) for image annotation
-            with rfid_lock:
-                current_gender = (rfid_last_student or {}).get('gender')
-            gender_label = str(current_gender or 'unknown').lower()
-            missing = ", ".join(violation_details) if violation_details else "Missing required items"
-            violation_type_for_image = f"{gender_label} dress code violation: {missing}"
+            # Build violation type text for image annotation
+            noncompliant = ", ".join(violation_details) if violation_details else "non-compliant items"
+            violation_type_for_image = f"non-compliant: {noncompliant}"
             
-            # Add violation information overlay
+            # Add violation information overlay (with word wrapping)
             violation_text = f"VIOLATION RECORDED - {violation_type_for_image}"
             timestamp_text = f"Time: {time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(now_ts))}"
             student_text = f"Student ID: {rfid_last_student.get('student_id', 'Unknown')}"
             rfid_text = f"RFID: {rfid_last_uid}"
-            
+
             print(f"DEBUG: Adding text overlays to proof image")
-            
-            # Draw semi-transparent background for text
+
+            # Prepare wrapping
+            margin_left = 20
+            margin_top = 20
+            margin_right = 20
+            line_spacing = 6
+            title_scale = 0.7
+            info_scale = 0.5
+            thickness = 2
+            max_text_width = proof_frame.shape[1] - (margin_left + margin_right)
+
+            def wrap_lines(text, scale):
+                words = (text or '').split()
+                lines = []
+                current = ''
+                for w in words:
+                    trial = (current + ' ' + w).strip()
+                    size = cv2.getTextSize(trial, cv2.FONT_HERSHEY_SIMPLEX, scale, thickness)[0]
+                    if size[0] <= max_text_width or not current:
+                        current = trial
+                    else:
+                        lines.append(current)
+                        current = w
+                if current:
+                    lines.append(current)
+                return lines
+
+            wrapped_title = wrap_lines(violation_text, title_scale)
+            # Timestamp, student, RFID are short; keep one line each
+            info_lines = [timestamp_text, student_text, rfid_text]
+
+            # Calculate total background height
+            y = margin_top
+            total_height = 0
+            # Title block
+            for ln in wrapped_title:
+                sz = cv2.getTextSize(ln, cv2.FONT_HERSHEY_SIMPLEX, title_scale, thickness)[0]
+                total_height += sz[1] + line_spacing
+            # Info lines
+            for ln in info_lines:
+                sz = cv2.getTextSize(ln, cv2.FONT_HERSHEY_SIMPLEX, info_scale, thickness)[0]
+                total_height += sz[1] + line_spacing
+            total_height += 5  # bottom padding
+
+            # Draw semi-transparent background rectangle sized to content
             overlay = proof_frame.copy()
-            cv2.rectangle(overlay, (10, 10), (proof_frame.shape[1] - 10, 120), (0, 0, 0), -1)
+            cv2.rectangle(overlay, (10, 10), (proof_frame.shape[1] - 10, 10 + total_height), (0, 0, 0), -1)
             cv2.addWeighted(overlay, 0.7, proof_frame, 0.3, 0, proof_frame)
-            
-            # Add violation text
-            cv2.putText(proof_frame, violation_text, (20, 35), 
-                       cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 255), 2)  # Red text
-            cv2.putText(proof_frame, timestamp_text, (20, 60), 
-                       cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)  # White text
-            cv2.putText(proof_frame, student_text, (20, 85), 
-                       cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)  # White text
-            cv2.putText(proof_frame, rfid_text, (20, 110), 
-                       cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)  # White text
+
+            # Draw wrapped title lines
+            y = margin_top
+            for ln in wrapped_title:
+                cv2.putText(proof_frame, ln, (margin_left, y + cv2.getTextSize(ln, cv2.FONT_HERSHEY_SIMPLEX, title_scale, thickness)[0][1]),
+                           cv2.FONT_HERSHEY_SIMPLEX, title_scale, (0, 0, 255), thickness)
+                y += cv2.getTextSize(ln, cv2.FONT_HERSHEY_SIMPLEX, title_scale, thickness)[0][1] + line_spacing
+            # Draw info lines
+            for ln in info_lines:
+                cv2.putText(proof_frame, ln, (margin_left, y + cv2.getTextSize(ln, cv2.FONT_HERSHEY_SIMPLEX, info_scale, thickness)[0][1]),
+                           cv2.FONT_HERSHEY_SIMPLEX, info_scale, (255, 255, 255), thickness)
+                y += cv2.getTextSize(ln, cv2.FONT_HERSHEY_SIMPLEX, info_scale, thickness)[0][1] + line_spacing
             
             print(f"DEBUG: Added text overlays, now adding bounding boxes")
             
@@ -921,15 +1045,12 @@ def _maybe_record_violation(frame, detections, admin_user):
                     
                     # Add violation details
                     comp = dv.get('compliance_status') or {}
-                    missing_items = []
+                    noncompliant_items = []
                     for key, val in comp.items():
                         if not val.get('present'):
-                            missing_items.append(val.get('name') or key)
+                            noncompliant_items.append(val.get('name') or key)
                     
-                    if missing_items:
-                        missing_text = f"Missing: {', '.join(missing_items)}"
-                        cv2.putText(proof_frame, missing_text, (x1, y1 - 10), 
-                                   cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 255), 2)
+                    # Removed per-person non-compliant text near the bounding box as requested
             
             print(f"DEBUG: Added bounding boxes, attempting to save image")
             
@@ -955,8 +1076,8 @@ def _maybe_record_violation(frame, detections, admin_user):
         violation_type = violation_type_for_image
 
 
-        # Store only filename in DB; serve via /results/<filename>
-        rel_path = proof_name if proof_path else None
+        # Store relative path in DB; serve via /results/violations/<filename>
+        rel_path = os.path.join(VIOLATION_SUBDIR, proof_name) if proof_path else None
         print(f"DEBUG: Database path: {rel_path}")
 
         if insert_violation:
@@ -977,7 +1098,7 @@ def _maybe_record_violation(frame, detections, admin_user):
                     'violation_type': violation_type,
                     'timestamp': time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(now_ts)),
                     'proof_image': proof_name,
-                    'missing_items': violation_details,
+                    'noncompliant_items': violation_details,
                     'consecutive_detections': rfid_consecutive_non_compliant
                 }
                 
@@ -995,7 +1116,7 @@ def _maybe_record_violation(frame, detections, admin_user):
                     student_id = (rfid_last_student or {}).get('student_id')
                     if not student_email and (rfid_last_student or {}).get('student_id'):
                         try:
-                            from config import find_student_by_id as _find_student_by_id
+                            from src.config import find_student_by_id as _find_student_by_id
                         except Exception:
                             _find_student_by_id = None
                         if _find_student_by_id:
@@ -1008,7 +1129,7 @@ def _maybe_record_violation(frame, detections, admin_user):
                         # Determine strike number (cap at 3)
                         strike_num = 1
                         try:
-                            from config import get_student_violation_count as _get_v_cnt, get_student_violations as _get_v_list
+                            from src.config import get_student_violation_count as _get_v_cnt, get_student_violations as _get_v_list
                         except Exception:
                             _get_v_cnt = None
                             _get_v_list = None
@@ -1093,17 +1214,23 @@ def generate_frames():
                     test_mode_active = test_mode
                 
                 with rfid_lock:
-                    rfid_detection_enabled = detection_enabled and rfid_present
+                    _present = rfid_present
+                    _student_set = (rfid_last_student is not None)
+                    rfid_detection_enabled = detection_enabled and _present and _student_set
                 
+                # In test mode, detection always runs regardless of RFID
                 detection_enabled_for_frame = rfid_detection_enabled or test_mode_active
                 
                 if detection_enabled_for_frame:
+                    # Keep a clean copy of the frame (without live overlays) for proof image
+                    clean_frame_for_proof = frame.copy()
+                    
                     detections = detect_persons_frame_with_dress(frame)
                     frame = draw_detections_frame(frame, detections)
                     
-                    # Attempt to record violation if non-compliant (for live monitoring)
+                    # Attempt to record violation using the CLEAN frame (no overlay text)
                     # Note: admin_user is None in background thread, will be handled in violation function
-                    _maybe_record_violation(frame, detections, None)
+                    _maybe_record_violation(clean_frame_for_proof, detections, None)
                     
                     # Status overlay removed as requested
                     pass
@@ -2210,11 +2337,16 @@ def detect_from_url():
 def uploaded_file(filename):
     return send_from_directory(RESULT_FOLDER, filename)
 
+@app.route('/results/violations/<filename>')
+def uploaded_violation_file(filename):
+    return send_from_directory(VIOLATION_FOLDER, filename)
+
 @app.route('/violation_proof/<filename>')
 def violation_proof(filename):
     """Serve violation proof images with proper headers"""
     try:
-        return send_from_directory(RESULT_FOLDER, filename, as_attachment=False)
+        # Serve from violations subfolder by default
+        return send_from_directory(VIOLATION_FOLDER, filename, as_attachment=False)
     except Exception as e:
         return f"Error serving proof image: {e}", 404
 
@@ -2608,8 +2740,11 @@ def capture_frame():
                     test_mode_active = test_mode
                 
                 with rfid_lock:
-                    rfid_detection_enabled = detection_enabled and rfid_present
+                    _present = rfid_present
+                    _student_set = (rfid_last_student is not None)
+                    rfid_detection_enabled = detection_enabled and _present and _student_set
                 
+                # In test mode, detection always runs regardless of RFID
                 detection_enabled_for_capture = rfid_detection_enabled or test_mode_active
                 
                 if detection_enabled_for_capture:
