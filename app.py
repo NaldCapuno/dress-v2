@@ -10,7 +10,13 @@ import time
 from src.botsort_tracker import BotSORT
 from werkzeug.security import check_password_hash
 try:
-    from src.config import get_connection, find_student_by_rfid, insert_rfid_log, insert_violation, has_student_violation_today
+    from src.config import (
+        get_connection,
+        find_student_by_rfid,
+        insert_rfid_log,
+        insert_violation,
+        has_student_violation_today,
+    )
 except Exception as e:
     get_connection = None
     find_student_by_rfid = None
@@ -18,35 +24,53 @@ except Exception as e:
     insert_violation = None
     has_student_violation_today = None
     print(f"Warning: Database config not available: {e}")
-else:
+
+
+RFID_AVAILABLE = False
+
+try:
     from src.rfid_scanner import (
-        get_rfid_uid, start_rfid_monitoring, stop_rfid_monitoring, 
-        subscribe_to_rfid_events, unsubscribe_from_rfid_events,
-        get_rfid_status, _rfid_is_present, set_rfid_enabled, is_rfid_enabled
+        get_rfid_uid,
+        start_rfid_monitoring,
+        stop_rfid_monitoring,
+        subscribe_to_rfid_events,
+        unsubscribe_from_rfid_events,
+        get_rfid_status,
+        _rfid_is_present,
+        set_rfid_enabled,
+        is_rfid_enabled,
     )
-    RFID_AVAILABLE = True
 except Exception as e:
     print(f"Warning: RFID scanner not available: {e}")
-    RFID_AVAILABLE = False
-    # Define dummy functions
+
     def get_rfid_uid(*args, **kwargs):
         return None, "RFID not available"
+
     def start_rfid_monitoring():
         pass
+
     def stop_rfid_monitoring():
         pass
+
     def subscribe_to_rfid_events():
         return None
+
     def unsubscribe_from_rfid_events(*args):
         pass
+
     def get_rfid_status():
-        return {'available': False, 'present': False, 'enabled': False}
+        return {"available": False, "present": False, "enabled": False}
+
     def _rfid_is_present():
         return False
+
     def set_rfid_enabled(enabled):
         pass
+
     def is_rfid_enabled():
         return False
+else:
+    RFID_AVAILABLE = True
 
 app = Flask(__name__)
 # Secret key for session management (can be overridden via environment variable)
@@ -2955,19 +2979,21 @@ def rfid_status():
     global rfid_last_uid, rfid_present, detection_enabled, rfid_lock, rfid_last_student, rfid_enabled
     try:
         with rfid_lock:
+            camera_active = camera is not None and camera.isOpened()
             print(f"DEBUG: RFID status check - rfid_enabled: {rfid_enabled}, rfid_present: {rfid_present}")
             
             # If RFID is disabled, return inactive status
-            if not rfid_enabled:
+            if not rfid_enabled or not camera_active:
                 status = {
                     'available': RFID_AVAILABLE,
                     'present': False,
                     'last_uid': None,
                     'detection_enabled': False,
                     'student': None,
-                    'enabled': False
+                    'enabled': False,
+                    'camera_active': camera_active,
                 }
-                print("DEBUG: RFID disabled, returning inactive status")
+                print("DEBUG: RFID disabled or camera inactive, returning inactive status")
             else:
                 # RFID is enabled, get actual status
                 status = get_rfid_status()
@@ -2976,7 +3002,8 @@ def rfid_status():
                     'present': rfid_present,
                     'detection_enabled': detection_enabled,
                     'student': rfid_last_student,
-                    'enabled': True
+                    'enabled': True,
+                    'camera_active': camera_active,
                 })
                 print(f"DEBUG: RFID enabled, returning status: {status}")
         return jsonify({'success': True, 'status': status})
