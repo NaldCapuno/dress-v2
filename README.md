@@ -52,14 +52,35 @@ A modern web application for detecting persons in images using YOLOv8n (You Only
 ## File Structure
 
 ```
-DRESS/
+dress-v2/
 ├── app.py                 # Main Flask application
 ├── requirements.txt       # Python dependencies
-├── templates/
-│   └── index.html        # Web interface template
-├── static/               # Static assets (CSS, JS, images)
-├── uploads/              # Temporary upload directory
-└── results/              # Processed images with detections
+├── LICENSE                # License file
+├── README.md              # This file
+├── src/                   # Source code modules
+│   ├── __init__.py
+│   ├── botsort_tracker.py # Bot-SORT tracking implementation
+│   ├── config.py          # Database configuration and helpers
+│   └── rfid_scanner.py    # RFID scanner module
+├── scripts/               # Utility scripts
+│   └── create_admin.py    # Admin account creation script
+├── models/                # ML model files
+│   ├── best.pt            # Dress code detection model
+│   └── yolov8n.pt         # Person detection model
+├── database/              # Database schema files
+│   ├── dress_clean.sql    # Clean database schema
+│   └── dummy_data.sql     # Sample data
+├── templates/             # Flask HTML templates
+│   ├── index.html
+│   ├── login.html
+│   ├── dean_dashboard.html
+│   ├── guidance_dashboard.html
+│   └── osas_dashboard.html
+├── static/                # Static assets (CSS, JS, images)
+│   ├── style.css
+│   └── images/
+├── uploads/               # Temporary upload directory (auto-created)
+└── results/               # Processed images with detections (auto-created)
 ```
 
 ## API Endpoints
