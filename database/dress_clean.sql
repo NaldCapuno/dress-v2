@@ -26,11 +26,12 @@ CREATE TABLE `admins` (
   `admin_id` int NOT NULL AUTO_INCREMENT,
   `username` varchar(50) NOT NULL,
   `password_hash` varchar(255) NOT NULL,
-  `role` enum('security','osas','dean','guidance') DEFAULT NULL,
+  `role` enum('security','osas','dean','guidance') NOT NULL,
   `college` enum('College of Sciences','College of Engineering','College of Architecture and Design','College of Arts and Humanities','College of Business and Accountancy','College of Criminal Justice Education','College of Hospitality Management and Tourism','College of Nursing and Health Sciences','College of Teacher Education') DEFAULT NULL,
+  `email` varchar(45) NOT NULL,
   `created_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (`admin_id`),
-  UNIQUE KEY `username` (`username`)
+  UNIQUE KEY `username_UNIQUE` (`username`)
 ) ENGINE=InnoDB AUTO_INCREMENT=6 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
@@ -109,13 +110,15 @@ CREATE TABLE `students` (
   `student_id` varchar(20) NOT NULL,
   `rfid_uid` varchar(50) NOT NULL,
   `name` varchar(100) NOT NULL,
-  `gender` enum('male','female') DEFAULT NULL,
-  `year_level` int DEFAULT NULL,
-  `course` varchar(50) DEFAULT NULL,
-  `college` enum('College of Sciences','College of Engineering','College of Architecture and Design','College of Arts and Humanities','College of Business and Accountancy','College of Criminal Justice Education','College of Hospitality Management and Tourism','College of Nursing and Health Sciences','College of Teacher Education') DEFAULT NULL,
+  `gender` enum('male','female') NOT NULL,
+  `year_level` int NOT NULL,
+  `program` enum('Bachelor of Science in Biology','Bachelor of Science in Marine Biology','Bachelor of Science in Computer Science','Bachelor of Science in Environmental Science','Bachelor of Science in Information Technology','Bachelor of Arts in Communication','Bachelor of Arts in Political Science','Bachelor of Arts in Philippine Studies','Bachelor of Science in Social Work','Bachelor of Science in Psychology','Bachelor of Science in Accountancy','Bachelor of Science in Management Accounting','Bachelor of Science in Business Administration','Bachelor of Science in Entrepreneurship','Bachelor of Science in Public Administration','Bachelor of Science in Criminology','Bachelor of Science in Civil Engineering','Bachelor of Science in Electrical Engineering','Bachelor of Science in Mechanical Engineering','Bachelor of Science in Petroleum Engineering','Bachelor of Science in Architecture','Bachelor of Science in Hospitality Management','Bachelor of Science in Tourism Management','Bachelor of Science in Nursing','Bachelor of Science in Midwifery','Bachelor of Elementary Education','Bachelor of Secondary Education','Bachelor of Physical Education') NOT NULL,
+  `college` enum('College of Sciences','College of Engineering','College of Architecture and Design','College of Arts and Humanities','College of Business and Accountancy','College of Criminal Justice Education','College of Hospitality Management and Tourism','College of Nursing and Health Sciences','College of Teacher Education') NOT NULL,
+  `email` varchar(45) NOT NULL,
   `created_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (`student_id`),
-  UNIQUE KEY `rfid_uid` (`rfid_uid`)
+  UNIQUE KEY `rfid_uid` (`rfid_uid`),
+  UNIQUE KEY `student_id_UNIQUE` (`student_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
@@ -137,11 +140,11 @@ DROP TABLE IF EXISTS `violations`;
 /*!50503 SET character_set_client = utf8mb4 */;
 CREATE TABLE `violations` (
   `violation_id` int NOT NULL AUTO_INCREMENT,
-  `student_id` varchar(20) DEFAULT NULL,
-  `violation_type` varchar(100) DEFAULT NULL,
+  `student_id` varchar(20) NOT NULL,
+  `violation_type` varchar(100) NOT NULL,
   `timestamp` timestamp NULL DEFAULT CURRENT_TIMESTAMP,
   `image_proof` varchar(255) DEFAULT NULL,
-  `status` enum('pending','forwarded_dean','forwarded_guidance','resolved') DEFAULT 'pending',
+  `status` enum('pending','forwarded_dean','forwarded_guidance','resolved') NOT NULL DEFAULT 'pending',
   PRIMARY KEY (`violation_id`),
   KEY `student_id` (`student_id`),
   CONSTRAINT `violations_ibfk_1` FOREIGN KEY (`student_id`) REFERENCES `students` (`student_id`) ON DELETE CASCADE
@@ -166,4 +169,5 @@ UNLOCK TABLES;
 /*!40101 SET COLLATION_CONNECTION=@OLD_COLLATION_CONNECTION */;
 /*!40111 SET SQL_NOTES=@OLD_SQL_NOTES */;
 
--- Dump completed on 2025-10-17 21:30:16
+-- Dump completed on 2025-11-14 14:21:37
+

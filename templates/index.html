@@ -10,6 +10,11 @@
 </head>
 <body>
     <div class="container">
+        <!-- Floating Logout Button -->
+        <button class="btn btn-secondary" id="logout-btn" style="position: fixed; top: 20px; right: 20px; z-index: 1000; padding: 10px 20px; box-shadow: 0 2px 8px rgba(0,0,0,0.15); border-radius: 6px;">
+            <i class="fas fa-sign-out-alt"></i> Logout
+        </button>
+        
         <div class="status-bar">
             <div class="status-item">
                 <div class="status-label">System Status</div>
@@ -125,7 +130,7 @@
                                 </div>
                                 <div>
                                     <strong><i class="fas fa-book"></i>Program:</strong>
-                                    <span id="studentCourse">-</span>
+                                    <span id="studentProgram">-</span>
                                 </div>
                                 <div>
                                     <strong><i class="fas fa-university"></i>College:</strong>
@@ -519,7 +524,7 @@
             const nameEl = document.getElementById('studentName');
             const idEl = document.getElementById('studentId');
             const genderEl = document.getElementById('studentGender');
-            const courseEl = document.getElementById('studentCourse');
+            const programEl = document.getElementById('studentProgram');
             const collegeEl = document.getElementById('studentCollege');
             const delayEl = document.getElementById('rfidDisplayDelay');
             
@@ -548,13 +553,13 @@
                     nameEl.textContent = student.name || '-';
                     idEl.textContent = student.student_id || '-';
                     genderEl.textContent = student.gender || '-';
-                    courseEl.textContent = student.course || '-';
+                    programEl.textContent = student.program || '-';
                     collegeEl.textContent = student.college || '-';
                 } else {
                     nameEl.textContent = '-';
                     idEl.textContent = '-';
                     genderEl.textContent = '-';
-                    courseEl.textContent = '-';
+                    programEl.textContent = '-';
                     collegeEl.textContent = '-';
                 }
             }
@@ -618,6 +623,23 @@
                     console.error('Error checking RFID status:', error);
             });
         }
+        
+        // Logout functionality
+        document.addEventListener('DOMContentLoaded', () => {
+            const logoutBtn = document.getElementById('logout-btn');
+            if (logoutBtn) {
+                logoutBtn.addEventListener('click', async () => {
+                    try {
+                        await fetch('/logout', { method: 'POST' });
+                        window.location.href = '/login';
+                    } catch (e) {
+                        console.error('Logout error:', e);
+                        // Still redirect even if request fails
+                        window.location.href = '/login';
+                    }
+                });
+            }
+        });
     </script>
 </body>
 </html>
