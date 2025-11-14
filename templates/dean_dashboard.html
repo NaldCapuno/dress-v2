@@ -157,6 +157,18 @@
             return params;
         }
         function applyFilters() { page = 1; loadViolations(); loadAnalytics(); }
+        function attachAutoFilterListeners() {
+            const inputs = [
+                { id: 'start', event: 'change' },
+                { id: 'end', event: 'change' },
+                { id: 'program', event: 'change' },
+            ];
+            inputs.forEach(({ id, event }) => {
+                const el = document.getElementById(id);
+                if (!el) return;
+                el.addEventListener(event, () => applyFilters());
+            });
+        }
         function prevPage() { if (page > 1) { page--; loadViolations(); } }
         function nextPage() { page++; loadViolations(); }
 
@@ -175,7 +187,7 @@
             charts[id]?.destroy?.();
             charts[id] = new Chart(ctx, { type: 'pie', data: { labels, datasets: [{ data, backgroundColor: ['#4CAF50','#FF9800','#03A9F4','#E91E63','#9C27B0','#795548'] }] }, options: { responsive: true } });
         }
-        window.addEventListener('DOMContentLoaded', () => { loadViolations(); loadAnalytics(); });
+        window.addEventListener('DOMContentLoaded', () => { attachAutoFilterListeners(); loadViolations(); loadAnalytics(); });
     </script>
 </head>
 <body>
@@ -334,7 +346,6 @@
                             <option value="week">Week</option>
                             <option value="month">Month</option>
                         </select> -->
-                        <button class="btn btn-primary" onclick="applyFilters()">Apply</button>
                     </div>
                 </div>
             </div>
