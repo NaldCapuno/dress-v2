@@ -108,8 +108,8 @@
                                     <span id="rfidUid" class="font-monospace">N/A</span>
                                 </div>
                                 <div>
-                                    <strong><i class="fas fa-tag"></i>Type:</strong>
-                                    <span id="rfidType">Mifare Classic 1K</span>
+                                    <strong><i class="fas fa-stopwatch"></i>Display Delay:</strong>
+                                    <span id="rfidDisplayDelay">-</span>
                                 </div>
                                 <div>
                                     <strong><i class="fas fa-user"></i>Name:</strong>
@@ -139,6 +139,12 @@
             </div>
         </div>
     <script>
+        // Track current RFID display metadata
+        let currentRfidDisplay = {
+            uid: null,
+            delayText: '-'
+        };
+
         // Load available cameras on page load
         document.addEventListener('DOMContentLoaded', function() {
             loadAvailableCameras();
@@ -507,20 +513,37 @@
         }
 
         // RFID Functions
-        function updateRfidDisplay(uid, cardType, student) {
+        function updateRfidDisplay(uid, student, lastTimestamp) {
             const display = document.getElementById('rfidDataDisplay');
             const uidElement = document.getElementById('rfidUid');
-            const typeElement = document.getElementById('rfidType');
             const nameEl = document.getElementById('studentName');
             const idEl = document.getElementById('studentId');
             const genderEl = document.getElementById('studentGender');
             const courseEl = document.getElementById('studentCourse');
             const collegeEl = document.getElementById('studentCollege');
+            const delayEl = document.getElementById('rfidDisplayDelay');
             
             if (uid) {
                 uidElement.textContent = uid;
-                typeElement.textContent = cardType;
                 display.style.display = 'block';
+
+                if (uid !== currentRfidDisplay.uid) {
+                    let delayText = '-';
+                    if (typeof lastTimestamp === 'number' && !Number.isNaN(lastTimestamp) && lastTimestamp > 0) {
+                        const nowSeconds = Date.now() / 1000;
+                        const delaySeconds = Math.max(0, nowSeconds - lastTimestamp);
+                        if (delaySeconds < 1) {
+                            delayText = `${Math.round(delaySeconds * 1000)} ms`;
+                        } else if (delaySeconds < 10) {
+                            delayText = `${delaySeconds.toFixed(2)} s`;
+                        } else {
+                            delayText = `${delaySeconds.toFixed(1)} s`;
+                        }
+                    }
+                    currentRfidDisplay = { uid, delayText };
+                }
+                delayEl.textContent = currentRfidDisplay.delayText;
+
                 if (student) {
                     nameEl.textContent = student.name || '-';
                     idEl.textContent = student.student_id || '-';
@@ -540,6 +563,7 @@
         function hideRfidDisplay() {
             const display = document.getElementById('rfidDataDisplay');
             display.style.display = 'none';
+            currentRfidDisplay = { uid: null, delayText: '-' };
         }
 
         // Initialize page when loaded
@@ -577,7 +601,7 @@
                             document.getElementById('rfid-status-overview').textContent = 'Active';
                             
                             // Update RFID display with student data when present
-                            updateRfidDisplay(status.last_uid, 'Mifare Classic 1K', status.student || null);
+                            updateRfidDisplay(status.last_uid, status.student || null, status.last_time);
                         } else {
                             rfidStatus.innerHTML = '<i class="fas fa-clock"></i>RFID: Waiting';
                             rfidStatus.className = 'badge bg-secondary';
