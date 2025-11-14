@@ -11,12 +11,50 @@
             const res = await fetch(url);
             return await res.json();
         }
+        const chartPalette = ['#4CAF50','#F59E0B','#3B82F6','#EC4899','#10B981','#6366F1','#F97316','#0EA5E9','#EF4444','#14B8A6'];
+
         async function postJSON(url, body) {
             const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
             return await res.json();
         }
+        function formatTimestamp(ts) {
+            if (!ts) return '';
+            const date = new Date(ts);
+            if (Number.isNaN(date.getTime())) {
+                return ts.replace('GMT', '').trim();
+            }
+            const weekdays = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+            const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+            const weekday = weekdays[date.getDay()];
+            const day = String(date.getDate()).padStart(2, '0');
+            const month = months[date.getMonth()];
+            const year = date.getFullYear();
+            const hours24 = date.getHours();
+            const hours12 = hours24 % 12 || 12;
+            const minutes = String(date.getMinutes()).padStart(2, '0');
+            const suffix = hours24 >= 12 ? 'PM' : 'AM';
+            return `${weekday}, ${day} ${month} ${year} ${hours12}:${minutes} ${suffix}`;
+        }
+        function formatDateOnly(ts) {
+            if (!ts) return '';
+            const date = new Date(ts);
+            if (Number.isNaN(date.getTime())) {
+                return ts.replace('GMT', '').trim().split(' ')[0];
+            }
+            const weekdays = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+            const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+            const weekday = weekdays[date.getDay()];
+            const day = String(date.getDate()).padStart(2, '0');
+            const month = months[date.getMonth()];
+            const year = date.getFullYear();
+            return `${weekday}, ${day} ${month} ${year}`;
+        }
         let page = 1;
         let pageSize = 50;
+        let violationsData = [];
+        let sortColumn = null;
+        let sortDirection = 'asc';
+        let searchTerm = '';
 
         async function loadAnalytics() {
             const params = new URLSearchParams(getFilterParams());
@@ -35,13 +73,82 @@
             params.set('page_size', pageSize);
             const data = await fetchJSON(`/osas/violations?${params.toString()}`);
             if (!data.success) return;
+            violationsData = data.rows || [];
+            renderViolationsTable();
+            document.getElementById('page').textContent = page;
+        }
+        
+        function sortViolations(column) {
+            if (sortColumn === column) {
+                sortDirection = sortDirection === 'asc' ? 'desc' : 'asc';
+            } else {
+                sortColumn = column;
+                sortDirection = 'asc';
+            }
+            renderViolationsTable();
+            updateSortIndicators();
+        }
+        
+        function renderViolationsTable() {
             const tbody = document.getElementById('violations-body');
             tbody.innerHTML = '';
-            data.rows.forEach(v => {
+            
+            let filteredData = [...violationsData];
+            
+            // Apply search filter
+            if (searchTerm.trim()) {
+                const term = searchTerm.toLowerCase().trim();
+                filteredData = filteredData.filter(v => {
+                    const name = (v.name || '').toLowerCase();
+                    const studentId = (v.student_id || '').toLowerCase();
+                    const college = (v.college || '').toLowerCase();
+                    const program = (v.program || '').toLowerCase();
+                    const violationType = (v.violation_type || '').toLowerCase();
+                    return name.includes(term) || 
+                           studentId.includes(term) || 
+                           college.includes(term) || 
+                           program.includes(term) ||
+                           violationType.includes(term);
+                });
+            }
+            
+            // Apply sorting
+            let sortedData = filteredData;
+            if (sortColumn) {
+                sortedData.sort((a, b) => {
+                    let aVal = getCellValue(a, sortColumn);
+                    let bVal = getCellValue(b, sortColumn);
+                    
+                    // Handle numeric values
+                    if (sortColumn === 'violation_id') {
+                        aVal = parseInt(aVal) || 0;
+                        bVal = parseInt(bVal) || 0;
+                    }
+                    
+                    // Handle date values
+                    if (sortColumn === 'timestamp') {
+                        aVal = new Date(aVal || 0).getTime();
+                        bVal = new Date(bVal || 0).getTime();
+                    }
+                    
+                    // Handle string comparison
+                    if (typeof aVal === 'string') aVal = aVal.toLowerCase();
+                    if (typeof bVal === 'string') bVal = bVal.toLowerCase();
+                    
+                    if (aVal < bVal) return sortDirection === 'asc' ? -1 : 1;
+                    if (aVal > bVal) return sortDirection === 'asc' ? 1 : -1;
+                    return 0;
+                });
+            }
+            
+            // Update total count to reflect filtered results
+            document.getElementById('total-count').textContent = sortedData.length;
+            
+            sortedData.forEach(v => {
                 const tr = document.createElement('tr');
                 tr.innerHTML = `
                     <td>${v.violation_id}</td>
-                    <td>${v.timestamp || ''}</td>
+                    <td>${formatTimestamp(v.timestamp)}</td>
                     <td>${v.student_id || ''}</td>
                     <td>${v.name || ''}</td>
                     <td>${v.college || ''}</td>
@@ -52,15 +159,37 @@
                 `;
                 tbody.appendChild(tr);
             });
-            document.getElementById('total-count').textContent = data.total;
-            document.getElementById('page').textContent = page;
+        }
+        
+        function getCellValue(row, column) {
+            const columnMap = {
+                'violation_id': 'violation_id',
+                'timestamp': 'timestamp',
+                'student_id': 'student_id',
+                'name': 'name',
+                'college': 'college',
+                'program': 'program',
+                'gender': 'gender',
+                'violation_type': 'violation_type',
+                'status': 'status'
+            };
+            return row[columnMap[column]] || '';
+        }
+        
+        function updateSortIndicators() {
+            const headers = document.querySelectorAll('#violations-section th[data-sort]');
+            headers.forEach(th => {
+                const col = th.getAttribute('data-sort');
+                th.classList.remove('sort-asc', 'sort-desc');
+                if (col === sortColumn) {
+                    th.classList.add(sortDirection === 'asc' ? 'sort-asc' : 'sort-desc');
+                }
+            });
         }
         function getFilterParams() {
             const params = {
                 start: document.getElementById('start').value,
                 end: document.getElementById('end').value,
-                academic_year: document.getElementById('academic_year').value,
-                semester: document.getElementById('semester').value,
             };
             const college = document.getElementById('college')?.value?.trim() || '';
             const program = document.getElementById('program')?.value?.trim() || '';
@@ -81,12 +210,93 @@
         function nextPage() { page++; loadViolations(); }
 
         let charts = {};
-        function renderBarChart(id, rows) {
+        function renderLegend(id, labels, colors) {
+            const legendEl = document.getElementById(`legend-${id}`);
+            if (!legendEl) return;
+            legendEl.innerHTML = '';
+            if (!labels.length) {
+                const empty = document.createElement('div');
+                empty.className = 'legend-item';
+                empty.textContent = 'No data';
+                legendEl.appendChild(empty);
+                return;
+            }
+            labels.forEach((label, idx) => {
+                const item = document.createElement('div');
+                item.className = 'legend-item';
+                const swatch = document.createElement('span');
+                swatch.className = 'legend-swatch';
+                swatch.style.backgroundColor = colors[idx % colors.length];
+                item.appendChild(swatch);
+                const text = document.createElement('span');
+                text.textContent = label || 'N/A';
+                item.appendChild(text);
+                legendEl.appendChild(item);
+            });
+        }
+
+        function renderTrendLegend(id, labels, colors) {
+            const legendEl = document.getElementById(`legend-${id}`);
+            if (!legendEl) return;
+            legendEl.innerHTML = '';
+            if (!labels.length) {
+                const empty = document.createElement('div');
+                empty.className = 'legend-item';
+                empty.textContent = 'No data';
+                legendEl.appendChild(empty);
+                return;
+            }
+            // Format labels to show date only (no time)
+            const formattedLabels = labels.map(label => {
+                if (!label) return 'N/A';
+                // Try to parse as date and format
+                const date = new Date(label);
+                if (!Number.isNaN(date.getTime())) {
+                    return formatDateOnly(label);
+                }
+                // If it's already formatted, try to extract just the date part
+                return label.split(' ').slice(0, 4).join(' '); // Take first 4 parts (weekday, day, month, year)
+            });
+            if (formattedLabels.length > 6) {
+                const summary = document.createElement('div');
+                summary.className = 'legend-item legend-summary';
+                summary.textContent = `${formattedLabels[0]} → ${formattedLabels[formattedLabels.length - 1]} (${formattedLabels.length} points)`;
+                legendEl.appendChild(summary);
+                return;
+            }
+            formattedLabels.forEach((label, idx) => {
+                const item = document.createElement('div');
+                item.className = 'legend-item';
+                const swatch = document.createElement('span');
+                swatch.className = 'legend-swatch';
+                swatch.style.backgroundColor = colors[idx % colors.length];
+                item.appendChild(swatch);
+                const text = document.createElement('span');
+                text.textContent = label || 'N/A';
+                item.appendChild(text);
+                legendEl.appendChild(item);
+            });
+        }
+
+        function renderBarChart(id, rows = []) {
             const ctx = document.getElementById(id).getContext('2d');
             const labels = rows.map(r => r.label);
             const data = rows.map(r => r.cnt);
+            const colors = labels.map((_, idx) => chartPalette[idx % chartPalette.length]);
             charts[id]?.destroy?.();
-            charts[id] = new Chart(ctx, { type: 'bar', data: { labels, datasets: [{ label: 'Count', data, backgroundColor: '#4CAF50' }] }, options: { responsive: true, plugins: { legend: { display: false } } } });
+            charts[id] = new Chart(ctx, { 
+                type: 'bar', 
+                data: { labels, datasets: [{ label: 'Count', data, backgroundColor: colors, borderRadius: 6 }] }, 
+                options: { 
+                    responsive: true, 
+                    plugins: { legend: { display: false } },
+                    scales: {
+                        x: { ticks: { display: false }, grid: { display: false } },
+                        y: { beginAtZero: true }
+                    }
+                } 
+            });
+            renderLegend(id, labels, colors);
         }
         function renderPieChart(id, rows) {
             const ctx = document.getElementById(id).getContext('2d');
@@ -172,12 +382,20 @@
         }
         
         function attachAutoFilterListeners() {
-            const ids = ['start','end','academic_year','semester','program'];
+            const ids = ['start','end','program'];
             ids.forEach(id => {
                 const el = document.getElementById(id);
                 if (!el) return;
                 el.addEventListener('change', () => applyFilters());
             });
+            // Search input uses 'input' event for real-time filtering
+            const searchInput = document.getElementById('search');
+            if (searchInput) {
+                searchInput.addEventListener('input', (e) => {
+                    searchTerm = e.target.value;
+                    renderViolationsTable();
+                });
+            }
         }
         
         window.addEventListener('DOMContentLoaded', () => { 
@@ -209,11 +427,24 @@
             transition: all 0.2s;
             width: 100%;
         }
+        #violations-section .dashboard-filters input::placeholder {
+            color: #9ca3af;
+        }
         #violations-section .dashboard-filters input:focus,
         #violations-section .dashboard-filters select:focus {
             outline: none;
             border-color: #f25a04;
             box-shadow: 0 0 0 3px rgba(242, 90, 4, 0.1);
+        }
+        #violations-section .dashboard-filters .filter-field {
+            display: flex;
+            flex-direction: column;
+            gap: 0.25rem;
+        }
+        #violations-section .dashboard-filters .filter-field label {
+            font-size: 0.75rem;
+            font-weight: 600;
+            color: #6b7280;
         }
         #violations-section .dashboard-filters input[type="date"] {
             padding-right: 0.75rem;
@@ -223,10 +454,59 @@
             font-size: 0.875rem;
             white-space: nowrap;
         }
+        .chart-wrapper {
+            display: flex;
+            flex-direction: column;
+            gap: 0.35rem;
+        }
+        .chart-legend {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.4rem 1rem;
+            font-size: 0.75rem;
+            color: #4b5563;
+        }
+        .chart-legend .legend-item {
+            display: flex;
+            align-items: center;
+            gap: 0.4rem;
+        }
+        .chart-legend .legend-swatch {
+            width: 10px;
+            height: 10px;
+            border-radius: 999px;
+            background-color: #9ca3af;
+        }
+        .chart-legend .legend-summary {
+            font-weight: 600;
+        }
         @media (max-width: 768px) {
             #violations-section .dashboard-filters {
                 grid-template-columns: 1fr;
             }
+        }
+        #violations-section th[data-sort] {
+            position: relative;
+            padding-right: 20px;
+        }
+        #violations-section th[data-sort]:hover {
+            background-color: #f3f4f6;
+        }
+        #violations-section .sort-indicator {
+            position: absolute;
+            right: 8px;
+            top: 50%;
+            transform: translateY(-50%);
+            font-size: 0.75rem;
+            opacity: 0.3;
+        }
+        #violations-section th.sort-asc .sort-indicator::after {
+            content: '▲';
+            opacity: 1;
+        }
+        #violations-section th.sort-desc .sort-indicator::after {
+            content: '▼';
+            opacity: 1;
         }
     </style>
 </head>
@@ -290,7 +570,10 @@
                         <h3>Violations Over Time</h3>
                     </div>
                     <div class="card-body">
+                        <div class="chart-wrapper">
                         <canvas id="ov-trend" height="160"></canvas>
+                            <div class="chart-legend" id="legend-ov-trend"></div>
+                        </div>
                     </div>
                 </div>
                 <div class="card">
@@ -325,7 +608,10 @@
                         <h3>Gender Distribution</h3>
                     </div>
                     <div class="card-body">
+                        <div class="chart-wrapper">
                         <canvas id="ov-gender" height="140"></canvas>
+                            <div class="chart-legend" id="legend-ov-gender"></div>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -347,7 +633,10 @@
                         <h3>By College</h3>
                     </div>
                     <div class="card-body">
+                        <div class="chart-wrapper">
                         <canvas id="byCollegeChart" height="160"></canvas>
+                            <div class="chart-legend" id="legend-byCollegeChart"></div>
+                        </div>
                     </div>
                 </div>
                 <div class="card">
@@ -355,7 +644,10 @@
                         <h3>By Program</h3>
                     </div>
                     <div class="card-body">
+                        <div class="chart-wrapper">
                         <canvas id="byProgramChart" height="160"></canvas>
+                            <div class="chart-legend" id="legend-byProgramChart"></div>
+                        </div>
                     </div>
                 </div>
                 <div class="card">
@@ -376,14 +668,15 @@
                 </div>
                 <div class="card-body">
                     <div class="dashboard-filters">
-                        <input type="date" id="start" placeholder="Start date" class="form-control">
-                        <input type="date" id="end" placeholder="End date" class="form-control">
-                        <input type="text" id="academic_year" placeholder="Academic Year (e.g., 2024-2025)" class="form-control">
-                        <select id="semester" class="form-control">
-                            <option value="">Semester</option>
-                            <option value="1">1</option>
-                            <option value="2">2</option>
-                        </select>
+                        <input type="text" id="search" placeholder="Search by name, student ID, college, program, or violation type..." class="form-control" style="grid-column: 1 / -1;">
+                        <div class="filter-field">
+                            <label for="start">From</label>
+                            <input type="date" id="start" class="form-control">
+                        </div>
+                        <div class="filter-field">
+                            <label for="end">To</label>
+                            <input type="date" id="end" class="form-control">
+                        </div>
                         <select id="college" class="form-control">
                             <option value="">All Colleges</option>
                         </select>
@@ -412,15 +705,15 @@
                         <table class="table">
                             <thead>
                                 <tr>
-                                    <th>ID</th>
-                                    <th>Date</th>
-                                    <th>Student ID</th>
-                                    <th>Name</th>
-                                    <th>College</th>
-                                    <th>Program</th>
-                                    <th>Gender</th>
-                                    <th>Type</th>
-                                    <th>Status</th>
+                                    <th data-sort="violation_id" onclick="sortViolations('violation_id')" style="cursor: pointer; user-select: none;">ID <span class="sort-indicator"></span></th>
+                                    <th data-sort="timestamp" onclick="sortViolations('timestamp')" style="cursor: pointer; user-select: none;">Date <span class="sort-indicator"></span></th>
+                                    <th data-sort="student_id" onclick="sortViolations('student_id')" style="cursor: pointer; user-select: none;">Student ID <span class="sort-indicator"></span></th>
+                                    <th data-sort="name" onclick="sortViolations('name')" style="cursor: pointer; user-select: none;">Name <span class="sort-indicator"></span></th>
+                                    <th data-sort="college" onclick="sortViolations('college')" style="cursor: pointer; user-select: none;">College <span class="sort-indicator"></span></th>
+                                    <th data-sort="program" onclick="sortViolations('program')" style="cursor: pointer; user-select: none;">Program <span class="sort-indicator"></span></th>
+                                    <th data-sort="gender" onclick="sortViolations('gender')" style="cursor: pointer; user-select: none;">Gender <span class="sort-indicator"></span></th>
+                                    <th data-sort="violation_type" onclick="sortViolations('violation_type')" style="cursor: pointer; user-select: none;">Type <span class="sort-indicator"></span></th>
+                                    <th data-sort="status" onclick="sortViolations('status')" style="cursor: pointer; user-select: none;">Status <span class="sort-indicator"></span></th>
                                 </tr>
                             </thead>
                             <tbody id="violations-body"></tbody>
@@ -513,10 +806,36 @@
             return { labels: days, rows: vals };
         }
 
-        function renderLine(id, trend){
+        function renderLine(id, trend = { labels: [], rows: [] }){
             const ctx = document.getElementById(id).getContext('2d');
+            const labels = trend.labels || [];
+            const data = trend.rows || [];
+            const colors = labels.map((_, idx) => chartPalette[idx % chartPalette.length]);
             charts[id]?.destroy?.();
-            charts[id] = new Chart(ctx, { type: 'line', data: { labels: trend.labels, datasets: [{ label: 'Violations', data: trend.rows, borderColor: '#007FFF', backgroundColor: 'rgba(0,127,255,0.15)', tension: 0.3 }] }, options: { responsive: true, plugins: { legend: { display: false } } } });
+            charts[id] = new Chart(ctx, { 
+                type: 'line', 
+                data: { 
+                    labels, 
+                    datasets: [{ 
+                        label: 'Violations', 
+                        data, 
+                        borderColor: '#007FFF', 
+                        backgroundColor: 'rgba(0,127,255,0.15)', 
+                        pointBackgroundColor: colors,
+                        pointBorderColor: colors,
+                        tension: 0.3 
+                    }] 
+                }, 
+                options: { 
+                    responsive: true, 
+                    plugins: { legend: { display: false } },
+                    scales: {
+                        x: { ticks: { display: false }, grid: { display: false } },
+                        y: { beginAtZero: true }
+                    }
+                } 
+            });
+            renderTrendLegend(id, labels, colors);
         }
     </script>
 </body>
