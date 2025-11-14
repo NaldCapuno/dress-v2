@@ -117,6 +117,19 @@
             };
         }
         function applyFilters() { page = 1; loadViolations(); loadAnalytics(); }
+        function attachAutoFilterListeners() {
+            const config = [
+                { id: 'start', event: 'change' },
+                { id: 'end', event: 'change' },
+                { id: 'academic_year', event: 'input' },
+                { id: 'semester', event: 'change' },
+            ];
+            config.forEach(({ id, event }) => {
+                const el = document.getElementById(id);
+                if (!el) return;
+                el.addEventListener(event, () => applyFilters());
+            });
+        }
         function prevPage() { if (page > 1) { page--; loadViolations(); } }
         function nextPage() { page++; loadViolations(); }
 
@@ -182,8 +195,50 @@
             renderBarChart('ov-gender', data.by_gender || []);
         }
 
-        window.addEventListener('DOMContentLoaded', () => { renderOverview(); loadViolations(); loadAnalytics(); });
+        window.addEventListener('DOMContentLoaded', () => { attachAutoFilterListeners(); renderOverview(); loadViolations(); loadAnalytics(); });
     </script>
+    <style>
+        #violations-section .dashboard-filters {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+            gap: 0.75rem;
+            align-items: end;
+            padding: 0;
+            background-color: transparent;
+            border: none;
+            margin-bottom: 0;
+        }
+        #violations-section .dashboard-filters input,
+        #violations-section .dashboard-filters select {
+            min-width: 0;
+            padding: 0.5rem 0.75rem;
+            border: 1px solid #d1d5db;
+            border-radius: 0.375rem;
+            font-size: 0.875rem;
+            background-color: #ffffff;
+            transition: all 0.2s;
+            width: 100%;
+        }
+        #violations-section .dashboard-filters input:focus,
+        #violations-section .dashboard-filters select:focus {
+            outline: none;
+            border-color: #f25a04;
+            box-shadow: 0 0 0 3px rgba(242, 90, 4, 0.1);
+        }
+        #violations-section .dashboard-filters input[type="date"] {
+            padding-right: 0.75rem;
+        }
+        #violations-section .dashboard-filters button {
+            padding: 0.5rem 1.25rem;
+            font-size: 0.875rem;
+            white-space: nowrap;
+        }
+        @media (max-width: 768px) {
+            #violations-section .dashboard-filters {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
 </head>
 <body>
     <div class="dashboard-shell">
@@ -339,7 +394,6 @@
                             <option value="1">1</option>
                             <option value="2">2</option>
                         </select>
-                        <button class="btn btn-primary" onclick="applyFilters()">Apply</button>
                     </div>
                 </div>
             </div>

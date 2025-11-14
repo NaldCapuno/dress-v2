@@ -130,7 +130,17 @@
                             programSel.style.display = 'none';
                             programSel.value = '';
                         }
+                        applyFilters();
                     });
+                    
+                    // Initialize program filter visibility on load
+                    const initialCollege = collegeSel.value?.trim() || '';
+                    if (initialCollege) {
+                        programSel.style.display = '';
+                        await loadPrograms();
+                    } else {
+                        programSel.style.display = 'none';
+                    }
                 }
             } catch (e) {
                 console.error('Error loading filter options:', e);
@@ -161,12 +171,64 @@
             }
         }
         
+        function attachAutoFilterListeners() {
+            const ids = ['start','end','academic_year','semester','program'];
+            ids.forEach(id => {
+                const el = document.getElementById(id);
+                if (!el) return;
+                el.addEventListener('change', () => applyFilters());
+            });
+        }
+        
         window.addEventListener('DOMContentLoaded', () => { 
             loadFilterOptions();
+            attachAutoFilterListeners();
             loadViolations(); 
             loadAnalytics(); 
         });
     </script>
+    <style>
+        #violations-section .dashboard-filters {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+            gap: 0.75rem;
+            align-items: end;
+            padding: 0;
+            background-color: transparent;
+            border: none;
+            margin-bottom: 0;
+        }
+        #violations-section .dashboard-filters input,
+        #violations-section .dashboard-filters select {
+            min-width: 0;
+            padding: 0.5rem 0.75rem;
+            border: 1px solid #d1d5db;
+            border-radius: 0.375rem;
+            font-size: 0.875rem;
+            background-color: #ffffff;
+            transition: all 0.2s;
+            width: 100%;
+        }
+        #violations-section .dashboard-filters input:focus,
+        #violations-section .dashboard-filters select:focus {
+            outline: none;
+            border-color: #f25a04;
+            box-shadow: 0 0 0 3px rgba(242, 90, 4, 0.1);
+        }
+        #violations-section .dashboard-filters input[type="date"] {
+            padding-right: 0.75rem;
+        }
+        #violations-section .dashboard-filters button {
+            padding: 0.5rem 1.25rem;
+            font-size: 0.875rem;
+            white-space: nowrap;
+        }
+        @media (max-width: 768px) {
+            #violations-section .dashboard-filters {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
 </head>
 <body>
     <div class="dashboard-shell">
@@ -328,7 +390,6 @@
                         <select id="program" class="form-control" style="display: none;">
                             <option value="">All Programs</option>
                         </select>
-                        <button class="btn btn-primary" onclick="applyFilters()">Apply</button>
                     </div>
                 </div>
             </div>
