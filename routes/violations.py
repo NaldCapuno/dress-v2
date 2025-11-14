@@ -3,8 +3,11 @@ Violation routes for DRESS application.
 Handles all violation-related endpoints for dean, osas, and guidance roles.
 """
 
-from flask import Blueprint, request, jsonify, session
+from flask import Blueprint, request, jsonify, session, Response
+from io import BytesIO
+from datetime import datetime
 import time
+import re
 
 violations_bp = Blueprint('violations', __name__)
 
@@ -1047,4 +1050,644 @@ def violation_report():
     finally:
         if 'conn' in locals():
             conn.close()
+
+
+@violations_bp.route('/dean/violations/pdf', methods=['GET'])
+def dean_generate_pdf_report():
+    """Generate PDF report of violations for the dean's college."""
+    # Import here to avoid circular imports
+    from app import get_connection, REPORTLAB_AVAILABLE, get_college_abbreviation
+    
+    if not REPORTLAB_AVAILABLE:
+        return jsonify({'success': False, 'error': 'PDF generation library not available'}), 500
+    
+    try:
+        # Import reportlab components
+        from reportlab.lib import colors
+        from reportlab.lib.pagesizes import A4
+        from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
+        from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+        from reportlab.lib.units import inch
+        
+        # Get filter parameters
+        start_dt = request.args.get('start')
+        end_dt = request.args.get('end')
+        program = request.args.get('program')
+        
+        # Enforce dean can only generate reports for their own college (from session)
+        # Ignore any college parameter from request to prevent unauthorized access
+        admin = session.get('admin') or {}
+        college = admin.get('college')
+        
+        if not college:
+            return jsonify({'success': False, 'error': 'College not specified. Please ensure you are logged in as a dean.'}), 400
+        
+        conn = get_connection() if get_connection else None
+        if conn is None:
+            return jsonify({'success': False, 'error': 'DB not configured'}), 500
+        
+        # Build query with filters (same logic as violations endpoint)
+        where = []
+        params = []
+        where.append("s.college = %s")
+        params.append(college)
+        
+        if program:
+            where.append("s.program = %s")
+            params.append(program)
+        if start_dt:
+            where.append("v.timestamp >= %s")
+            params.append(start_dt)
+        if end_dt:
+            where.append("v.timestamp <= %s")
+            params.append(end_dt)
+        
+        where_sql = (" WHERE " + " AND ".join(where)) if where else ""
+        
+        # Get all violations (no pagination for PDF)
+        query = (
+            "SELECT v.violation_id, v.student_id, v.violation_type, v.timestamp, "
+            "CASE WHEN v.status = 'forwarded_dean' THEN 'pending' ELSE v.status END AS status, "
+            "s.name, s.gender, s.program, s.college "
+            "FROM violations v LEFT JOIN students s ON v.student_id = s.student_id"
+            f"{where_sql} ORDER BY v.timestamp DESC"
+        )
+        
+        with conn.cursor() as cur:
+            cur.execute(query, params)
+            violations = cur.fetchall() or []
+            
+            # Get summary statistics
+            stats_query = (
+                f"SELECT COUNT(*) AS total, "
+                f"COUNT(DISTINCT v.student_id) AS unique_students, "
+                f"COUNT(CASE WHEN v.status = 'resolved' THEN 1 END) AS resolved, "
+                f"COUNT(CASE WHEN v.status != 'resolved' THEN 1 END) AS unresolved "
+                f"FROM violations v LEFT JOIN students s ON v.student_id = s.student_id{where_sql}"
+            )
+            cur.execute(stats_query, params)
+            stats = cur.fetchone() or {}
+        
+        conn.close()
+        
+        # Get college abbreviation
+        college_abbr = get_college_abbreviation(college)
+        
+        # Generate PDF
+        buffer = BytesIO()
+        doc = SimpleDocTemplate(
+            buffer, 
+            pagesize=A4, 
+            topMargin=0.5*inch, 
+            bottomMargin=0.5*inch,
+            title=f"Violation Records Report - {college_abbr}",
+            author=college_abbr,
+            subject=f"Violation Records Report for {college_abbr}",
+            creator=f"Dean Dashboard - {college_abbr}"
+        )
+        elements = []
+        
+        # Styles
+        styles = getSampleStyleSheet()
+        title_style = ParagraphStyle(
+            'CustomTitle',
+            parent=styles['Heading1'],
+            fontSize=18,
+            textColor=colors.HexColor('#f25a04'),
+            spaceAfter=12,
+            alignment=1  # Center
+        )
+        heading_style = ParagraphStyle(
+            'CustomHeading',
+            parent=styles['Heading2'],
+            fontSize=14,
+            textColor=colors.HexColor('#1e293b'),
+            spaceAfter=8
+        )
+        normal_style = styles['Normal']
+        
+        # Title
+        elements.append(Paragraph("Violation Records Report", title_style))
+        elements.append(Spacer(1, 0.2*inch))
+        
+        # College and date info
+        college_info = f"<b>College:</b> {college_abbr} ({college})"
+        if program:
+            college_info += f"<br/><b>Program:</b> {program}"
+        if start_dt or end_dt:
+            date_range = f"<b>Date Range:</b> "
+            if start_dt:
+                date_range += f"From {start_dt}"
+            if end_dt:
+                date_range += f" To {end_dt}"
+            college_info += f"<br/>{date_range}"
+        college_info += f"<br/><b>Report Generated:</b> {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+        elements.append(Paragraph(college_info, normal_style))
+        elements.append(Spacer(1, 0.2*inch))
+        
+        # Summary Statistics
+        elements.append(Paragraph("Summary Statistics", heading_style))
+        stats_data = [
+            ['Total Violations', str(stats.get('total', 0))],
+            ['Unique Students', str(stats.get('unique_students', 0))],
+            ['Resolved', str(stats.get('resolved', 0))],
+            ['Unresolved', str(stats.get('unresolved', 0))]
+        ]
+        stats_table = Table(stats_data, colWidths=[3*inch, 2*inch])
+        stats_table.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#f3f4f6')),
+            ('TEXTCOLOR', (0, 0), (-1, -1), colors.black),
+            ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+            ('FONTSIZE', (0, 0), (-1, 0), 11),
+            ('BOTTOMPADDING', (0, 0), (-1, 0), 8),
+            ('BACKGROUND', (0, 1), (-1, -1), colors.white),
+            ('GRID', (0, 0), (-1, -1), 1, colors.grey),
+            ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.HexColor('#f9fafb')])
+        ]))
+        elements.append(stats_table)
+        elements.append(Spacer(1, 0.3*inch))
+        
+        # Violations Table
+        elements.append(Paragraph("Violation Records", heading_style))
+        
+        if not violations:
+            elements.append(Paragraph("No violations found for the selected criteria.", normal_style))
+        else:
+            # Table headers - use Paragraph for headers too
+            table_data = [[
+                Paragraph('ID', normal_style),
+                Paragraph('Date', normal_style),
+                Paragraph('Student ID', normal_style),
+                Paragraph('Name', normal_style),
+                Paragraph('Program', normal_style),
+                Paragraph('Gender', normal_style),
+                Paragraph('Non Compliant', normal_style),
+                Paragraph('Status', normal_style)
+            ]]
+            
+            # Table rows
+            for v in violations:
+                timestamp = v.get('timestamp', '')
+                if timestamp:
+                    try:
+                        dt = datetime.strptime(str(timestamp), '%Y-%m-%d %H:%M:%S')
+                        formatted_date = dt.strftime('%Y-%m-%d %H:%M')
+                    except:
+                        formatted_date = str(timestamp)[:16]
+                else:
+                    formatted_date = ''
+                
+                # Clean violation type - remove any status info that might be embedded
+                violation_type = str(v.get('violation_type', '')).strip()
+                status = str(v.get('status', '')).strip()
+                
+                # If violation_type contains status info (like "non-compliant: shoepending")
+                # Extract and clean it
+                if violation_type:
+                    # Check for status patterns at the end of violation_type
+                    # Patterns to look for (longest first to avoid partial matches)
+                    status_patterns = [
+                        '_forwarded_guid', '_forwarded_dean', 'forwarded_guid', 'forwarded_dean',
+                        '_pending', '_resolved', 'pending', 'resolved'
+                    ]
+                    
+                    violation_type_lower = violation_type.lower()
+                    extracted_status = None
+                    
+                    # Try to find and extract status from violation_type
+                    for pattern in status_patterns:
+                        pattern_lower = pattern.lower()
+                        # Check if violation_type ends with this pattern
+                        if violation_type_lower.endswith(pattern_lower):
+                            # Extract the status
+                            extracted_status = pattern.replace('_', ' ').strip()
+                            # Remove the pattern from violation_type
+                            violation_type = violation_type[:-len(pattern)].strip()
+                            break
+                    
+                    # Use extracted status if original status is empty
+                    if not status and extracted_status:
+                        status = extracted_status
+                    
+                    # Clean up any double spaces, underscores, or trailing separators
+                    violation_type = violation_type.rstrip(':_-').strip()
+                    violation_type = violation_type.replace('_', ' ').strip()
+                    violation_type = ' '.join(violation_type.split())
+                    
+                    # Remove "Non-compliant:" or "non-compliant:" prefix
+                    if violation_type.lower().startswith('non-compliant:'):
+                        violation_type = violation_type.split(':', 1)[1].strip() if ':' in violation_type else violation_type
+                    elif violation_type.lower().startswith('non compliant'):
+                        violation_type = violation_type.replace('non compliant', '').replace(':', '').strip()
+                    
+                    # Format violation type nicely - capitalize first letter
+                    if violation_type:
+                        violation_type = violation_type.title()
+                
+                # Format status nicely
+                if status:
+                    status = status.replace('_', ' ').strip().title()
+                else:
+                    status = 'N/A'
+                
+                # Clean program name - remove "Bachelor of Science in" prefix
+                program_name = str(v.get('program', '')).strip()
+                if program_name:
+                    # Remove common prefixes
+                    prefixes_to_remove = [
+                        'Bachelor of Science in ',
+                        'Bachelor of Arts in ',
+                        'Bachelor of Science in',
+                        'Bachelor of Arts in',
+                        'Bachelor of Science',
+                        'Bachelor of Arts'
+                    ]
+                    for prefix in prefixes_to_remove:
+                        if program_name.startswith(prefix):
+                            program_name = program_name[len(prefix):].strip()
+                            break
+                
+                # Format gender - capitalize first letter
+                gender = str(v.get('gender', '')).strip()
+                if gender:
+                    gender = gender.capitalize()
+                else:
+                    gender = 'N/A'
+                
+                # Use Paragraph objects for better text wrapping
+                table_data.append([
+                    Paragraph(str(v.get('violation_id', '')), normal_style),
+                    Paragraph(formatted_date, normal_style),
+                    Paragraph(str(v.get('student_id', '')), normal_style),
+                    Paragraph(str(v.get('name', ''))[:30], normal_style),
+                    Paragraph(program_name[:35] if program_name else 'N/A', normal_style),
+                    Paragraph(gender[:8], normal_style),
+                    Paragraph(violation_type[:35] if violation_type else 'N/A', normal_style),
+                    Paragraph(status[:20] if status else 'N/A', normal_style)
+                ])
+            
+            # Create table with adjusted column widths - total width ~7.2 inches (fits A4 with margins)
+            # ID, Date, Student ID, Name, Program, Gender, Non Compliant, Status
+            violation_table = Table(table_data, colWidths=[0.4*inch, 1.0*inch, 0.9*inch, 1.0*inch, 1.1*inch, 0.7*inch, 1.2*inch, 0.9*inch])
+            violation_table.setStyle(TableStyle([
+                ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#f25a04')),
+                ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+                ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+                ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+                ('FONTSIZE', (0, 0), (-1, 0), 8),
+                ('BOTTOMPADDING', (0, 0), (-1, 0), 8),
+                ('TOPPADDING', (0, 0), (-1, 0), 6),
+                ('BACKGROUND', (0, 1), (-1, -1), colors.white),
+                ('TEXTCOLOR', (0, 1), (-1, -1), colors.black),
+                ('FONTNAME', (0, 1), (-1, -1), 'Helvetica'),
+                ('FONTSIZE', (0, 1), (-1, -1), 7),
+                ('GRID', (0, 0), (-1, -1), 0.5, colors.grey),
+                ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.HexColor('#f9fafb')]),
+                ('VALIGN', (0, 0), (-1, -1), 'TOP'),
+                ('LEFTPADDING', (0, 0), (-1, -1), 3),
+                ('RIGHTPADDING', (0, 0), (-1, -1), 3),
+                ('TOPPADDING', (0, 1), (-1, -1), 5),
+                ('BOTTOMPADDING', (0, 1), (-1, -1), 5),
+            ]))
+            elements.append(violation_table)
+        
+        # Build PDF
+        doc.build(elements)
+        buffer.seek(0)
+        
+        # Generate filename using abbreviation
+        filename = f"violation_report_{college_abbr}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf"
+        filename = re.sub(r'[^\w\-_\.]', '_', filename)  # Sanitize filename
+        
+        return Response(
+            buffer.getvalue(),
+            mimetype='application/pdf',
+            headers={
+                'Content-Disposition': f'attachment; filename="{filename}"'
+            }
+        )
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@violations_bp.route('/osas/violations/pdf', methods=['GET'])
+def osas_generate_pdf_report():
+    """Generate PDF report of ALL violations for OSAS (university-wide, filtered by date range)."""
+    # Import here to avoid circular imports
+    from app import get_connection, REPORTLAB_AVAILABLE, get_college_abbreviation
+    
+    if not REPORTLAB_AVAILABLE:
+        return jsonify({'success': False, 'error': 'PDF generation library not available'}), 500
+    
+    try:
+        # Import reportlab components
+        from reportlab.lib import colors
+        from reportlab.lib.pagesizes import A4
+        from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
+        from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+        from reportlab.lib.units import inch
+        
+        # Get filter parameters
+        start_dt = request.args.get('start')
+        end_dt = request.args.get('end')
+        college = request.args.get('college')  # Optional filter
+        program = request.args.get('program')  # Optional filter
+        
+        conn = get_connection() if get_connection else None
+        if conn is None:
+            return jsonify({'success': False, 'error': 'DB not configured'}), 500
+        
+        # Build query with filters - NO college restriction (OSAS sees all)
+        where = []
+        params = []
+        
+        # Optional filters (not required)
+        if college:
+            where.append("s.college = %s")
+            params.append(college)
+        if program:
+            where.append("s.program = %s")
+            params.append(program)
+        if start_dt:
+            where.append("v.timestamp >= %s")
+            params.append(start_dt)
+        if end_dt:
+            where.append("v.timestamp <= %s")
+            params.append(end_dt)
+        
+        where_sql = (" WHERE " + " AND ".join(where)) if where else ""
+        
+        # Get all violations (no pagination for PDF)
+        query = (
+            "SELECT v.violation_id, v.student_id, v.violation_type, v.timestamp, v.status, "
+            "s.name, s.gender, s.program, s.college "
+            "FROM violations v LEFT JOIN students s ON v.student_id = s.student_id"
+            f"{where_sql} ORDER BY v.timestamp DESC"
+        )
+        
+        with conn.cursor() as cur:
+            cur.execute(query, params)
+            violations = cur.fetchall() or []
+            
+            # Get summary statistics
+            stats_query = (
+                f"SELECT COUNT(*) AS total, "
+                f"COUNT(DISTINCT v.student_id) AS unique_students, "
+                f"COUNT(CASE WHEN v.status = 'resolved' THEN 1 END) AS resolved, "
+                f"COUNT(CASE WHEN v.status != 'resolved' THEN 1 END) AS unresolved "
+                f"FROM violations v LEFT JOIN students s ON v.student_id = s.student_id{where_sql}"
+            )
+            cur.execute(stats_query, params)
+            stats = cur.fetchone() or {}
+        
+        conn.close()
+        
+        # Generate PDF
+        buffer = BytesIO()
+        doc = SimpleDocTemplate(
+            buffer, 
+            pagesize=A4, 
+            topMargin=0.5*inch, 
+            bottomMargin=0.5*inch,
+            title="OSAS Violation Records Report",
+            author="OSAS Dashboard",
+            subject="University-Wide Violation Records Report",
+            creator="OSAS Dashboard"
+        )
+        elements = []
+        
+        # Styles
+        styles = getSampleStyleSheet()
+        title_style = ParagraphStyle(
+            'CustomTitle',
+            parent=styles['Heading1'],
+            fontSize=18,
+            textColor=colors.HexColor('#f25a04'),
+            spaceAfter=12,
+            alignment=1  # Center
+        )
+        heading_style = ParagraphStyle(
+            'CustomHeading',
+            parent=styles['Heading2'],
+            fontSize=14,
+            textColor=colors.HexColor('#1e293b'),
+            spaceAfter=8
+        )
+        normal_style = styles['Normal']
+        
+        # Title
+        elements.append(Paragraph("OSAS Violation Records Report", title_style))
+        elements.append(Spacer(1, 0.2*inch))
+        
+        # Report info
+        report_info = "<b>Scope:</b> All Colleges (University-Wide)"
+        if college:
+            college_abbr = get_college_abbreviation(college)
+            report_info += f"<br/><b>Filtered by College:</b> {college_abbr} ({college})"
+        if program:
+            report_info += f"<br/><b>Filtered by Program:</b> {program}"
+        if start_dt or end_dt:
+            date_range = f"<b>Date Range:</b> "
+            if start_dt:
+                date_range += f"From {start_dt}"
+            if end_dt:
+                date_range += f" To {end_dt}"
+            report_info += f"<br/>{date_range}"
+        report_info += f"<br/><b>Report Generated:</b> {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+        elements.append(Paragraph(report_info, normal_style))
+        elements.append(Spacer(1, 0.2*inch))
+        
+        # Summary Statistics
+        elements.append(Paragraph("Summary Statistics", heading_style))
+        stats_data = [
+            ['Total Violations', str(stats.get('total', 0))],
+            ['Unique Students', str(stats.get('unique_students', 0))],
+            ['Resolved', str(stats.get('resolved', 0))],
+            ['Unresolved', str(stats.get('unresolved', 0))]
+        ]
+        stats_table = Table(stats_data, colWidths=[3*inch, 2*inch])
+        stats_table.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#f3f4f6')),
+            ('TEXTCOLOR', (0, 0), (-1, -1), colors.black),
+            ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+            ('FONTSIZE', (0, 0), (-1, 0), 11),
+            ('BOTTOMPADDING', (0, 0), (-1, 0), 8),
+            ('BACKGROUND', (0, 1), (-1, -1), colors.white),
+            ('GRID', (0, 0), (-1, -1), 1, colors.grey),
+            ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.HexColor('#f9fafb')])
+        ]))
+        elements.append(stats_table)
+        elements.append(Spacer(1, 0.3*inch))
+        
+        # Violations Table
+        elements.append(Paragraph("Violation Records", heading_style))
+        
+        if not violations:
+            elements.append(Paragraph("No violations found for the selected criteria.", normal_style))
+        else:
+            # Table headers - use Paragraph for headers too
+            table_data = [[
+                Paragraph('ID', normal_style),
+                Paragraph('Date', normal_style),
+                Paragraph('Student ID', normal_style),
+                Paragraph('Name', normal_style),
+                Paragraph('College', normal_style),
+                Paragraph('Program', normal_style),
+                Paragraph('Gender', normal_style),
+                Paragraph('Non Compliant', normal_style),
+                Paragraph('Status', normal_style)
+            ]]
+            
+            # Table rows
+            for v in violations:
+                timestamp = v.get('timestamp', '')
+                if timestamp:
+                    try:
+                        dt = datetime.strptime(str(timestamp), '%Y-%m-%d %H:%M:%S')
+                        formatted_date = dt.strftime('%Y-%m-%d %H:%M')
+                    except:
+                        formatted_date = str(timestamp)[:16]
+                else:
+                    formatted_date = ''
+                
+                # Clean violation type - remove any status info that might be embedded
+                violation_type = str(v.get('violation_type', '')).strip()
+                status = str(v.get('status', '')).strip()
+                
+                # If violation_type contains status info (like "non-compliant: shoepending")
+                # Extract and clean it
+                if violation_type:
+                    # Check for status patterns at the end of violation_type
+                    # Patterns to look for (longest first to avoid partial matches)
+                    status_patterns = [
+                        '_forwarded_guid', '_forwarded_dean', 'forwarded_guid', 'forwarded_dean',
+                        '_pending', '_resolved', 'pending', 'resolved'
+                    ]
+                    
+                    violation_type_lower = violation_type.lower()
+                    extracted_status = None
+                    
+                    # Try to find and extract status from violation_type
+                    for pattern in status_patterns:
+                        pattern_lower = pattern.lower()
+                        # Check if violation_type ends with this pattern
+                        if violation_type_lower.endswith(pattern_lower):
+                            # Extract the status
+                            extracted_status = pattern.replace('_', ' ').strip()
+                            # Remove the pattern from violation_type
+                            violation_type = violation_type[:-len(pattern)].strip()
+                            break
+                    
+                    # Use extracted status if original status is empty
+                    if not status and extracted_status:
+                        status = extracted_status
+                    
+                    # Clean up any double spaces, underscores, or trailing separators
+                    violation_type = violation_type.rstrip(':_-').strip()
+                    violation_type = violation_type.replace('_', ' ').strip()
+                    violation_type = ' '.join(violation_type.split())
+                    
+                    # Remove "Non-compliant:" or "non-compliant:" prefix
+                    if violation_type.lower().startswith('non-compliant:'):
+                        violation_type = violation_type.split(':', 1)[1].strip() if ':' in violation_type else violation_type
+                    elif violation_type.lower().startswith('non compliant'):
+                        violation_type = violation_type.replace('non compliant', '').replace(':', '').strip()
+                    
+                    # Format violation type nicely - capitalize first letter
+                    if violation_type:
+                        violation_type = violation_type.title()
+                
+                # Format status nicely
+                if status:
+                    status = status.replace('_', ' ').strip().title()
+                else:
+                    status = 'N/A'
+                
+                # Clean program name - remove "Bachelor of Science in" prefix
+                program_name = str(v.get('program', '')).strip()
+                if program_name:
+                    # Remove common prefixes
+                    prefixes_to_remove = [
+                        'Bachelor of Science in ',
+                        'Bachelor of Arts in ',
+                        'Bachelor of Science in',
+                        'Bachelor of Arts in',
+                        'Bachelor of Science',
+                        'Bachelor of Arts'
+                    ]
+                    for prefix in prefixes_to_remove:
+                        if program_name.startswith(prefix):
+                            program_name = program_name[len(prefix):].strip()
+                            break
+                
+                # Format gender - capitalize first letter
+                gender = str(v.get('gender', '')).strip()
+                if gender:
+                    gender = gender.capitalize()
+                else:
+                    gender = 'N/A'
+                
+                # Use Paragraph objects for better text wrapping
+                # Get college abbreviation for display
+                student_college = str(v.get('college', ''))
+                college_display = get_college_abbreviation(student_college) if student_college else 'N/A'
+                
+                table_data.append([
+                    Paragraph(str(v.get('violation_id', '')), normal_style),
+                    Paragraph(formatted_date, normal_style),
+                    Paragraph(str(v.get('student_id', '')), normal_style),
+                    Paragraph(str(v.get('name', ''))[:30], normal_style),
+                    Paragraph(college_display[:10], normal_style),  # Abbreviation is shorter
+                    Paragraph(program_name[:30] if program_name else 'N/A', normal_style),
+                    Paragraph(gender[:8], normal_style),
+                    Paragraph(violation_type[:30] if violation_type else 'N/A', normal_style),
+                    Paragraph(status[:20] if status else 'N/A', normal_style)
+                ])
+            
+            # Create table with adjusted column widths - total width ~7.2 inches (fits A4 with margins)
+            # ID, Date, Student ID, Name, College, Program, Gender, Non Compliant, Status
+            violation_table = Table(table_data, colWidths=[0.4*inch, 0.95*inch, 0.85*inch, 0.9*inch, 0.9*inch, 0.9*inch, 0.7*inch, 0.9*inch, 0.75*inch])
+            violation_table.setStyle(TableStyle([
+                ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#f25a04')),
+                ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+                ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+                ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+                ('FONTSIZE', (0, 0), (-1, 0), 8),
+                ('BOTTOMPADDING', (0, 0), (-1, 0), 8),
+                ('TOPPADDING', (0, 0), (-1, 0), 6),
+                ('BACKGROUND', (0, 1), (-1, -1), colors.white),
+                ('TEXTCOLOR', (0, 1), (-1, -1), colors.black),
+                ('FONTNAME', (0, 1), (-1, -1), 'Helvetica'),
+                ('FONTSIZE', (0, 1), (-1, -1), 7),
+                ('GRID', (0, 0), (-1, -1), 0.5, colors.grey),
+                ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.HexColor('#f9fafb')]),
+                ('VALIGN', (0, 0), (-1, -1), 'TOP'),
+                ('LEFTPADDING', (0, 0), (-1, -1), 3),
+                ('RIGHTPADDING', (0, 0), (-1, -1), 3),
+                ('TOPPADDING', (0, 1), (-1, -1), 5),
+                ('BOTTOMPADDING', (0, 1), (-1, -1), 5),
+            ]))
+            elements.append(violation_table)
+        
+        # Build PDF
+        doc.build(elements)
+        buffer.seek(0)
+        
+        # Generate filename
+        filename = f"osas_violation_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf"
+        if start_dt and end_dt:
+            filename = f"osas_violation_report_{start_dt}_to_{end_dt}.pdf"
+        filename = re.sub(r'[^\w\-_\.]', '_', filename)  # Sanitize filename
+        
+        return Response(
+            buffer.getvalue(),
+            mimetype='application/pdf',
+            headers={
+                'Content-Disposition': f'attachment; filename="{filename}"'
+            }
+        )
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
 
