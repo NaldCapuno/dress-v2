@@ -1428,6 +1428,81 @@ def dean_programs():
     college = (session.get('admin') or {}).get('college')
     if not college:
         return jsonify({'success': True, 'programs': []})
+    
+    # Hardcoded programs by college
+    if college == 'College of Sciences':
+        programs = [
+            'Bachelor of Science in Biology',
+            'Bachelor of Science in Marine Biology',
+            'Bachelor of Science in Computer Science',
+            'Bachelor of Science in Environmental Science',
+            'Bachelor of Science in Information Technology'
+        ]
+        return jsonify({'success': True, 'programs': programs})
+    
+    elif college == 'College of Arts And Humanities':
+        programs = [
+            'Bachelor of Arts in Communication',
+            'Bachelor of Arts in Political Science',
+            'Bachelor of Arts in Philippine Studies',
+            'Bachelor of Science in Social Work',
+            'Bachelor of Science in Psychology'
+        ]
+        return jsonify({'success': True, 'programs': programs})
+    
+    elif college == 'College of Business and Accountancy':
+        programs = [
+            'Bachelor of Science in Accountancy',
+            'Bachelor of Science in Management Accounting',
+            'Bachelor of Science in Business Administration',
+            'Bachelor of Science in Entrepreneurship',
+            'Bachelor of Science in Public Administration'
+        ]
+        return jsonify({'success': True, 'programs': programs})
+    
+    elif college == 'Criminal Justice and Education':
+        programs = [
+            'Bachelor of Science in Criminology'
+        ]
+        return jsonify({'success': True, 'programs': programs})
+    
+    elif college == 'College of Engineering':
+        programs = [
+            'Bachelor of Science in Civil Engineering',
+            'Bachelor of Science in Electrical Engineering',
+            'Bachelor of Science in Mechanical Engineering',
+            'Bachelor of Science in Petroleum Engineering'
+        ]
+        return jsonify({'success': True, 'programs': programs})
+    
+    elif college == 'College of Architecture and Design':
+        programs = [
+            'Bachelor of Science in Architecture'
+        ]
+        return jsonify({'success': True, 'programs': programs})
+    
+    elif college == 'College of Hospitality Management and Tourism':
+        programs = [
+            'Bachelor of Science in Hospitality Management',
+            'Bachelor of Science in Tourism Management'
+        ]
+        return jsonify({'success': True, 'programs': programs})
+    
+    elif college == 'Nursing and Health Sciences':
+        programs = [
+            'Bachelor of Science in Nursing',
+            'Bachelor of Science in Midwifery'
+        ]
+        return jsonify({'success': True, 'programs': programs})
+    
+    elif college == 'College of Teacher Education':
+        programs = [
+            'Bachelor of Elementary Education',
+            'Bachelor of Secondary Education',
+            'Bachelor of Physical Education'
+        ]
+        return jsonify({'success': True, 'programs': programs})
+    
     conn = get_connection() if get_connection else None
     if conn is None:
         return jsonify({'success': False, 'error': 'DB not configured'}), 500
