@@ -189,10 +189,13 @@ rfid_present = False
 rfid_lock = threading.Lock()
 rfid_last_student = None  # Holds last looked-up student dict or None
 rfid_last_violation_ts = 0  # last violation timestamp to throttle duplicates
+rfid_last_violation_uid = None  # last UID that had a violation (for throttle check - only throttle same card)
 rfid_current_uid_checks = 0  # number of detection checks for current RFID UID
 rfid_current_uid_violated = False  # whether a violation has been issued for current UID session
+rfid_current_uid_compliant = False  # whether compliant status was detected for current UID session (stops detection)
 rfid_current_uid_snapshot_saved = False  # whether a clean snapshot was saved for current UID
 rfid_consecutive_non_compliant = 0  # counter for consecutive non-compliant detections
+rfid_consecutive_compliant = 0  # counter for consecutive compliant detections
 rfid_last_compliance_status = None  # track last compliance status to detect changes
 rfid_enabled = False  # flag to completely disable RFID processing
 rfid_violation_timeout = 30  # seconds after which violation flag resets (allows re-recording)
@@ -246,19 +249,26 @@ def rfid_event_handler():
                     with rfid_lock:
                         incoming_uid = event['uid']
                         is_same_uid = (rfid_present and rfid_last_uid == incoming_uid)
+                        old_uid = rfid_last_uid
                         rfid_last_uid = incoming_uid
                         rfid_present = True
                         # Only reset per-scan counters on NEW UID (or after removal), not on repeated same-UID events
                         if not is_same_uid:
+                            print(f"DEBUG: New RFID card detected - Old UID: {old_uid}, New UID: {incoming_uid}")
                             rfid_current_uid_checks = 0
                             rfid_current_uid_violated = False
+                            rfid_current_uid_compliant = False
                             rfid_consecutive_non_compliant = 0
+                            rfid_consecutive_compliant = 0
                             rfid_last_compliance_status = None
                             rfid_current_uid_snapshot_saved = False
                             rfid_last_violation_ts = 0
+                            rfid_last_violation_uid = None  # Reset violation UID tracking for new card
                             # Reset tracker for new RFID scan
                             tracker = BotSORT()
-                            print("DEBUG: Tracker reset for new RFID scan")
+                            print("DEBUG: Tracker reset for new RFID scan - All flags reset")
+                        else:
+                            print(f"DEBUG: Same RFID card still present - UID: {incoming_uid}")
                         # Perform DB lookup and log
                         try:
                             student = None
@@ -273,10 +283,10 @@ def rfid_event_handler():
                             print(f"RFID DB handling error: {e}")
                     
                     # Only enable detection and capture images if RFID has a record in database
-                    # Don't re-enable detection if violation was already recorded for this UID or if student already has violation today
+                    # Only disable detection if student already has a violation recorded today (not based on session flag)
                     if rfid_last_student is not None:
                         student_id = rfid_last_student.get('student_id')
-                        # Check if student already has a violation today
+                        # Check if student already has a violation today (check database, not session flag)
                         has_violation_today = False
                         if has_student_violation_today and student_id:
                             try:
@@ -288,14 +298,27 @@ def rfid_event_handler():
                             # If student already has violation today, mark as violated and disable detection
                             if has_violation_today:
                                 rfid_current_uid_violated = True
+                                # The flag will be reset in the /rfid/status endpoint after frontend reads it
                                 detection_enabled = False
                                 print(f"RFID Card detected: {event['uid']} - Student found: {rfid_last_student.get('name', 'Unknown')} - Detection DISABLED (student already has violation today)")
-                            # Only enable detection if it's a new UID, no violation was recorded yet, and no violation today
-                            elif not is_same_uid or not rfid_current_uid_violated:
+                            # Enable detection for new UID
+                            elif not is_same_uid:
+                                # New card - always enable detection (flags were reset above)
                                 detection_enabled = True
-                                print(f"RFID Card detected: {event['uid']} - Student found: {rfid_last_student.get('name', 'Unknown')} - Detection ENABLED")
+                                print(f"RFID Card detected: {event['uid']} - Student found: {rfid_last_student.get('name', 'Unknown')} - Detection ENABLED (new card)")
+                                print(f"DEBUG: detection_enabled={detection_enabled}, rfid_current_uid_violated={rfid_current_uid_violated}, rfid_current_uid_compliant={rfid_current_uid_compliant}")
+                            # Same card - only disable if violation today OR if compliant detected
+                            elif rfid_current_uid_compliant:
+                                # Same card, but compliant already detected - keep detection disabled
+                                detection_enabled = False
+                                print(f"RFID Card detected: {event['uid']} - Student found: {rfid_last_student.get('name', 'Unknown')} - Detection DISABLED (student is compliant)")
+                                print(f"DEBUG: detection_enabled={detection_enabled}, rfid_current_uid_violated={rfid_current_uid_violated}, rfid_current_uid_compliant={rfid_current_uid_compliant}")
                             else:
-                                print(f"RFID Card detected: {event['uid']} - Student found: {rfid_last_student.get('name', 'Unknown')} - Detection DISABLED (violation already recorded in this session)")
+                                # Same card, no violation today, and not compliant - enable detection
+                                # This allows re-detection if the same card is scanned again (unless violation today)
+                                detection_enabled = True
+                                print(f"RFID Card detected: {event['uid']} - Student found: {rfid_last_student.get('name', 'Unknown')} - Detection ENABLED (same card, no violation today)")
+                                print(f"DEBUG: detection_enabled={detection_enabled}, has_violation_today={has_violation_today}, rfid_current_uid_violated={rfid_current_uid_violated}, rfid_current_uid_compliant={rfid_current_uid_compliant}")
                         # Capture a clean snapshot on each RFID scan (no overlays/bounding boxes) - only once per UID
                         try:
                             snapshot = None
@@ -371,10 +394,13 @@ def rfid_event_handler():
                         rfid_last_student = None
                         rfid_current_uid_checks = 0
                         rfid_current_uid_violated = False
+                        rfid_current_uid_compliant = False
                         rfid_consecutive_non_compliant = 0
+                        rfid_consecutive_compliant = 0
                         rfid_last_compliance_status = None
                         rfid_current_uid_snapshot_saved = False
                         rfid_last_violation_ts = 0
+                        rfid_last_violation_uid = None  # Reset violation UID tracking when card removed
                         # Reset tracker when RFID card is removed
                         tracker = BotSORT()
                     print("RFID Card removed - Detection DISABLED - Tracker reset")
@@ -397,7 +423,11 @@ def rfid_event_handler():
                             rfid_last_student = None
                             rfid_current_uid_checks = 0
                             rfid_current_uid_violated = False
+                            rfid_current_uid_compliant = False
+                            rfid_just_violated = False
+                            rfid_just_compliant = False
                             rfid_consecutive_non_compliant = 0
+                            rfid_consecutive_compliant = 0
                             rfid_last_compliance_status = None
                             # Reset tracker when RFID card is removed
                             tracker = BotSORT()
@@ -414,7 +444,9 @@ def rfid_event_handler():
                         rfid_last_student = None
                         rfid_current_uid_checks = 0
                         rfid_current_uid_violated = False
+                        rfid_current_uid_compliant = False
                         rfid_consecutive_non_compliant = 0
+                        rfid_consecutive_compliant = 0
                         rfid_last_compliance_status = None
                         rfid_current_uid_snapshot_saved = False
                         rfid_last_uid = None
@@ -1007,7 +1039,7 @@ def _maybe_record_violation(frame, detections, admin_user):
     - Only resets counter when status changes from violation to COMPLIANT
     - Does not reset counter on temporary NO_DETECTION (person out of frame)
     """
-    global rfid_last_student, rfid_last_violation_ts, rfid_consecutive_non_compliant, rfid_last_compliance_status, rfid_current_uid_violated
+    global rfid_last_student, rfid_last_violation_ts, rfid_last_violation_uid, rfid_consecutive_non_compliant, rfid_consecutive_compliant, rfid_last_compliance_status, rfid_current_uid_violated, rfid_current_uid_compliant, detection_enabled, rfid_last_uid
     
     try:
         if not rfid_last_student:
@@ -1062,17 +1094,16 @@ def _maybe_record_violation(frame, detections, admin_user):
                 print("DEBUG: RFID not present, skipping violation check")
                 return None
                 
-            # If we already issued a violation for this UID session, check timeout
-            if rfid_current_uid_violated:
-                # Check if enough time has passed to allow re-recording
-                time_since_violation = time.time() - rfid_last_violation_ts
-                if time_since_violation < rfid_violation_timeout:
-                    print(f"DEBUG: Violation already recorded for this RFID session ({time_since_violation:.1f}s ago, timeout: {rfid_violation_timeout}s)")
-                    return None
-                else:
-                    # Reset violation flag after timeout
-                    rfid_current_uid_violated = False
-                    print(f"DEBUG: Violation timeout reached ({time_since_violation:.1f}s), resetting violation flag")
+            # Check if student already has a violation today (daily limit check)
+            # This check happens early to prevent detection
+            student_id = (rfid_last_student or {}).get('student_id')
+            if has_student_violation_today and student_id:
+                if has_student_violation_today(student_id):
+                    print(f"DEBUG: Daily limit reached - violation already recorded today for student {student_id}")
+                    # Keep violation flag True to prevent detection
+                    with rfid_lock:
+                        rfid_current_uid_violated = True  # Keep it True to prevent detection
+                    # Don't return here - let the function continue to check threshold
             
             # Only reset counter if status changes from violation state (NON-COMPLIANT/PARTIALLY COMPLIANT) to COMPLIANT
             # Don't reset if changing between NON-COMPLIANT and PARTIALLY COMPLIANT (both are violations)
@@ -1101,29 +1132,53 @@ def _maybe_record_violation(frame, detections, admin_user):
                     # Don't reset counter on no detection - might be temporary
                     print(f"DEBUG: No detections for student {rfid_last_student.get('student_id')}, keeping counter at {rfid_consecutive_non_compliant}")
                 elif current_compliance_status == 'COMPLIANT':
-                    # Reset counter only when fully compliant
+                    # Reset violation counter when fully compliant
                     rfid_consecutive_non_compliant = 0
                     # Also reset the violation flag so they can be recorded again if they become non-compliant
                     rfid_current_uid_violated = False
-                    print(f"DEBUG: Fully compliant detection, resetting counter and violation flag for student {rfid_last_student.get('student_id')}")
+                    
+                    # Increment compliant counter
+                    rfid_consecutive_compliant += 1
+                    print(f"DEBUG: Compliant detection #{rfid_consecutive_compliant} for student {rfid_last_student.get('student_id')}")
+                    
+                    # Stop detection after 2 consecutive compliant detections (to avoid false positives)
+                    if rfid_consecutive_compliant >= 2 and not rfid_current_uid_compliant:
+                        # Only set flags once per detection event
+                        rfid_current_uid_compliant = True
+                        with rfid_lock:
+                            detection_enabled = False
+                        print(f"DEBUG: Student {rfid_last_student.get('student_id')} detected as COMPLIANT ({rfid_consecutive_compliant} consecutive detections) - stopping detection")
+                        print(f"DEBUG: rfid_current_uid_compliant={rfid_current_uid_compliant}, detection_enabled={detection_enabled}")
+                else:
+                    # Reset compliant counter if status is not COMPLIANT
+                    rfid_consecutive_compliant = 0
+                    rfid_current_uid_compliant = False
             
             # Only proceed if we have 3 consecutive violation detections (non-compliant or partially compliant)
             if rfid_consecutive_non_compliant < 3:
                 print(f"DEBUG: Need {3 - rfid_consecutive_non_compliant} more consecutive violation detections")
                 return None
 
-        # Throttle: avoid spamming the same student too frequently (10 seconds)
-        now_ts = time.time()
-        if now_ts - rfid_last_violation_ts < 10:
-            print(f"DEBUG: Throttled - last violation was {now_ts - rfid_last_violation_ts:.1f}s ago")
-            return None
-
         # Daily limit: only one recorded violation per student per day
         student_id = (rfid_last_student or {}).get('student_id')
+        has_violation_today = False
         if has_student_violation_today and student_id:
             if has_student_violation_today(student_id):
+                has_violation_today = True
                 print(f"DEBUG: Daily limit reached - violation already recorded today for student {student_id}")
-                return None
+
+        # Throttle: only apply if the SAME card is scanned consecutively (within 10 seconds)
+        # Different cards can be scanned immediately without throttle
+        now_ts = time.time()
+        is_same_card = (rfid_last_uid is not None and rfid_last_violation_uid is not None and rfid_last_uid == rfid_last_violation_uid)
+        is_throttled = False
+        if is_same_card and now_ts - rfid_last_violation_ts < 10:
+            is_throttled = True
+            print(f"DEBUG: Throttled - same card scanned within {now_ts - rfid_last_violation_ts:.1f}s (violation NOT recorded)")
+        
+        # If daily limit reached or throttled, don't record
+        if has_violation_today or is_throttled:
+            return None
 
         print(f"DEBUG: Recording violation for student {rfid_last_student.get('student_id')} after {rfid_consecutive_non_compliant} consecutive detections")
         print(f"DEBUG: Admin user: {admin_user is not None}")
@@ -1275,12 +1330,13 @@ def _maybe_record_violation(frame, detections, admin_user):
             print(f"DEBUG: Database insertion returned: {vid}")
             if vid:
                 rfid_last_violation_ts = now_ts
+                rfid_last_violation_uid = rfid_last_uid  # Track which UID had the violation for throttle check
                 with rfid_lock:
+                    # Set flags for violation event
                     rfid_current_uid_violated = True
-                    # Disable detection after violation is recorded
-                    detection_enabled = False
-                    print(f"✓ DETECTION STOPPED: Violation recorded for student {rfid_last_student.get('student_id')} - Detection is now DISABLED")
-                    print(f"DEBUG: rfid_current_uid_violated={rfid_current_uid_violated}, detection_enabled={detection_enabled}")
+                    # Violation is recorded
+                    print(f"✓ VIOLATION RECORDED: Violation recorded for student {rfid_last_student.get('student_id')}")
+                    print(f"DEBUG: Violation recorded in database, UID tracked: {rfid_last_violation_uid}")
                 
                 # Create violation summary for logging
                 violation_summary = {
@@ -1514,9 +1570,12 @@ def generate_frames():
                 with rfid_lock:
                     _present = rfid_present
                     _student_set = (rfid_last_student is not None)
-                    _violated = rfid_current_uid_violated
-                    # Detection is enabled only if: detection flag is True, RFID is present, student is set, AND no violation was recorded yet
-                    rfid_detection_enabled = detection_enabled and _present and _student_set and not _violated
+                    _compliant = rfid_current_uid_compliant
+                    _detection_enabled = detection_enabled
+                    # Detection is enabled only if: detection flag is True, RFID is present, student is set, AND not compliant
+                    # Note: detection_enabled is already set based on has_violation_today in RFID event handler
+                    # We don't check rfid_current_uid_violated here because same card can be scanned again if no violation today
+                    rfid_detection_enabled = _detection_enabled and _present and _student_set and not _compliant
                 
                 # In test mode, detection always runs regardless of RFID
                 detection_enabled_for_frame = rfid_detection_enabled or test_mode_active
