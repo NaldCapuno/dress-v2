@@ -158,6 +158,8 @@
             
             sortedData.forEach(v => {
                 const tr = document.createElement('tr');
+                // Format gender - capitalize first letter
+                const gender = v.gender ? v.gender.charAt(0).toUpperCase() + v.gender.slice(1).toLowerCase() : '';
                 tr.innerHTML = `
                     <td>${v.violation_id}</td>
                     <td>${formatTimestamp(v.timestamp)}</td>
@@ -165,7 +167,7 @@
                     <td>${v.name || ''}</td>
                     <td>${v.college || ''}</td>
                     <td>${v.program || ''}</td>
-                    <td>${v.gender || ''}</td>
+                    <td>${gender}</td>
                     <td>${v.violation_type || ''}</td>
                     <td><span class="status ${v.status}">${v.status}</span></td>
                 `;
@@ -495,11 +497,71 @@
             }
         }
         
+        function generateOSASMonthlyReport() {
+            const month = document.getElementById('osas-report-month').value;
+            const year = document.getElementById('osas-report-year').value;
+            
+            if (!month || !year) {
+                alert('Please select both month and year');
+                return;
+            }
+            
+            // Calculate start and end dates for the selected month/year
+            const startDate = `${year}-${String(month).padStart(2, '0')}-01`;
+            const lastDay = new Date(year, month, 0).getDate();
+            const endDate = `${year}-${String(month).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`;
+            
+            const params = new URLSearchParams();
+            params.set('start', startDate);
+            params.set('end', endDate);
+            
+            // Show loading indicator
+            const btn = document.getElementById('osas-generate-report-btn');
+            if (btn) {
+                const originalText = btn.innerHTML;
+                btn.disabled = true;
+                btn.innerHTML = '⏳ Generating...';
+                setTimeout(() => {
+                    btn.disabled = false;
+                    btn.innerHTML = originalText;
+                }, 2000);
+            }
+            
+            // Open PDF in new window/tab
+            window.open(`/osas/violations/pdf?${params.toString()}`, '_blank');
+        }
+        
+        function initializeOSASYearDropdown() {
+            const yearSelect = document.getElementById('osas-report-year');
+            if (!yearSelect) return;
+            
+            const currentYear = new Date().getFullYear();
+            const currentMonth = new Date().getMonth() + 1;
+            
+            // Set current month as default
+            const monthSelect = document.getElementById('osas-report-month');
+            if (monthSelect) {
+                monthSelect.value = currentMonth;
+            }
+            
+            // Populate years (current year and 5 years back)
+            yearSelect.innerHTML = '';
+            for (let i = 0; i < 6; i++) {
+                const year = currentYear - i;
+                const option = document.createElement('option');
+                option.value = year;
+                option.textContent = year;
+                if (i === 0) option.selected = true;
+                yearSelect.appendChild(option);
+            }
+        }
+        
         window.addEventListener('DOMContentLoaded', () => { 
             loadFilterOptions();
             attachAutoFilterListeners();
             loadViolations(); 
-            loadAnalytics(); 
+            loadAnalytics();
+            initializeOSASYearDropdown();
             const trendSelect = document.getElementById('trend-range');
             if (trendSelect) {
                 trendSelect.addEventListener('change', () => updateTrendChart());
@@ -963,6 +1025,47 @@
                             </thead>
                             <tbody id="violations-body"></tbody>
                         </table>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Report Generation Section -->
+            <div class="card" style="margin-top: 1.5rem;">
+                <div class="card-header" style="background-color: #f25a04; color: white; padding: 1rem;">
+                    <div style="display: flex; align-items: center; gap: 0.75rem;">
+                        <span style="font-size: 1.25rem;">📄</span>
+                        <h3 style="margin: 0; color: white; font-size: 1.125rem;">Generate Report</h3>
+                    </div>
+                </div>
+                <div class="card-body" style="padding: 1.5rem;">
+                    <div style="display: flex; align-items: center; gap: 1rem; flex-wrap: wrap;">
+                        <div style="display: flex; flex-direction: column; gap: 0.5rem;">
+                            <label for="osas-report-month" style="font-size: 0.875rem; font-weight: 600; color: #374151;">Month</label>
+                            <select id="osas-report-month" class="form-control" style="min-width: 150px;">
+                                <option value="1">January</option>
+                                <option value="2">February</option>
+                                <option value="3">March</option>
+                                <option value="4">April</option>
+                                <option value="5">May</option>
+                                <option value="6">June</option>
+                                <option value="7">July</option>
+                                <option value="8">August</option>
+                                <option value="9">September</option>
+                                <option value="10">October</option>
+                                <option value="11">November</option>
+                                <option value="12">December</option>
+                            </select>
+                        </div>
+                        <div style="display: flex; flex-direction: column; gap: 0.5rem;">
+                            <label for="osas-report-year" style="font-size: 0.875rem; font-weight: 600; color: #374151;">Year</label>
+                            <select id="osas-report-year" class="form-control" style="min-width: 120px;">
+                            </select>
+                        </div>
+                        <div style="display: flex; align-items: flex-end; margin-left: auto;">
+                            <button class="btn btn-primary" id="osas-generate-report-btn" onclick="generateOSASMonthlyReport()" style="padding: 0.625rem 2rem; font-weight: 600;">
+                                Generate
+                            </button>
+                        </div>
                     </div>
                 </div>
             </div>
