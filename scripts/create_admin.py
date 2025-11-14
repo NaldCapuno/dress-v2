@@ -2,6 +2,7 @@ import mysql.connector
 from mysql.connector import Error
 from werkzeug.security import generate_password_hash
 import getpass
+import re
 
 # Allowed roles and colleges from your schema
 ALLOWED_ROLES = ['security', 'osas', 'dean', 'guidance']
@@ -23,13 +24,28 @@ def create_admin():
     # MySQL connection setup
     host = input("MySQL Host (default: localhost): ") or "localhost"
     user = input("MySQL Username (default: root): ") or "root"
-    password_db = getpass.getpass("MySQL Password (press Enter if none): ") or "root"
+    password_db = getpass.getpass("MySQL Password (default: root): ") or "root"
     database = input("Database name (default: dress): ") or "dress"
 
     # Admin details
     username = input("Enter new admin username: ").strip()
     while not username:
         username = input("Username cannot be empty. Enter new admin username: ").strip()
+
+    # Email input with validation
+    email_pattern = re.compile(r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$')
+    while True:
+        email = input("Enter email address: ").strip()
+        if not email:
+            print("❌ Email cannot be empty.")
+            continue
+        if len(email) > 45:
+            print("❌ Email address is too long (max 45 characters).")
+            continue
+        if not email_pattern.match(email):
+            print("❌ Invalid email format. Please enter a valid email address.")
+            continue
+        break
 
     # Password with confirmation
     while True:
@@ -81,12 +97,13 @@ def create_admin():
         if connection.is_connected():
             cursor = connection.cursor()
             insert_query = """
-                INSERT INTO admins (username, password_hash, role, college)
-                VALUES (%s, %s, %s, %s)
+                INSERT INTO admins (username, password_hash, role, college, email)
+                VALUES (%s, %s, %s, %s, %s)
             """
-            cursor.execute(insert_query, (username, password_hash, role, college))
+            cursor.execute(insert_query, (username, password_hash, role, college, email))
             connection.commit()
             print(f"\n✅ Admin '{username}' created successfully with role '{role}'.")
+            print(f"📧 Email: {email}")
             if college:
                 print(f"🏫 Assigned to: {college}")
 
