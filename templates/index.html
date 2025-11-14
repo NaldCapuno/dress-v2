@@ -89,7 +89,10 @@
                 <div class="rfid-section">
                     <div class="rfid-header">
                         <h3><i class="fas fa-id-card"></i> RFID Scanner</h3>
-                        </div>
+                        <button id="toggleRfidTime" class="btn btn-sm btn-outline-secondary" title="Toggle Display Delay">
+                            <i class="fas fa-clock"></i> <span id="toggleRfidTimeText">Hide Time</span>
+                        </button>
+                    </div>
                         <div class="rfid-status">
                             <span id="rfidStatus" class="badge bg-secondary">
                                 <i class="fas fa-power-off"></i>RFID: Inactive
@@ -104,7 +107,7 @@
                         <div id="rfidDataDisplay" class="alert alert-info" style="display: none;">
                             <div class="mb-3">
                                 <strong>
-                                    <i class="fas fa-credit-card"></i>Current Card
+                                    <i class="fas fa-credit-card"></i> Current Card
                                 </strong>
                             </div>
                             <div class="rfid-data-content">
@@ -112,7 +115,7 @@
                                     <strong><i class="fas fa-fingerprint"></i>UID:</strong>
                                     <span id="rfidUid" class="font-monospace">N/A</span>
                                 </div>
-                                <div>
+                                <div id="rfidDisplayDelayContainer" style="display: block;">
                                     <strong><i class="fas fa-stopwatch"></i>Display Delay:</strong>
                                     <span id="rfidDisplayDelay">-</span>
                                 </div>
@@ -571,8 +574,37 @@
             currentRfidDisplay = { uid: null, delayText: '-' };
         }
 
+        // Toggle RFID Display Delay visibility
+        let showRfidTime = localStorage.getItem('showRfidTime') !== 'false'; // Default to true
+        function toggleRfidTime() {
+            showRfidTime = !showRfidTime;
+            localStorage.setItem('showRfidTime', showRfidTime);
+            updateRfidTimeVisibility();
+        }
+        
+        function updateRfidTimeVisibility() {
+            const delayContainer = document.getElementById('rfidDisplayDelayContainer');
+            const toggleText = document.getElementById('toggleRfidTimeText');
+            if (delayContainer) {
+                delayContainer.style.display = showRfidTime ? 'block' : 'none';
+            }
+            if (toggleText) {
+                toggleText.textContent = showRfidTime ? 'Hide Time' : 'Show Time';
+            }
+        }
+
+
         // Initialize page when loaded
         window.addEventListener('load', function() {
+            // Initialize RFID time visibility
+            updateRfidTimeVisibility();
+            
+            // Set up toggle button
+            const toggleBtn = document.getElementById('toggleRfidTime');
+            if (toggleBtn) {
+                toggleBtn.addEventListener('click', toggleRfidTime);
+            }
+            
             // Check RFID status every 2 seconds
             setInterval(checkRfidStatus, 2000);
         });
