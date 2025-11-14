@@ -698,6 +698,7 @@
                 <button class="nav-item active" data-target="overview-section">Overview</button>
                 <button class="nav-item" data-target="statistics-section">Statistics</button>
                 <button class="nav-item" data-target="violations-section">Violations</button>
+                <button class="nav-item" data-target="add-students-section">Students</button>
                 <button class="nav-item" data-target="notifications-section">
                     Notifications
                     <span id="notification-dot" class="notification-dot" style="display: none;">•</span>
@@ -916,6 +917,164 @@
             </div>
         </div>
 
+        <div id="add-students-section" style="display:none;">
+            <div class="card" id="students-list-card">
+                <div class="card-header">
+                    <div style="display: flex; justify-content: space-between; align-items: center;">
+                        <h3>Students</h3>
+                        <button class="btn btn-primary" id="show-add-student-btn" onclick="toggleAddStudentForm()">Add Student</button>
+                    </div>
+                </div>
+                <div class="card-body">
+                    <div class="table-responsive">
+                        <table class="table">
+                            <thead>
+                                <tr>
+                                    <th>Student ID</th>
+                                    <th>Name</th>
+                                    <th>Email</th>
+                                    <th>Gender</th>
+                                    <th>Year Level</th>
+                                    <th>Program</th>
+                                    <th>RFID UID</th>
+                                    <th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody id="students-table-body">
+                                <tr>
+                                    <td colspan="7" style="text-align: center; padding: 2rem; color: #6b7280;">Loading students...</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <div class="card" id="add-student-form-card" style="display:none;">
+                <div class="card-header">
+                    <div style="display: flex; justify-content: space-between; align-items: center;">
+                        <h3>Add New Student</h3>
+                        <button class="btn btn-secondary" onclick="toggleAddStudentForm()">Cancel</button>
+                    </div>
+                </div>
+                <div class="card-body">
+                    <form id="add-student-form">
+                        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 1rem; margin-bottom: 1rem;">
+                            <div class="form-group">
+                                <label for="student_id">Student ID <span style="color: red;">*</span></label>
+                                <input type="text" id="student_id" name="student_id" class="form-control" required>
+                            </div>
+                            <div class="form-group">
+                                <label for="rfid_uid">RFID UID <span style="color: red;">*</span></label>
+                                <input type="text" id="rfid_uid" name="rfid_uid" class="form-control" required>
+                            </div>
+                            <div class="form-group">
+                                <label for="name">Full Name <span style="color: red;">*</span></label>
+                                <input type="text" id="name" name="name" class="form-control" required>
+                            </div>
+                            <div class="form-group">
+                                <label for="email">Email <span style="color: red;">*</span></label>
+                                <input type="email" id="email" name="email" class="form-control" required>
+                            </div>
+                            <div class="form-group">
+                                <label for="gender">Gender <span style="color: red;">*</span></label>
+                                <select id="gender" name="gender" class="form-control" required>
+                                    <option value="">Select Gender</option>
+                                    <option value="male">Male</option>
+                                    <option value="female">Female</option>
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label for="year_level">Year Level <span style="color: red;">*</span></label>
+                                <select id="year_level" name="year_level" class="form-control" required>
+                                    <option value="">Select Year Level</option>
+                                    <option value="1">1</option>
+                                    <option value="2">2</option>
+                                    <option value="3">3</option>
+                                    <option value="4">4</option>
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label for="program">Program <span style="color: red;">*</span></label>
+                                <select id="program-select" name="program" class="form-control" required>
+                                    <option value="">Select Program</option>
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label for="college">College</label>
+                                <input type="text" id="college" name="college" class="form-control" readonly style="background-color: #f3f4f6;">
+                            </div>
+                        </div>
+                        <div style="display: flex; gap: 1rem; margin-top: 1rem;">
+                            <button type="submit" class="btn btn-primary">Add Student</button>
+                            <button type="reset" class="btn btn-secondary">Clear Form</button>
+                        </div>
+                        <div id="add-student-message" style="margin-top: 1rem; display: none;"></div>
+                    </form>
+                </div>
+            </div>
+
+            <div class="card" id="edit-student-form-card" style="display:none;">
+                <div class="card-header">
+                    <div style="display: flex; justify-content: space-between; align-items: center;">
+                        <h3>Edit Student</h3>
+                        <button class="btn btn-secondary" onclick="toggleEditStudentForm()">Cancel</button>
+                    </div>
+                </div>
+                <div class="card-body">
+                    <form id="edit-student-form">
+                        <input type="hidden" id="edit-student_id" name="student_id">
+                        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 1rem; margin-bottom: 1rem;">
+                            <div class="form-group">
+                                <label for="edit-rfid_uid">RFID UID <span style="color: red;">*</span></label>
+                                <input type="text" id="edit-rfid_uid" name="rfid_uid" class="form-control" required>
+                            </div>
+                            <div class="form-group">
+                                <label for="edit-name">Full Name <span style="color: red;">*</span></label>
+                                <input type="text" id="edit-name" name="name" class="form-control" required>
+                            </div>
+                            <div class="form-group">
+                                <label for="edit-email">Email <span style="color: red;">*</span></label>
+                                <input type="email" id="edit-email" name="email" class="form-control" required>
+                            </div>
+                            <div class="form-group">
+                                <label for="edit-gender">Gender <span style="color: red;">*</span></label>
+                                <select id="edit-gender" name="gender" class="form-control" required>
+                                    <option value="">Select Gender</option>
+                                    <option value="male">Male</option>
+                                    <option value="female">Female</option>
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label for="edit-year_level">Year Level <span style="color: red;">*</span></label>
+                                <select id="edit-year_level" name="year_level" class="form-control" required>
+                                    <option value="">Select Year Level</option>
+                                    <option value="1">1</option>
+                                    <option value="2">2</option>
+                                    <option value="3">3</option>
+                                    <option value="4">4</option>
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label for="edit-program">Program <span style="color: red;">*</span></label>
+                                <select id="edit-program" name="program" class="form-control" required>
+                                    <option value="">Select Program</option>
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label for="edit-college">College</label>
+                                <input type="text" id="edit-college" name="college" class="form-control" readonly style="background-color: #f3f4f6;">
+                            </div>
+                        </div>
+                        <div style="display: flex; gap: 1rem; margin-top: 1rem;">
+                            <button type="submit" class="btn btn-primary">Update Student</button>
+                        </div>
+                        <div id="edit-student-message" style="margin-top: 1rem; display: none;"></div>
+                    </form>
+                </div>
+            </div>
+        </div>
+
         <div id="notifications-section" style="display:none;">
             <div class="card">
                 <div class="card-header">
@@ -953,9 +1112,17 @@
                 document.getElementById('overview-section').style.display = target === 'overview-section' ? '' : 'none';
                 document.getElementById('statistics-section').style.display = target === 'statistics-section' ? '' : 'none';
                 document.getElementById('violations-section').style.display = target === 'violations-section' ? '' : 'none';
+                document.getElementById('add-students-section').style.display = target === 'add-students-section' ? '' : 'none';
                 document.getElementById('notifications-section').style.display = target === 'notifications-section' ? '' : 'none';
                 if (target === 'overview-section') { renderOverview(); }
                 if (target === 'statistics-section') { loadAnalytics(); }
+                if (target === 'add-students-section') { 
+                    loadStudents();
+                    loadProgramsForAddStudent();
+                    loadCollegeForAddStudent();
+                    // Also load programs for edit form
+                    loadProgramsForEditStudent();
+                }
                 if (target === 'notifications-section') { 
                     loadNotifications();
                     // Hide notification dot when user views notifications
@@ -980,19 +1147,355 @@
                 });
             }
             // Load programs for this dean's college
+            async function loadProgramsForAddStudent() {
+                try {
+                    const res = await fetch('/dean/programs');
+                    const data = await res.json();
+                    if (data.success) {
+                        const sel = document.getElementById('program-select');
+                        if (sel) {
+                            sel.innerHTML = '<option value="">Select Program</option>';
+                            (data.programs || []).forEach(p => {
+                                const opt = document.createElement('option');
+                                opt.value = p;
+                                opt.textContent = p;
+                                sel.appendChild(opt);
+                            });
+                        }
+                    }
+                } catch (e) {
+                    console.error('Error loading programs:', e);
+                }
+            }
+            
+            async function loadProgramsForEditStudent() {
+                try {
+                    const res = await fetch('/dean/programs');
+                    const data = await res.json();
+                    if (data.success) {
+                        const sel = document.getElementById('edit-program');
+                        if (sel) {
+                            const currentValue = sel.value;
+                            sel.innerHTML = '<option value="">Select Program</option>';
+                            (data.programs || []).forEach(p => {
+                                const opt = document.createElement('option');
+                                opt.value = p;
+                                opt.textContent = p;
+                                if (p === currentValue) opt.selected = true;
+                                sel.appendChild(opt);
+                            });
+                        }
+                    }
+                } catch (e) {
+                    console.error('Error loading programs:', e);
+                }
+            }
+            
+            async function loadCollegeForAddStudent() {
+                try {
+                    const res = await fetch('/dean/college');
+                    const data = await res.json();
+                    if (data.success && data.college) {
+                        const collegeInput = document.getElementById('college');
+                        if (collegeInput) {
+                            collegeInput.value = data.college;
+                        }
+                    }
+                } catch (e) {
+                    console.error('Error loading college:', e);
+                }
+            }
+            
+            // Load programs for violations filter
             try {
                 const res = await fetch('/dean/programs');
                 const data = await res.json();
                 if (data.success) {
                     const sel = document.getElementById('program');
-                    (data.programs || []).forEach(p => {
-                        const opt = document.createElement('option');
-                        opt.value = p;
-                        opt.textContent = p;
-                        sel.appendChild(opt);
-                    });
+                    if (sel) {
+                        (data.programs || []).forEach(p => {
+                            const opt = document.createElement('option');
+                            opt.value = p;
+                            opt.textContent = p;
+                            sel.appendChild(opt);
+                        });
+                    }
                 }
             } catch (e) {}
+            
+            // Toggle add student form (make it globally accessible)
+            window.toggleAddStudentForm = function() {
+                const formCard = document.getElementById('add-student-form-card');
+                const listCard = document.getElementById('students-list-card');
+                const messageEl = document.getElementById('add-student-message');
+                if (formCard && listCard) {
+                    const isFormVisible = formCard.style.display !== 'none';
+                    if (isFormVisible) {
+                        // Hide form, show list
+                        formCard.style.display = 'none';
+                        listCard.style.display = '';
+                        // Clear any messages
+                        if (messageEl) {
+                            messageEl.style.display = 'none';
+                        }
+                    } else {
+                        // Show form, hide list
+                        formCard.style.display = '';
+                        listCard.style.display = 'none';
+                        // Clear any previous messages
+                        if (messageEl) {
+                            messageEl.style.display = 'none';
+                        }
+                    }
+                }
+            };
+            
+            // Load students list
+            async function loadStudents() {
+                try {
+                    const res = await fetch('/dean/students');
+                    const data = await res.json();
+                    const tbody = document.getElementById('students-table-body');
+                    if (!tbody) return;
+                    
+                    if (data.success && Array.isArray(data.students)) {
+                        if (data.students.length === 0) {
+                            tbody.innerHTML = '<tr><td colspan="8" style="text-align: center; padding: 2rem; color: #6b7280;">No students found.</td></tr>';
+                        } else {
+                            tbody.innerHTML = data.students.map(s => `
+                                <tr>
+                                    <td>${s.student_id || ''}</td>
+                                    <td>${s.name || ''}</td>
+                                    <td>${s.email || ''}</td>
+                                    <td>${(s.gender || '').charAt(0).toUpperCase() + (s.gender || '').slice(1)}</td>
+                                    <td>${s.year_level || ''}</td>
+                                    <td>${s.program || ''}</td>
+                                    <td>${s.rfid_uid || ''}</td>
+                                    <td>
+                                        <button class="btn btn-secondary" style="padding: 0.25rem 0.5rem; font-size: 0.875rem; margin-right: 0.25rem;" onclick="editStudent('${s.student_id}')">Edit</button>
+                                        <button class="btn btn-secondary" style="padding: 0.25rem 0.5rem; font-size: 0.875rem; background-color: #f25a04; border-color: #f25a04; color: #ffffff;" onclick="deleteStudent('${s.student_id}', '${(s.name || '').replace(/'/g, "\\'")}')">Delete</button>
+                                    </td>
+                                </tr>
+                            `).join('');
+                        }
+                    } else {
+                        tbody.innerHTML = '<tr><td colspan="8" style="text-align: center; padding: 2rem; color: #ef4444;">Error loading students.</td></tr>';
+                    }
+                } catch (e) {
+                    console.error('Error loading students:', e);
+                    const tbody = document.getElementById('students-table-body');
+                    if (tbody) {
+                        tbody.innerHTML = '<tr><td colspan="8" style="text-align: center; padding: 2rem; color: #ef4444;">Error loading students. Please try again.</td></tr>';
+                    }
+                }
+            }
+            
+            // Edit student function
+            window.editStudent = async function(studentId) {
+                try {
+                    // Load programs first
+                    await loadProgramsForEditStudent();
+                    // Load college
+                    await loadCollegeForEditStudent();
+                    
+                    const res = await fetch(`/dean/students/${studentId}`);
+                    const data = await res.json();
+                    if (data.success && data.student) {
+                        const student = data.student;
+                        // Populate edit form
+                        document.getElementById('edit-student_id').value = student.student_id || '';
+                        document.getElementById('edit-rfid_uid').value = student.rfid_uid || '';
+                        document.getElementById('edit-name').value = student.name || '';
+                        document.getElementById('edit-email').value = student.email || '';
+                        document.getElementById('edit-gender').value = student.gender || '';
+                        document.getElementById('edit-year_level').value = student.year_level || '';
+                        document.getElementById('edit-program').value = student.program || '';
+                        document.getElementById('edit-college').value = student.college || '';
+                        // Reload programs to ensure the selected program is set correctly
+                        await loadProgramsForEditStudent();
+                        // Show edit form
+                        toggleEditStudentForm();
+                    } else {
+                        alert('Error loading student data: ' + (data.error || 'Unknown error'));
+                    }
+                } catch (e) {
+                    console.error('Error loading student:', e);
+                    alert('Error loading student data. Please try again.');
+                }
+            };
+            
+            async function loadCollegeForEditStudent() {
+                try {
+                    const res = await fetch('/dean/college');
+                    const data = await res.json();
+                    if (data.success && data.college) {
+                        const collegeInput = document.getElementById('edit-college');
+                        if (collegeInput) {
+                            collegeInput.value = data.college;
+                        }
+                    }
+                } catch (e) {
+                    console.error('Error loading college:', e);
+                }
+            }
+            
+            // Delete student function
+            window.deleteStudent = function(studentId, studentName) {
+                if (confirm(`Are you sure you want to delete student "${studentName}" (${studentId})? This action cannot be undone.`)) {
+                    fetch(`/dean/students/${studentId}`, {
+                        method: 'DELETE'
+                    })
+                    .then(res => res.json())
+                    .then(data => {
+                        if (data.success) {
+                            alert('Student deleted successfully!');
+                            loadStudents();
+                        } else {
+                            alert('Error deleting student: ' + (data.error || 'Unknown error'));
+                        }
+                    })
+                    .catch(e => {
+                        console.error('Error deleting student:', e);
+                        alert('Error deleting student. Please try again.');
+                    });
+                }
+            };
+            
+            // Toggle edit student form
+            window.toggleEditStudentForm = function() {
+                const formCard = document.getElementById('edit-student-form-card');
+                const listCard = document.getElementById('students-list-card');
+                const messageEl = document.getElementById('edit-student-message');
+                if (formCard && listCard) {
+                    const isFormVisible = formCard.style.display !== 'none';
+                    if (isFormVisible) {
+                        // Hide form, show list
+                        formCard.style.display = 'none';
+                        listCard.style.display = '';
+                        // Clear any messages
+                        if (messageEl) {
+                            messageEl.style.display = 'none';
+                        }
+                    } else {
+                        // Show form, hide list
+                        formCard.style.display = '';
+                        listCard.style.display = 'none';
+                        // Clear any previous messages
+                        if (messageEl) {
+                            messageEl.style.display = 'none';
+                        }
+                    }
+                }
+            };
+            
+            // Handle add student form submission
+            const addStudentForm = document.getElementById('add-student-form');
+            if (addStudentForm) {
+                addStudentForm.addEventListener('submit', async (e) => {
+                    e.preventDefault();
+                    const messageEl = document.getElementById('add-student-message');
+                    messageEl.style.display = 'none';
+                    
+                    const formData = new FormData(addStudentForm);
+                    const data = {
+                        student_id: formData.get('student_id'),
+                        rfid_uid: formData.get('rfid_uid'),
+                        name: formData.get('name'),
+                        email: formData.get('email'),
+                        gender: formData.get('gender'),
+                        year_level: parseInt(formData.get('year_level')),
+                        program: formData.get('program'),
+                        college: formData.get('college')
+                    };
+                    
+                    try {
+                        const res = await fetch('/dean/students/add', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify(data)
+                        });
+                        const result = await res.json();
+                        
+                        messageEl.style.display = 'block';
+                        if (result.success) {
+                            messageEl.className = 'alert alert-success';
+                            messageEl.textContent = `Student "${data.name}" added successfully!`;
+                            addStudentForm.reset();
+                            // Reload college and programs after reset
+                            setTimeout(() => {
+                                loadCollegeForAddStudent();
+                            }, 100);
+                            // Reload students list in the background (form stays visible)
+                            loadStudents();
+                            // Hide message after 3 seconds
+                            setTimeout(() => {
+                                messageEl.style.display = 'none';
+                            }, 3000);
+                        } else {
+                            messageEl.className = 'alert alert-error';
+                            messageEl.textContent = result.error || 'Failed to add student. Please try again.';
+                        }
+                    } catch (e) {
+                        messageEl.style.display = 'block';
+                        messageEl.className = 'alert alert-error';
+                        messageEl.textContent = 'An error occurred. Please try again.';
+                        console.error('Error adding student:', e);
+                    }
+                });
+            }
+            
+            // Handle edit student form submission
+            const editStudentForm = document.getElementById('edit-student-form');
+            if (editStudentForm) {
+                editStudentForm.addEventListener('submit', async (e) => {
+                    e.preventDefault();
+                    const messageEl = document.getElementById('edit-student-message');
+                    messageEl.style.display = 'none';
+                    
+                    const studentId = document.getElementById('edit-student_id').value;
+                    const formData = new FormData(editStudentForm);
+                    const data = {
+                        rfid_uid: formData.get('rfid_uid'),
+                        name: formData.get('name'),
+                        email: formData.get('email'),
+                        gender: formData.get('gender'),
+                        year_level: parseInt(formData.get('year_level')),
+                        program: formData.get('program'),
+                        college: formData.get('college')
+                    };
+                    
+                    try {
+                        const res = await fetch(`/dean/students/${studentId}`, {
+                            method: 'PUT',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify(data)
+                        });
+                        const result = await res.json();
+                        
+                        messageEl.style.display = 'block';
+                        if (result.success) {
+                            messageEl.className = 'alert alert-success';
+                            messageEl.textContent = `Student "${data.name}" updated successfully!`;
+                            // Reload students list
+                            loadStudents();
+                            // Hide message after 2 seconds, then hide form and show list
+                            setTimeout(() => {
+                                messageEl.style.display = 'none';
+                                toggleEditStudentForm();
+                            }, 2000);
+                        } else {
+                            messageEl.className = 'alert alert-error';
+                            messageEl.textContent = result.error || 'Failed to update student. Please try again.';
+                        }
+                    } catch (e) {
+                        messageEl.style.display = 'block';
+                        messageEl.className = 'alert alert-error';
+                        messageEl.textContent = 'An error occurred. Please try again.';
+                        console.error('Error updating student:', e);
+                    }
+                });
+            }
+            
             // Initial render
             renderOverview();
             // Preload notifications so the tab isn't empty on first click
