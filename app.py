@@ -81,12 +81,19 @@ app.config['MAIL_SERVER'] = os.getenv('MAIL_SERVER', 'smtp.gmail.com')
 app.config['MAIL_PORT'] = int(os.getenv('MAIL_PORT', '587'))
 app.config['MAIL_USE_TLS'] = os.getenv('MAIL_USE_TLS', 'true').lower() in {'1','true','yes','on'}
 app.config['MAIL_USE_SSL'] = os.getenv('MAIL_USE_SSL', 'false').lower() in {'1','true','yes','on'}
-app.config['MAIL_USERNAME'] = os.getenv('MAIL_USERNAME', '')
-app.config['MAIL_PASSWORD'] = os.getenv('MAIL_PASSWORD', '')
-app.config['MAIL_DEFAULT_SENDER'] = os.getenv('MAIL_DEFAULT_SENDER', os.getenv('MAIL_USERNAME', ''))
+app.config['MAIL_USERNAME'] = os.getenv('MAIL_USERNAME', 'dress.psu@gmail.com')
+app.config['MAIL_PASSWORD'] = os.getenv('MAIL_PASSWORD', 'ckyvhuudtqhleqkw')
+app.config['MAIL_DEFAULT_SENDER'] = os.getenv('MAIL_DEFAULT_SENDER', app.config['MAIL_USERNAME'])
 
 mail = Mail(app)
 
+# Add charset=utf-8 to all JSON responses
+@app.after_request
+def add_charset_to_json(response):
+    """Automatically add charset=utf-8 to JSON responses"""
+    if response.content_type == 'application/json':
+        response.headers['Content-Type'] = 'application/json; charset=utf-8'
+    return response
 
 # Configure upload folder
 UPLOAD_FOLDER = 'uploads'
@@ -363,6 +370,183 @@ def format_dress_class(class_name):
         'doll_shoes': 'Doll Shoes'
     }
     return class_mapping.get(class_name, class_name.replace('_', ' ').title())
+
+def generate_violation_email_body(student_name, violation_datetime, strike_num, offense_line, violation_history, image_cid=None):
+    """
+    Generate HTML email body for dress code violation notification.
+    Mobile-responsive design with inline CSS.
+    
+    Args:
+        student_name (str): Name of the student
+        violation_datetime (str): Date and time of the violation
+        strike_num (int): Current strike number (1-3)
+        offense_line (str): Text description of the offense (e.g., "1st Offense")
+        violation_history (str): Formatted list of previous violations
+        image_cid (str, optional): Content-ID (CID) for inline image attachment
+    
+    Returns:
+        str: HTML formatted email body
+    """
+    # Format violation history as HTML list (matching web app colors)
+    if violation_history and violation_history != 'No history available':
+        history_items = violation_history.split('\n')
+        formatted_history = '<ul style="margin: 10px 0; padding-left: 20px;">'
+        for item in history_items:
+            if item.strip():
+                formatted_history += f'<li style="margin: 5px 0; color: #374151; font-size: 14px;">{item.strip()}</li>'
+        formatted_history += '</ul>'
+    else:
+        formatted_history = '<p style="color: #9ca3af; font-style: italic; font-size: 14px;">No history available</p>'
+    
+    # Determine strike color based on number (matching web app colors)
+    if strike_num == 1:
+        strike_color = '#f59e0b'  # Warning (matches web app)
+    elif strike_num == 2:
+        strike_color = '#ef4444'  # Error (matches web app)
+    else:
+        strike_color = '#e55100'  # Accent-dark (matches web app)
+    
+    html_template = """
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dress Code Violation Notification</title>
+</head>
+<body style="margin: 0; padding: 0; font-family: 'Inter', 'Segoe UI', system-ui, -apple-system, sans-serif; background-color: #f8fafc;">
+    <table role="presentation" style="width: 100%; border-collapse: collapse; background-color: #f8fafc; padding: 20px 0;">
+        <tr>
+            <td align="center" style="padding: 20px 10px;">
+                <table role="presentation" style="max-width: 600px; width: 100%; border-collapse: collapse; background-color: #ffffff; border-radius: 8px; box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px 0 rgba(0, 0, 0, 0.06);">
+                    <!-- Header -->
+                    <tr>
+                        <td style="background: linear-gradient(135deg, #2ca9e1 0%, #1e7bb8 100%); padding: 30px 20px; text-align: center; border-radius: 8px 8px 0 0;">
+                            <h1 style="margin: 0; color: #ffffff; font-size: 24px; font-weight: 600; letter-spacing: 0.5px;">
+                                DRESS CODE VIOLATION
+                            </h1>
+                            <p style="margin: 10px 0 0 0; color: #ffffff; font-size: 14px; opacity: 0.95;">
+                                Dress-code Recognition Surveillance System
+                            </p>
+                        </td>
+                    </tr>
+                    
+                    <!-- Content -->
+                    <tr>
+                        <td style="padding: 30px 20px;">
+                            <p style="margin: 0 0 15px 0; color: #374151; font-size: 16px; line-height: 1.6;">
+                                Dear <strong style="color: #2ca9e1;">{student_name}</strong>,
+                            </p>
+                            <p style="margin: 0 0 20px 0; color: #4b5563; font-size: 15px; line-height: 1.6;">
+                                This is to inform you that the DRESS (Dress-code Recognition Surveillance System) detected a dress code violation on your part on <strong style="color: #374151;">{violation_datetime}</strong>.
+                            </p>
+                            <p style="margin: 0 0 25px 0; color: #4b5563; font-size: 15px; line-height: 1.6;">
+                                Please remember that following the university dress code is part of maintaining discipline and professionalism. We ask that you correct your attire and comply on your next visit.
+                            </p>
+                            
+                            <!-- Violation Details Box -->
+                            <div style="background-color: #f8fafc; border-left: 4px solid {strike_color}; padding: 20px; margin: 25px 0; border-radius: 4px;">
+                                <h2 style="margin: 0 0 15px 0; color: #1f2937; font-size: 18px; font-weight: 600;">
+                                    Violation Details
+                                </h2>
+                                <table role="presentation" style="width: 100%; border-collapse: collapse;">
+                                    <tr>
+                                        <td style="padding: 8px 0; color: #6b7280; font-size: 14px; width: 50%;">Current Strike Count:</td>
+                                        <td style="padding: 8px 0; color: {strike_color}; font-size: 16px; font-weight: 600;">{strike_num} of 3</td>
+                                    </tr>
+                                    <tr>
+                                        <td style="padding: 8px 0; color: #6b7280; font-size: 14px;">Your Current Offense:</td>
+                                        <td style="padding: 8px 0; color: #374151; font-size: 14px; font-weight: 500;">{offense_line}</td>
+                                    </tr>
+                                </table>
+                                <div style="margin-top: 15px; padding-top: 15px; border-top: 1px solid #e5e7eb;">
+                                    <p style="margin: 0 0 10px 0; color: #6b7280; font-size: 14px; font-weight: 500;">Recorded Violations:</p>
+                                    {violation_history}
+                                </div>
+                            </div>
+                            
+                            <!-- Proof Image -->
+                            {proof_image_section}
+                            
+                            <!-- Guidelines Box -->
+                            <div style="background-color: #fff7ed; border: 1px solid #f25a04; padding: 20px; margin: 25px 0; border-radius: 4px;">
+                                <h2 style="margin: 0 0 15px 0; color: #1f2937; font-size: 18px; font-weight: 600;">
+                                    University Guidelines
+                                </h2>
+                                <ul style="margin: 0; padding-left: 20px; color: #4b5563; font-size: 14px; line-height: 1.8;">
+                                    <li style="margin: 5px 0;"><strong style="color: #f25a04;">1st Offense</strong> – Warning</li>
+                                    <li style="margin: 5px 0;"><strong style="color: #f25a04;">2nd Offense</strong> – 5-day suspension</li>
+                                    <li style="margin: 5px 0;"><strong style="color: #f25a04;">3rd Offense</strong> – 2-week to 1-month suspension</li>
+                                </ul>
+                            </div>
+                            
+                            <!-- Action Required -->
+                            <div style="background-color: #fef2f2; border-left: 4px solid #ef4444; padding: 15px 20px; margin: 25px 0; border-radius: 4px;">
+                                <p style="margin: 0; color: #991b1b; font-size: 15px; font-weight: 600;">
+                                    ⚠️ Action Required
+                                </p>
+                                <p style="margin: 10px 0 0 0; color: #7f1d1d; font-size: 14px; line-height: 1.6;">
+                                    Please report to the Guidance Office to address this matter and complete the required procedures.
+                                </p>
+                            </div>
+                            
+                            <p style="margin: 25px 0 0 0; color: #4b5563; font-size: 15px; line-height: 1.6;">
+                                Thank you for your cooperation.
+                            </p>
+                        </td>
+                    </tr>
+                    
+                    <!-- Footer -->
+                    <tr>
+                        <td style="background-color: #f8fafc; padding: 25px 20px; text-align: center; border-radius: 0 0 8px 8px; border-top: 1px solid #e5e7eb;">
+                            <p style="margin: 0 0 10px 0; color: #374151; font-size: 15px; font-weight: 500;">
+                                Respectfully,
+                            </p>
+                            <p style="margin: 0 0 5px 0; color: #2ca9e1; font-size: 14px; font-weight: 600;">
+                                DRESS Monitoring Team
+                            </p>
+                            <p style="margin: 0; color: #6b7280; font-size: 13px;">
+                                Palawan State University
+                            </p>
+                            <p style="margin: 20px 0 0 0; color: #9ca3af; font-size: 12px; font-style: italic;">
+                                This is an automated notification. Please do not reply to this email.
+                            </p>
+                        </td>
+                    </tr>
+                </table>
+            </td>
+        </tr>
+    </table>
+</body>
+</html>
+"""
+    
+    # Generate proof image section if image CID is provided
+    if image_cid:
+        proof_image_section = f"""
+                            <div style="background-color: #f8fafc; padding: 20px; margin: 25px 0; border-radius: 4px; border: 1px solid #e5e7eb;">
+                                <h2 style="margin: 0 0 15px 0; color: #1f2937; font-size: 18px; font-weight: 600;">
+                                    Proof of Violation
+                                </h2>
+                                <div style="text-align: center; margin: 15px 0;">
+                                    <img src="cid:{image_cid}" alt="Violation Proof Image" style="max-width: 100%; height: auto; border-radius: 4px; box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.1); border: 1px solid #e5e7eb;" />
+                                </div>
+                                <p style="margin: 10px 0 0 0; color: #6b7280; font-size: 12px; text-align: center; font-style: italic;">
+                                    Proof image attached to this email
+                                </p>
+                            </div>"""
+    else:
+        proof_image_section = ""
+    
+    return html_template.format(
+        student_name=student_name,
+        violation_datetime=violation_datetime,
+        strike_num=strike_num,
+        offense_line=offense_line,
+        violation_history=formatted_history,
+        strike_color=strike_color,
+        proof_image_section=proof_image_section
+    )
 
 def validate_dress_code(detected_items, gender='male'):
     """Validate dress code compliance based on gender requirements"""
@@ -1217,14 +1401,18 @@ def _maybe_record_violation(frame, detections, admin_user):
                 print(f"  - Proof Image: {proof_name}")
                 print(f"  - Consecutive Non-Compliant Detections: {rfid_consecutive_non_compliant}")
                 # Attempt to send email notification to student (with strike count)
+                print(f"DEBUG: Starting email notification process...")
                 try:
                     student_email = (rfid_last_student or {}).get('email')
                     student_name = (rfid_last_student or {}).get('name', 'Student')
                     student_id = (rfid_last_student or {}).get('student_id')
+                    print(f"DEBUG: Initial email check - email: {student_email}, student_id: {student_id}")
                     if not student_email and (rfid_last_student or {}).get('student_id'):
+                        print(f"DEBUG: No email found in rfid_last_student, attempting lookup by student_id...")
                         try:
                             from src.config import find_student_by_id as _find_student_by_id
-                        except Exception:
+                        except Exception as import_err:
+                            print(f"DEBUG: Failed to import find_student_by_id: {import_err}")
                             _find_student_by_id = None
                         if _find_student_by_id:
                             stu = _find_student_by_id(student_id)
@@ -1232,7 +1420,13 @@ def _maybe_record_violation(frame, detections, admin_user):
                                 student_email = stu.get('email') or student_email
                                 student_name = stu.get('name') or student_name
                                 student_id = stu.get('student_id') or student_id
+                                print(f"DEBUG: Found student via lookup - email: {student_email}")
+                            else:
+                                print(f"DEBUG: Student lookup returned None for student_id: {student_id}")
+                        else:
+                            print(f"DEBUG: find_student_by_id function not available")
                     if student_email:
+                        print(f"DEBUG: Student email found: {student_email}, proceeding with email composition...")
                         # Determine strike number (cap at 3)
                         strike_num = 1
                         try:
@@ -1249,54 +1443,146 @@ def _maybe_record_violation(frame, detections, admin_user):
                             try:
                                 vlist = _get_v_list(student_id) or []
                                 for v in vlist:
-                                    tstr = str(v.get('timestamp') or '')
+                                    timestamp = v.get('timestamp')
+                                    if timestamp:
+                                        # Parse and format timestamp
+                                        try:
+                                            # Handle both datetime objects and string timestamps
+                                            if isinstance(timestamp, str):
+                                                # Try parsing common datetime formats
+                                                from datetime import datetime
+                                                try:
+                                                    # Try ISO format first
+                                                    dt = datetime.fromisoformat(str(timestamp).replace('Z', '+00:00'))
+                                                except:
+                                                    try:
+                                                        # Try MySQL datetime format
+                                                        dt = datetime.strptime(str(timestamp), '%Y-%m-%d %H:%M:%S')
+                                                    except:
+                                                        # Fallback to current time if parsing fails
+                                                        dt = datetime.now()
+                                            else:
+                                                # Assume it's already a datetime object
+                                                dt = timestamp
+                                            tstr = dt.strftime('%a, %d %b %Y %I:%M %p')
+                                        except Exception:
+                                            # Fallback to string representation if formatting fails
+                                            tstr = str(timestamp)
+                                    else:
+                                        tstr = 'Unknown date'
                                     vtype = str(v.get('violation_type') or '')
-                                    violation_lines.append(f"- {tstr} – {vtype}")
+                                    violation_lines.append(f"{tstr} – {vtype}")
                             except Exception:
                                 pass
-                        dt_str = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(now_ts))
+                        dt_str = time.strftime('%a, %d %b %Y %I:%M %p', time.localtime(now_ts))
                         # Compose strike-specific subject/body
                         if strike_num == 1:
                             subject = 'Dress Code Violation - 1st Offense (Warning)'
-                            offense_line = '1st Offense - Warning'
+                            offense_line = '1st Offense'
                         elif strike_num == 2:
                             subject = 'Dress Code Violation - 2nd Offense (5-day Suspension)'
-                            offense_line = '2nd Offense - Suspension for five (5) days'
+                            offense_line = '2nd Offense'
                         else:
                             subject = 'Dress Code Violation - 3rd Offense (Up to 1 month Suspension)'
-                            offense_line = '3rd Offense - Suspension for two (2) weeks to one (1) month'
+                            offense_line = '3rd Offense'
 
                         # Join violation lines outside f-string to avoid backslash issue
-                        violation_text = '\n'.join(violation_lines) if violation_lines else '- No history available'
+                        violation_text = '\n'.join(violation_lines) if violation_lines else 'No history available'
                         
-                        body = (
-                            f"Good day {student_name},\n\n"
-                            f"This is to inform you that based on the monitoring of the DRESS (Dress-code Recognition Surveillance System), you were observed to be non-compliant with the university's dress code policy on {dt_str}.\n\n"
-                            f"Please be reminded that adherence to the prescribed dress code is part of maintaining discipline and professionalism within the university premises. We kindly ask you to correct your attire and comply with the dress code on your next visit.\n\n"
-                            f"Current strike count: {strike_num} of 3.\n\n"
-                            f"Your recorded violations:\n"
-                            f"{violation_text}\n\n"
-                            f"As stated in the university guidelines, dress code violations have the following corresponding consequences:\n"
-                            f"1st Offense - Warning\n"
-                            f"2nd Offense - Suspension for five (5) days\n"
-                            f"3rd Offense - Suspension for two (2) weeks to one (1) month\n\n"
-                            f"Your current offense: {offense_line}\n\n"
-                            f"Repeated violations may lead to the corresponding disciplinary actions stated above, in accordance with university policy.\n\n"
-                            f"Thank you for your understanding and cooperation.\n\n"
-                            f"Respectfully,\n"
-                            f"DRESS Monitoring Team\n"
-                            f"Palawan State University\n"
+                        # Prepare image attachment with CID for inline display
+                        image_cid = None
+                        if proof_path and os.path.exists(proof_path):
+                            # Generate a unique Content-ID for the inline image
+                            image_cid = f"violation_proof_{int(now_ts)}"
+                            print(f"DEBUG: Image CID generated: {image_cid}")
+                        
+                        # Generate email body using HTML template
+                        html_body = generate_violation_email_body(
+                            student_name=student_name,
+                            violation_datetime=dt_str,
+                            strike_num=strike_num,
+                            offense_line=offense_line,
+                            violation_history=violation_text,
+                            image_cid=image_cid
                         )
+                        
+                        # Create plain text fallback
+                        image_attachment_text = "\n\nPROOF OF VIOLATION\nA proof image is attached to this email.\n" if image_cid else ""
+                        plain_text_body = f"""DRESS CODE VIOLATION NOTIFICATION
+
+Dear {student_name},
+
+This is to inform you that the DRESS (Dress-code Recognition Surveillance System) detected a dress code violation on your part on {dt_str}.
+
+Please remember that following the university dress code is part of maintaining discipline and professionalism. We ask that you correct your attire and comply on your next visit.
+
+VIOLATION DETAILS
+Current Strike Count: {strike_num} of 3
+Your Current Offense: {offense_line}
+
+Recorded Violations:
+{violation_text}{image_attachment_text}
+UNIVERSITY GUIDELINES
+• 1st Offense – Warning
+• 2nd Offense – 5-day suspension
+• 3rd Offense – 2-week to 1-month suspension
+
+ACTION REQUIRED
+Please report to the Guidance Office to address this matter and complete the required procedures.
+
+Thank you for your cooperation.
+
+Respectfully,
+DRESS Monitoring Team
+Palawan State University
+
+This is an automated notification. Please do not reply to this email."""
+                        
                         try:
-                            msg = Message(subject=subject, recipients=[student_email], body=body)
-                            mail.send(msg)
-                            print(f"Violation email sent to {student_email}")
+                            print(f"DEBUG: Creating email message...")
+                            print(f"DEBUG: Mail config - Server: {app.config.get('MAIL_SERVER')}, Username: {app.config.get('MAIL_USERNAME')}")
+                            print(f"DEBUG: Sender: {app.config.get('MAIL_DEFAULT_SENDER', app.config.get('MAIL_USERNAME'))}")
+                            print(f"DEBUG: Recipient: {student_email}")
+                            msg = Message(
+                                subject=subject, 
+                                recipients=[student_email], 
+                                html=html_body,
+                                body=plain_text_body,
+                                sender=app.config.get('MAIL_DEFAULT_SENDER', app.config.get('MAIL_USERNAME'))
+                            )
+                            
+                            # Attach proof image as inline attachment if available
+                            if image_cid and proof_path and os.path.exists(proof_path):
+                                try:
+                                    with open(proof_path, 'rb') as img_file:
+                                        msg.attach(
+                                            filename=proof_name,
+                                            content_type='image/jpeg',
+                                            data=img_file.read(),
+                                            disposition='inline',
+                                            headers={'Content-ID': f'<{image_cid}>'}
+                                        )
+                                    print(f"DEBUG: Proof image attached with CID: {image_cid}")
+                                except Exception as attach_err:
+                                    print(f"DEBUG: Error attaching image: {attach_err}")
+                            
+                            print(f"DEBUG: Attempting to send email to {student_email}...")
+                            # Flask-Mail requires application context, especially when called from background threads
+                            with app.app_context():
+                                mail.send(msg)
+                            print(f"✓ SUCCESS: Violation email sent to {student_email}")
                         except Exception as _em:
-                            print(f"Failed to send violation email to {student_email}: {_em}")
+                            print(f"✗ ERROR: Failed to send violation email to {student_email}")
+                            print(f"✗ ERROR DETAILS: {type(_em).__name__}: {_em}")
+                            import traceback
+                            print(f"✗ TRACEBACK:\n{traceback.format_exc()}")
                     else:
-                        print("No student email available; skipping email notification")
+                        print(f"⚠ WARNING: No student email available; skipping email notification")
+                        print(f"⚠ DEBUG: student_email was: {student_email}, student_id was: {student_id}")
                 except Exception as _e:
-                    print(f"Violation email error: {_e}")
+                    print(f"✗ CRITICAL ERROR in email notification process: {type(_e).__name__}: {_e}")
+                    import traceback
+                    print(f"✗ TRACEBACK:\n{traceback.format_exc()}")
                 
                 return vid
             else:
@@ -2777,82 +3063,34 @@ def debug_state():
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
 
-@app.route('/test_violation')
-def test_violation():
-    """Test violation recording with current frame"""
+@app.route('/test_email', methods=['POST'])
+def test_email():
+    """Test email sending functionality"""
     try:
-        with frame_lock:
-            if current_frame is None:
-                return jsonify({'success': False, 'error': 'No frame available'})
-            
-            print("DEBUG: Starting test violation...")
-            
-            # Create a test student for violation testing
-            test_student = {
-                'student_id': 'TEST-001',
-                'name': 'Test Student',
-                'gender': 'male'
-            }
-            
-            # Temporarily set RFID student for testing
-            global rfid_last_student, rfid_consecutive_non_compliant, rfid_last_compliance_status, rfid_current_uid_violated, rfid_present
-            rfid_last_student = test_student
-            rfid_consecutive_non_compliant = 3  # Force violation recording
-            rfid_last_compliance_status = 'NON-COMPLIANT'
-            rfid_current_uid_violated = False  # Reset violation flag
-            rfid_present = True  # Simulate RFID present
-            
-            print(f"DEBUG: Test student set: {test_student}")
-            print(f"DEBUG: Consecutive count: {rfid_consecutive_non_compliant}")
-            
-            # Perform detection on current frame
-            detections = detect_persons_frame_with_dress(current_frame)
-            print(f"DEBUG: Detections found: {len(detections)}")
-            
-            # Force non-compliant status for testing
-            for det in detections:
-                det['dress_validation'] = {
-                    'overall_status': 'NON-COMPLIANT',
-                    'compliance_status': {
-                        'polo_shirt': {'present': False, 'name': 'Polo Shirt'},
-                        'pants': {'present': True, 'name': 'Pants'},
-                        'shoes': {'present': False, 'name': 'Shoes'}
-                    }
-                }
-            
-            print("DEBUG: Forced non-compliant status on detections")
-            
-            # Record violation
-            admin_user = session.get('admin') or {}
-            print(f"DEBUG: Admin user available: {admin_user is not None}")
-            
-            violation_id = _maybe_record_violation(current_frame, detections, admin_user)
-            
-            print(f"DEBUG: Violation ID returned: {violation_id}")
-            
-            # Reset test state
-            rfid_last_student = None
-            rfid_consecutive_non_compliant = 0
-            rfid_last_compliance_status = None
-            rfid_current_uid_violated = False
-            rfid_present = False
-            
-            if violation_id:
-                return jsonify({
-                    'success': True, 
-                    'violation_id': violation_id,
-                    'message': 'Test violation recorded successfully',
-                    'detections': len(detections)
-                })
-            else:
-                return jsonify({
-                    'success': False, 
-                    'message': 'Failed to record test violation',
-                    'detections': len(detections)
-                })
-                
+        data = request.get_json() or {}
+        test_email_address = data.get('email', app.config.get('MAIL_USERNAME', 'dress.psu@gmail.com'))
+        
+        print(f"DEBUG: Testing email to {test_email_address}")
+        print(f"DEBUG: Mail config - Server: {app.config.get('MAIL_SERVER')}, Username: {app.config.get('MAIL_USERNAME')}")
+        
+        try:
+            msg = Message(
+                subject='DRESS Test Email',
+                recipients=[test_email_address],
+                body='This is a test email from the DRESS system. If you receive this, email configuration is working correctly.'
+            )
+            with app.app_context():
+                mail.send(msg)
+            print(f"✓ SUCCESS: Test email sent to {test_email_address}")
+            return jsonify({'success': True, 'message': f'Test email sent to {test_email_address}'})
+        except Exception as e:
+            error_msg = f"{type(e).__name__}: {str(e)}"
+            print(f"✗ ERROR: Failed to send test email: {error_msg}")
+            import traceback
+            print(f"✗ TRACEBACK:\n{traceback.format_exc()}")
+            return jsonify({'success': False, 'error': error_msg, 'details': str(e)}), 500
     except Exception as e:
-        print(f"DEBUG: Test violation error: {e}")
+        print(f"✗ ERROR in test_email endpoint: {e}")
         return jsonify({'success': False, 'error': str(e)}), 500
 
 @app.route('/violation_report')

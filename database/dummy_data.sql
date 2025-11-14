@@ -22,8 +22,8 @@ INSERT INTO `students` (`student_id`, `rfid_uid`, `name`, `gender`, `year_level`
   ('2025-1-0021', '2B7EDE4E', 'Leo Ramirez', 'male', 2, 'Bachelor of Science in Biology', 'College of Sciences', 'leo.ramirez@student.edu'),
   ('2025-1-0022', '7B7EFE4E', 'Paolo Cruz', 'male', 3, 'Bachelor of Science in Computer Science', 'College of Sciences', 'paolo.cruz@student.edu'),
   ('2025-1-0023', 'AB39E94E', 'Hannah Tan', 'female', 4, 'Bachelor of Science in Information Technology', 'College of Sciences', 'hannah.tan@student.edu'),
-  ('2025-1-0024', '2BE7064F', 'Janelle Uy', 'female', 2, 'Bachelor of Science in Biology', 'College of Sciences', 'janelle.uy@student.edu'),
-  ('2025-1-0025', 'SCIU2025', 'Karl Dizon', 'male', 3, 'Bachelor of Science in Computer Science', 'College of Sciences', 'karl.dizon@student.edu'),
+  ('2022-8-0125', '2BE7064F', 'Ronald Jason Capuno', 'male', 4, 'Bachelor of Science in Computer Science', 'College of Sciences', '202280125@psu.palawan.edu.ph'),
+  ('2022-1-0025', 'SCIU2025', 'Karl Dizon', 'male', 3, 'Bachelor of Science in Computer Science', 'College of Sciences', 'karl.dizon@student.edu'),
   ('2025-1-0026', 'SCIU2026', 'Lara Go', 'female', 1, 'Bachelor of Science in Environmental Science', 'College of Sciences', 'lara.go@student.edu'),
   ('2025-1-0027', 'SCIU2027', 'Mark Co', 'male', 4, 'Bachelor of Science in Information Technology', 'College of Sciences', 'mark.co@student.edu'),
   ('2025-1-0028', 'SCIU2028', 'Nina Sy', 'female', 2, 'Bachelor of Science in Computer Science', 'College of Sciences', 'nina.sy@student.edu');
