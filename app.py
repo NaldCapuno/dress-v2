@@ -217,10 +217,29 @@ def rfid_event_handler():
                             print(f"RFID DB handling error: {e}")
                     
                     # Only enable detection and capture images if RFID has a record in database
+                    # Don't re-enable detection if violation was already recorded for this UID or if student already has violation today
                     if rfid_last_student is not None:
+                        student_id = rfid_last_student.get('student_id')
+                        # Check if student already has a violation today
+                        has_violation_today = False
+                        if has_student_violation_today and student_id:
+                            try:
+                                has_violation_today = has_student_violation_today(student_id)
+                            except Exception as e:
+                                print(f"DEBUG: Error checking violation today: {e}")
+                        
                         with rfid_lock:
-                            detection_enabled = True
-                        print(f"RFID Card detected: {event['uid']} - Student found: {rfid_last_student.get('name', 'Unknown')} - Detection ENABLED")
+                            # If student already has violation today, mark as violated and disable detection
+                            if has_violation_today:
+                                rfid_current_uid_violated = True
+                                detection_enabled = False
+                                print(f"RFID Card detected: {event['uid']} - Student found: {rfid_last_student.get('name', 'Unknown')} - Detection DISABLED (student already has violation today)")
+                            # Only enable detection if it's a new UID, no violation was recorded yet, and no violation today
+                            elif not is_same_uid or not rfid_current_uid_violated:
+                                detection_enabled = True
+                                print(f"RFID Card detected: {event['uid']} - Student found: {rfid_last_student.get('name', 'Unknown')} - Detection ENABLED")
+                            else:
+                                print(f"RFID Card detected: {event['uid']} - Student found: {rfid_last_student.get('name', 'Unknown')} - Detection DISABLED (violation already recorded in this session)")
                         # Capture a clean snapshot on each RFID scan (no overlays/bounding boxes) - only once per UID
                         try:
                             snapshot = None
@@ -1379,6 +1398,10 @@ def _maybe_record_violation(frame, detections, admin_user):
                 rfid_last_violation_ts = now_ts
                 with rfid_lock:
                     rfid_current_uid_violated = True
+                    # Disable detection after violation is recorded
+                    detection_enabled = False
+                    print(f"✓ DETECTION STOPPED: Violation recorded for student {rfid_last_student.get('student_id')} - Detection is now DISABLED")
+                    print(f"DEBUG: rfid_current_uid_violated={rfid_current_uid_violated}, detection_enabled={detection_enabled}")
                 
                 # Create violation summary for logging
                 violation_summary = {
@@ -1612,7 +1635,9 @@ def generate_frames():
                 with rfid_lock:
                     _present = rfid_present
                     _student_set = (rfid_last_student is not None)
-                    rfid_detection_enabled = detection_enabled and _present and _student_set
+                    _violated = rfid_current_uid_violated
+                    # Detection is enabled only if: detection flag is True, RFID is present, student is set, AND no violation was recorded yet
+                    rfid_detection_enabled = detection_enabled and _present and _student_set and not _violated
                 
                 # In test mode, detection always runs regardless of RFID
                 detection_enabled_for_frame = rfid_detection_enabled or test_mode_active
@@ -3320,7 +3345,9 @@ def capture_frame():
                 with rfid_lock:
                     _present = rfid_present
                     _student_set = (rfid_last_student is not None)
-                    rfid_detection_enabled = detection_enabled and _present and _student_set
+                    _violated = rfid_current_uid_violated
+                    # Detection is enabled only if: detection flag is True, RFID is present, student is set, AND no violation was recorded yet
+                    rfid_detection_enabled = detection_enabled and _present and _student_set and not _violated
                 
                 # In test mode, detection always runs regardless of RFID
                 detection_enabled_for_capture = rfid_detection_enabled or test_mode_active
