@@ -45,7 +45,7 @@
                     <td>${v.student_id || ''}</td>
                     <td>${v.name || ''}</td>
                     <td>${v.college || ''}</td>
-                    <td>${v.course || ''}</td>
+                    <td>${v.program || ''}</td>
                     <td>${v.gender || ''}</td>
                     <td>${v.violation_type || ''}</td>
                     <td><span class="status ${v.status}">${v.status}</span></td>
@@ -56,14 +56,27 @@
             document.getElementById('page').textContent = page;
         }
         function getFilterParams() {
-            return {
+            const params = {
                 start: document.getElementById('start').value,
                 end: document.getElementById('end').value,
                 academic_year: document.getElementById('academic_year').value,
                 semester: document.getElementById('semester').value,
             };
+            const college = document.getElementById('college')?.value?.trim() || '';
+            const program = document.getElementById('program')?.value?.trim() || '';
+            if (college) params.college = college;
+            if (program) params.program = program;
+            return params;
         }
-        function applyFilters() { page = 1; loadViolations(); loadAnalytics(); }
+        function applyFilters() { 
+            page = 1; 
+            loadViolations(); 
+            loadAnalytics();
+            // Refresh overview if it's currently visible
+            if (document.getElementById('overview-section').style.display !== 'none') {
+                renderOverview();
+            }
+        }
         function prevPage() { if (page > 1) { page--; loadViolations(); } }
         function nextPage() { page++; loadViolations(); }
 
@@ -82,7 +95,77 @@
             charts[id]?.destroy?.();
             charts[id] = new Chart(ctx, { type: 'pie', data: { labels, datasets: [{ data, backgroundColor: ['#4CAF50','#FF9800','#03A9F4','#E91E63','#9C27B0','#795548'] }] }, options: { responsive: true } });
         }
-        window.addEventListener('DOMContentLoaded', () => { loadViolations(); loadAnalytics(); });
+        // Load colleges and programs for filters
+        async function loadFilterOptions() {
+            try {
+                // Load colleges
+                const collegesRes = await fetch('/osas/colleges');
+                const collegesData = await collegesRes.json();
+                if (collegesData.success) {
+                    const collegeSel = document.getElementById('college');
+                    if (collegeSel) {
+                        (collegesData.colleges || []).forEach(c => {
+                            const opt = document.createElement('option');
+                            opt.value = c;
+                            opt.textContent = c;
+                            collegeSel.appendChild(opt);
+                        });
+                    }
+                }
+                
+                // When college changes, show/hide program filter and reload programs
+                const collegeSel = document.getElementById('college');
+                const programSel = document.getElementById('program');
+                if (collegeSel && programSel) {
+                    collegeSel.addEventListener('change', async () => {
+                        const selectedCollege = collegeSel.value?.trim() || '';
+                        if (selectedCollege) {
+                            // Show program filter when college is selected
+                            programSel.style.display = '';
+                            await loadPrograms();
+                            // Reset program selection when college changes
+                            programSel.value = '';
+                        } else {
+                            // Hide program filter when no college is selected
+                            programSel.style.display = 'none';
+                            programSel.value = '';
+                        }
+                    });
+                }
+            } catch (e) {
+                console.error('Error loading filter options:', e);
+            }
+        }
+        
+        async function loadPrograms() {
+            try {
+                const college = document.getElementById('college')?.value?.trim() || '';
+                const url = college ? `/osas/programs?college=${encodeURIComponent(college)}` : '/osas/programs';
+                const programsRes = await fetch(url);
+                const programsData = await programsRes.json();
+                if (programsData.success) {
+                    const programSel = document.getElementById('program');
+                    if (programSel) {
+                        // Clear existing options except "All Programs"
+                        programSel.innerHTML = '<option value="">All Programs</option>';
+                        (programsData.programs || []).forEach(p => {
+                            const opt = document.createElement('option');
+                            opt.value = p;
+                            opt.textContent = p;
+                            programSel.appendChild(opt);
+                        });
+                    }
+                }
+            } catch (e) {
+                console.error('Error loading programs:', e);
+            }
+        }
+        
+        window.addEventListener('DOMContentLoaded', () => { 
+            loadFilterOptions();
+            loadViolations(); 
+            loadAnalytics(); 
+        });
     </script>
 </head>
 <body>
@@ -238,6 +321,12 @@
                             <option value="">Semester</option>
                             <option value="1">1</option>
                             <option value="2">2</option>
+                        </select>
+                        <select id="college" class="form-control">
+                            <option value="">All Colleges</option>
+                        </select>
+                        <select id="program" class="form-control" style="display: none;">
+                            <option value="">All Programs</option>
                         </select>
                         <button class="btn btn-primary" onclick="applyFilters()">Apply</button>
                     </div>
