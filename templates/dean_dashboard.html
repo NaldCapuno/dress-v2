@@ -18,6 +18,250 @@
             50% { opacity: 0.5; }
             100% { opacity: 1; }
         }
+        /* Violations filter section styling */
+        #violations-section .card:first-child {
+            margin-bottom: 1rem;
+        }
+        #violations-section .card:first-child .card-header {
+            padding: 0.75rem 1rem;
+            border-bottom: none;
+            background-color: transparent;
+            position: relative;
+        }
+        #violations-section .card:first-child .card-header::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 3px;
+            background-color: #f25a04;
+            border-radius: 0.5rem 0.5rem 0 0;
+        }
+        #violations-section .card:first-child .card-header h3 {
+            margin: 0;
+            font-size: 1.25rem;
+            font-weight: 600;
+            color: #1e293b;
+            padding-top: 0.5rem;
+        }
+        #violations-section .card:first-child .card-body {
+            padding: 1rem;
+        }
+        #violations-section .dashboard-filters {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+            gap: 0.75rem;
+            align-items: end;
+            padding: 0;
+            background-color: transparent;
+            border: none;
+            margin-bottom: 0;
+        }
+        #violations-section .dashboard-filters input,
+        #violations-section .dashboard-filters select {
+            min-width: 0;
+            padding: 0.5rem 0.75rem;
+            border: 1px solid #d1d5db;
+            border-radius: 0.375rem;
+            font-size: 0.875rem;
+            background-color: #ffffff;
+            transition: all 0.2s;
+            width: 100%;
+        }
+        #violations-section .dashboard-filters input::placeholder {
+            color: #9ca3af;
+        }
+        #violations-section .dashboard-filters input:focus,
+        #violations-section .dashboard-filters select:focus {
+            outline: none;
+            border-color: #f25a04;
+            box-shadow: 0 0 0 3px rgba(242, 90, 4, 0.1);
+        }
+        #violations-section .dashboard-filters .filter-field {
+            display: flex;
+            flex-direction: column;
+            gap: 0.25rem;
+        }
+        #violations-section .dashboard-filters .filter-field label {
+            font-size: 0.75rem;
+            font-weight: 600;
+            color: #6b7280;
+        }
+        #violations-section .dashboard-filters input[type="date"] {
+            padding-right: 0.75rem;
+        }
+        #violations-section .dashboard-filters button {
+            padding: 0.5rem 1.25rem;
+            font-size: 0.875rem;
+            white-space: nowrap;
+        }
+        .chart-wrapper {
+            display: flex;
+            flex-direction: column;
+            gap: 0.35rem;
+        }
+        .chart-wrapper:has(#ov-trend) {
+            min-height: 350px;
+            max-height: 400px;
+        }
+        .chart-wrapper:has(#ov-trend) canvas {
+            max-height: 300px;
+        }
+        .chart-legend {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.4rem 1rem;
+            font-size: 0.75rem;
+            color: #4b5563;
+            padding: 0.5rem 0;
+        }
+        .chart-wrapper:has(#ov-trend) .chart-legend {
+            padding: 0.75rem 0 0.5rem 0;
+        }
+        .chart-legend .legend-item {
+            display: flex;
+            align-items: center;
+            gap: 0.4rem;
+        }
+        .chart-legend .legend-swatch {
+            width: 10px;
+            height: 10px;
+            border-radius: 999px;
+            background-color: #9ca3af;
+        }
+        .chart-legend .legend-item--extra {
+            display: none;
+        }
+        .chart-legend.legend-expanded .legend-item--extra {
+            display: flex;
+        }
+        .chart-legend .legend-toggle {
+            border: none;
+            background: none;
+            color: #2563eb;
+            font-size: 0.75rem;
+            font-weight: 600;
+            cursor: pointer;
+            padding: 0;
+        }
+        .chart-legend .legend-toggle:hover {
+            text-decoration: underline;
+        }
+        .charts-flex-grid {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 1.25rem;
+        }
+        .charts-flex-grid > .card {
+            flex: 1 1 280px;
+        }
+        .top-list {
+            list-style: none;
+            margin: 0;
+            padding: 0;
+        }
+        .top-list-item {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            padding: 0.75rem 0;
+            border-bottom: 1px solid #e5e7eb;
+        }
+        .top-list-item:last-child {
+            border-bottom: none;
+        }
+        .top-list-rank {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            width: 24px;
+            height: 24px;
+            border-radius: 4px;
+            background: #f3f4f6;
+            color: #6b7280;
+            font-weight: 500;
+            font-size: 0.8125rem;
+            flex-shrink: 0;
+        }
+        .top-list-content {
+            flex: 1;
+            min-width: 0;
+        }
+        .top-list-label {
+            font-weight: 500;
+            color: #1f2937;
+            font-size: 0.9375rem;
+            margin-bottom: 0.125rem;
+        }
+        .top-list-count {
+            font-size: 0.8125rem;
+            color: #6b7280;
+        }
+        .top-college-display {
+            display: flex;
+            flex-direction: column;
+            gap: 0.5rem;
+            padding: 0.75rem;
+            background: #f9fafb;
+            border-radius: 0.375rem;
+            border: 1px solid #e5e7eb;
+        }
+        .top-college-label {
+            font-size: 0.8125rem;
+            color: #6b7280;
+            font-weight: 500;
+        }
+        .top-college-value {
+            font-size: 1.125rem;
+            font-weight: 600;
+            color: #1f2937;
+            line-height: 1.3;
+        }
+        .top-college-count {
+            font-size: 0.8125rem;
+            color: #6b7280;
+            margin-top: 0.125rem;
+        }
+        .trend-toggle {
+            display: flex;
+            justify-content: flex-end;
+            margin-bottom: 0.5rem;
+            gap: 0.5rem;
+            align-items: center;
+        }
+        .trend-toggle-label {
+            font-size: 0.85rem;
+            color: #4b5563;
+        }
+        @media (max-width: 768px) {
+            #violations-section .dashboard-filters {
+                grid-template-columns: 1fr;
+            }
+        }
+        #violations-section th[data-sort] {
+            position: relative;
+            padding-right: 20px;
+        }
+        #violations-section th[data-sort]:hover {
+            background-color: #f3f4f6;
+        }
+        #violations-section .sort-indicator {
+            position: absolute;
+            right: 8px;
+            top: 50%;
+            transform: translateY(-50%);
+            font-size: 0.75rem;
+            opacity: 0.3;
+        }
+        #violations-section th.sort-asc .sort-indicator::after {
+            content: '▲';
+            opacity: 1;
+        }
+        #violations-section th.sort-desc .sort-indicator::after {
+            content: '▼';
+            opacity: 1;
+        }
     </style>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script>
@@ -25,12 +269,62 @@
             const res = await fetch(url);
             return await res.json();
         }
+        const accessibleColors = [
+            '#1f77b4','#ff7f0e','#2ca02c','#d62728','#9467bd','#8c564b','#e377c2','#7f7f7f','#bcbd22','#17becf',
+            '#f94144','#f3722c','#f8961e','#f9844a','#f9c74f','#90be6d','#43aa8b','#4d908e','#577590','#277da1',
+            '#ff6b6b','#ffa600','#6a4c93','#003f5c','#665191','#2f4b7c','#a05195','#d45087','#f95d6a','#8ac926',
+            '#1982c4','#6a994e','#ffca3a','#005f73','#0a9396','#94d2bd','#ee9b00','#ca6702','#bb3e03','#ae2012','#9b2226'
+        ];
+        function getChartColor(idx) {
+            if (idx < accessibleColors.length) return accessibleColors[idx];
+            const hue = (idx * 47) % 360;
+            const lightnessSteps = [45, 60, 72];
+            const lightness = lightnessSteps[idx % lightnessSteps.length];
+            return `hsl(${hue}, 65%, ${lightness}%)`;
+        }
+
         async function postJSON(url, body) {
             const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
             return await res.json();
         }
+        function formatTimestamp(ts) {
+            if (!ts) return '';
+            const date = new Date(ts);
+            if (Number.isNaN(date.getTime())) {
+                return ts.replace('GMT', '').trim();
+            }
+            const weekdays = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+            const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+            const weekday = weekdays[date.getDay()];
+            const day = String(date.getDate()).padStart(2, '0');
+            const month = months[date.getMonth()];
+            const year = date.getFullYear();
+            const hours24 = date.getHours();
+            const hours12 = hours24 % 12 || 12;
+            const minutes = String(date.getMinutes()).padStart(2, '0');
+            const suffix = hours24 >= 12 ? 'PM' : 'AM';
+            return `${weekday}, ${day} ${month} ${year} ${hours12}:${minutes} ${suffix}`;
+        }
+        function formatDateOnly(ts) {
+            if (!ts) return '';
+            const date = new Date(ts);
+            if (Number.isNaN(date.getTime())) {
+                return ts.replace('GMT', '').trim().split(' ')[0];
+            }
+            const weekdays = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+            const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+            const weekday = weekdays[date.getDay()];
+            const day = String(date.getDate()).padStart(2, '0');
+            const month = months[date.getMonth()];
+            const year = date.getFullYear();
+            return `${weekday}, ${day} ${month} ${year}`;
+        }
         let page = 1;
-        let pageSize = 50;
+        let pageSize = 10;
+        let violationsData = [];
+        let sortColumn = null;
+        let sortDirection = 'asc';
+        let searchTerm = '';
 
         async function loadAnalytics() {
             const params = new URLSearchParams(getFilterParams());
@@ -48,57 +342,344 @@
             params.set('page_size', pageSize);
             const data = await fetchJSON(`/dean/violations?${params.toString()}`);
             if (!data.success) return;
+            violationsData = data.rows || [];
+            renderViolationsTable();
+            document.getElementById('page').textContent = page;
+        }
+        
+        function sortViolations(column) {
+            if (sortColumn === column) {
+                sortDirection = sortDirection === 'asc' ? 'desc' : 'asc';
+            } else {
+                sortColumn = column;
+                sortDirection = 'asc';
+            }
+            renderViolationsTable();
+            updateSortIndicators();
+        }
+        
+        function renderViolationsTable() {
             const tbody = document.getElementById('violations-body');
             tbody.innerHTML = '';
-            data.rows.forEach(v => {
+            
+            let filteredData = [...violationsData];
+            
+            // Apply search filter
+            if (searchTerm.trim()) {
+                const term = searchTerm.toLowerCase().trim();
+                filteredData = filteredData.filter(v => {
+                    const name = (v.name || '').toLowerCase();
+                    const studentId = (v.student_id || '').toLowerCase();
+                    const college = (v.college || '').toLowerCase();
+                    const program = (v.program || '').toLowerCase();
+                    const violationType = (v.violation_type || '').toLowerCase();
+                    return name.includes(term) || 
+                           studentId.includes(term) || 
+                           college.includes(term) || 
+                           program.includes(term) ||
+                           violationType.includes(term);
+                });
+            }
+            
+            // Apply sorting
+            let sortedData = filteredData;
+            if (sortColumn) {
+                sortedData.sort((a, b) => {
+                    let aVal = getCellValue(a, sortColumn);
+                    let bVal = getCellValue(b, sortColumn);
+                    
+                    // Handle numeric values
+                    if (sortColumn === 'violation_id') {
+                        aVal = parseInt(aVal) || 0;
+                        bVal = parseInt(bVal) || 0;
+                    }
+                    
+                    // Handle date values
+                    if (sortColumn === 'timestamp') {
+                        aVal = new Date(aVal || 0).getTime();
+                        bVal = new Date(bVal || 0).getTime();
+                    }
+                    
+                    // Handle string comparison
+                    if (typeof aVal === 'string') aVal = aVal.toLowerCase();
+                    if (typeof bVal === 'string') bVal = bVal.toLowerCase();
+                    
+                    if (aVal < bVal) return sortDirection === 'asc' ? -1 : 1;
+                    if (aVal > bVal) return sortDirection === 'asc' ? 1 : -1;
+                    return 0;
+                });
+            }
+            
+            // Update total count to reflect filtered results
+            document.getElementById('total-count').textContent = sortedData.length;
+            
+            sortedData.forEach(v => {
                 const tr = document.createElement('tr');
                 tr.innerHTML = `
                     <td>${v.violation_id}</td>
-                    <td>${v.timestamp || ''}</td>
+                    <td>${formatTimestamp(v.timestamp)}</td>
                     <td>${v.student_id || ''}</td>
                     <td>${v.name || ''}</td>
                     <td>${v.college || ''}</td>
-                    <td>${v.course || ''}</td>
+                    <td>${v.program || ''}</td>
                     <td>${v.gender || ''}</td>
                     <td>${v.violation_type || ''}</td>
                     <td><span class=\"status ${v.status}\">${v.status}</span></td>
                 `;
                 tbody.appendChild(tr);
             });
-            document.getElementById('total-count').textContent = data.total;
-            document.getElementById('page').textContent = page;
+        }
+        
+        function getCellValue(row, column) {
+            const columnMap = {
+                'violation_id': 'violation_id',
+                'timestamp': 'timestamp',
+                'student_id': 'student_id',
+                'name': 'name',
+                'college': 'college',
+                'program': 'program',
+                'gender': 'gender',
+                'violation_type': 'violation_type',
+                'status': 'status'
+            };
+            return row[columnMap[column]] || '';
+        }
+        
+        function updateSortIndicators() {
+            const headers = document.querySelectorAll('#violations-section th[data-sort]');
+            headers.forEach(th => {
+                const col = th.getAttribute('data-sort');
+                th.classList.remove('sort-asc', 'sort-desc');
+                if (col === sortColumn) {
+                    th.classList.add(sortDirection === 'asc' ? 'sort-asc' : 'sort-desc');
+                }
+            });
         }
         function getFilterParams() {
-            return {
-                start: document.getElementById('start').value,
-                end: document.getElementById('end').value,
-                academic_year: document.getElementById('academic_year').value,
-                semester: document.getElementById('semester').value,
-                college: '',
-                program: document.getElementById('program').value,
-                group_by: document.getElementById('group_by').value,
-            };
+            const params = {};
+            const start = document.getElementById('start')?.value?.trim() || '';
+            const end = document.getElementById('end')?.value?.trim() || '';
+            const program = document.getElementById('program')?.value?.trim() || '';
+            
+            if (start) params.start = start;
+            if (end) params.end = end;
+            if (program) params.program = program;
+            
+            return params;
         }
         function applyFilters() { page = 1; loadViolations(); loadAnalytics(); }
+        function attachAutoFilterListeners() {
+            const inputs = [
+                { id: 'start', event: 'change' },
+                { id: 'end', event: 'change' },
+                { id: 'program', event: 'change' },
+            ];
+            inputs.forEach(({ id, event }) => {
+                const el = document.getElementById(id);
+                if (!el) return;
+                el.addEventListener(event, () => applyFilters());
+            });
+            // Search input uses 'input' event for real-time filtering
+            const searchInput = document.getElementById('search');
+            if (searchInput) {
+                searchInput.addEventListener('input', (e) => {
+                    searchTerm = e.target.value;
+                    renderViolationsTable();
+                });
+            }
+        }
+        function changePageSize() {
+            const select = document.getElementById('page-size');
+            pageSize = parseInt(select.value);
+            page = 1;
+            loadViolations();
+        }
         function prevPage() { if (page > 1) { page--; loadViolations(); } }
         function nextPage() { page++; loadViolations(); }
 
         let charts = {};
-        function renderBarChart(id, rows) {
+        let trendBaseSeries = [];
+        function renderLegend(id, labels, colors) {
+            const legendEl = document.getElementById(`legend-${id}`);
+            if (!legendEl) return;
+            legendEl.innerHTML = '';
+            if (!labels.length) {
+                const empty = document.createElement('div');
+                empty.className = 'legend-item';
+                empty.textContent = 'No data';
+                legendEl.appendChild(empty);
+                return;
+            }
+            const maxItems = 6;
+            const hasOverflow = labels.length > maxItems;
+            labels.forEach((label, idx) => {
+                const item = document.createElement('div');
+                item.className = 'legend-item';
+                if (hasOverflow && idx >= maxItems) {
+                    item.classList.add('legend-item--extra');
+                }
+                const swatch = document.createElement('span');
+                swatch.className = 'legend-swatch';
+                swatch.style.backgroundColor = colors[idx % colors.length];
+                item.appendChild(swatch);
+                const text = document.createElement('span');
+                text.textContent = label || 'N/A';
+                item.appendChild(text);
+                legendEl.appendChild(item);
+            });
+            legendEl.classList.remove('legend-expanded');
+            if (hasOverflow) {
+                const toggleBtn = document.createElement('button');
+                toggleBtn.type = 'button';
+                toggleBtn.className = 'legend-toggle';
+                const remaining = labels.length - maxItems;
+                toggleBtn.textContent = `Show all (${remaining} more)`;
+                toggleBtn.addEventListener('click', () => {
+                    const expanded = legendEl.classList.toggle('legend-expanded');
+                    toggleBtn.textContent = expanded ? 'Show less' : `Show all (${remaining} more)`;
+                });
+                legendEl.appendChild(toggleBtn);
+            }
+        }
+        function normalizeDateLabel(label) {
+            if (!label) return '';
+            if (/^\d{4}-\d{2}-\d{2}$/.test(label)) return label;
+            const date = new Date(label);
+            if (Number.isNaN(date.getTime())) return label;
+            return date.toISOString().slice(0, 10);
+        }
+        function parseDateLabel(label) {
+            if (!label) return null;
+            if (/^\d{4}-\d{2}-\d{2}$/.test(label)) return new Date(`${label}T00:00:00`);
+            const date = new Date(label);
+            if (Number.isNaN(date.getTime())) return null;
+            return date;
+        }
+        function getWeekStart(date) {
+            const d = new Date(date);
+            const day = d.getDay();
+            const diff = (day === 0 ? -6 : 1 - day);
+            d.setDate(d.getDate() + diff);
+            d.setHours(0, 0, 0, 0);
+            return d;
+        }
+        function aggregateTrendSeries(series, mode) {
+            if (!Array.isArray(series) || !series.length) {
+                return { labels: [], rows: [] };
+            }
+            if (mode === 'day') {
+                return {
+                    labels: series.map(item => normalizeDateLabel(item.label)),
+                    rows: series.map(item => item.cnt || 0)
+                };
+            }
+            const buckets = {};
+            series.forEach(item => {
+                const date = parseDateLabel(item.label);
+                if (!date) return;
+                const bucketDate = mode === 'week' ? getWeekStart(date) : new Date(date.getFullYear(), date.getMonth(), 1);
+                const key = bucketDate.toISOString().slice(0, 10);
+                buckets[key] = (buckets[key] || 0) + (item.cnt || 0);
+            });
+            const keys = Object.keys(buckets).sort();
+            return {
+                labels: keys,
+                rows: keys.map(key => buckets[key])
+            };
+        }
+        function updateTrendChart() {
+            const mode = document.getElementById('trend-range')?.value || 'week';
+            const aggregated = aggregateTrendSeries(trendBaseSeries, mode);
+            renderLine('ov-trend', aggregated, mode);
+        }
+
+        function renderTrendLegend(id, labels, colors, mode = 'day') {
+            const legendEl = document.getElementById(`legend-${id}`);
+            if (!legendEl) return;
+            if (mode !== 'day') {
+                legendEl.innerHTML = '';
+                legendEl.style.display = 'none';
+                return;
+            }
+            legendEl.style.display = '';
+            legendEl.innerHTML = '';
+            if (!labels.length) {
+                const empty = document.createElement('div');
+                empty.className = 'legend-item';
+                empty.textContent = 'No data';
+                legendEl.appendChild(empty);
+                return;
+            }
+            // Format labels to show date only (no time)
+            const formattedLabels = labels.map(label => {
+                if (!label) return 'N/A';
+                // Try to parse as date and format
+                const date = new Date(label);
+                if (!Number.isNaN(date.getTime())) {
+                    return formatDateOnly(label);
+                }
+                // If it's already formatted, try to extract just the date part
+                return label.split(' ').slice(0, 4).join(' '); // Take first 4 parts (weekday, day, month, year)
+            });
+            if (formattedLabels.length > 6) {
+                const summary = document.createElement('div');
+                summary.className = 'legend-item legend-summary';
+                summary.textContent = `${formattedLabels[0]} → ${formattedLabels[formattedLabels.length - 1]} (${formattedLabels.length} points)`;
+                legendEl.appendChild(summary);
+                return;
+            }
+            formattedLabels.forEach((label, idx) => {
+                const item = document.createElement('div');
+                item.className = 'legend-item';
+                const swatch = document.createElement('span');
+                swatch.className = 'legend-swatch';
+                swatch.style.backgroundColor = colors[idx % colors.length];
+                item.appendChild(swatch);
+                const text = document.createElement('span');
+                text.textContent = label || 'N/A';
+                item.appendChild(text);
+                legendEl.appendChild(item);
+            });
+        }
+
+        function renderBarChart(id, rows = []) {
             const ctx = document.getElementById(id).getContext('2d');
             const labels = rows.map(r => r.label);
             const data = rows.map(r => r.cnt);
+            const colors = labels.map((_, idx) => getChartColor(idx));
             charts[id]?.destroy?.();
-            charts[id] = new Chart(ctx, { type: 'bar', data: { labels, datasets: [{ label: 'Count', data, backgroundColor: '#4CAF50' }] }, options: { responsive: true, plugins: { legend: { display: false } } } });
+            charts[id] = new Chart(ctx, { 
+                type: 'bar', 
+                data: { labels, datasets: [{ label: 'Count', data, backgroundColor: colors, borderRadius: 6 }] }, 
+                options: { 
+                    responsive: true, 
+                    plugins: { legend: { display: false } },
+                    scales: { 
+                        x: { ticks: { display: false }, grid: { display: false } }, 
+                        y: { beginAtZero: true } 
+                    } 
+                } 
+            });
+            renderLegend(id, labels, colors);
         }
-        function renderPieChart(id, rows) {
+        function renderPieChart(id, rows = []) {
             const ctx = document.getElementById(id).getContext('2d');
             const labels = rows.map(r => r.label);
             const data = rows.map(r => r.cnt);
+            const colors = labels.map((_, idx) => getChartColor(idx));
             charts[id]?.destroy?.();
-            charts[id] = new Chart(ctx, { type: 'pie', data: { labels, datasets: [{ data, backgroundColor: ['#4CAF50','#FF9800','#03A9F4','#E91E63','#9C27B0','#795548'] }] }, options: { responsive: true } });
+            charts[id] = new Chart(ctx, { type: 'pie', data: { labels, datasets: [{ data, backgroundColor: colors }] }, options: { responsive: true, plugins: { legend: { display: false } } } });
+            renderLegend(id, labels, colors);
         }
-        window.addEventListener('DOMContentLoaded', () => { loadViolations(); loadAnalytics(); });
+        window.addEventListener('DOMContentLoaded', () => { 
+            attachAutoFilterListeners(); 
+            loadViolations(); 
+            loadAnalytics(); 
+            const trendSelect = document.getElementById('trend-range');
+            if (trendSelect) {
+                trendSelect.addEventListener('change', () => updateTrendChart());
+            }
+        });
     </script>
 </head>
 <body>
@@ -165,32 +746,44 @@
                 </div>
             </div>
 
-            <div class="grid">
-                <div class="card">
-                    <div class="card-header">
-                        <h3>Violations Over Time</h3>
+            <div class="card" style="margin-bottom:1.25rem;">
+                <div class="card-header">
+                    <h3>Violations Over Time</h3>
+                </div>
+                <div class="card-body">
+                    <div class="trend-toggle">
+                        <label for="trend-range" class="trend-toggle-label">View by</label>
+                        <select id="trend-range" class="form-control" style="max-width:160px;">
+                            <option value="day">Daily</option>
+                            <option value="week" selected>Weekly</option>
+                            <option value="month">Monthly</option>
+                        </select>
                     </div>
-                    <div class="card-body">
-                        <canvas id="ov-trend" height="160"></canvas>
+                    <div class="chart-wrapper">
+                        <canvas id="ov-trend"></canvas>
+                        <div class="chart-legend" id="legend-ov-trend"></div>
                     </div>
                 </div>
+            </div>
+
+            <div class="charts-flex-grid">
                 <div class="card">
                     <div class="card-header">
                         <h3>Resolved vs Unresolved</h3>
                     </div>
                     <div class="card-body">
+                        <div class="chart-wrapper">
                         <canvas id="ov-resolve-pie" height="160"></canvas>
+                            <div class="chart-legend" id="legend-ov-resolve-pie"></div>
+                        </div>
                     </div>
                 </div>
-            </div>
-
-            <div class="grid">
                 <div class="card">
                     <div class="card-header">
-                        <h3>Top Programs</h3>
+                        <h3>Most Violations by Program</h3>
                     </div>
                     <div class="card-body">
-                        <ul id="ov-top-programs" style="margin:0; padding-left:18px;"></ul>
+                        <ul id="ov-top-programs" class="top-list"></ul>
                     </div>
                 </div>
                 <div class="card">
@@ -198,7 +791,10 @@
                         <h3>Gender Distribution</h3>
                     </div>
                     <div class="card-body">
+                        <div class="chart-wrapper">
                         <canvas id="ov-gender" height="140"></canvas>
+                            <div class="chart-legend" id="legend-ov-gender"></div>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -212,7 +808,10 @@
                         <h3>By Status</h3>
                     </div>
                     <div class="card-body">
+                        <div class="chart-wrapper">
                         <canvas id="byStatusChart" height="160"></canvas>
+                            <div class="chart-legend" id="legend-byStatusChart"></div>
+                        </div>
                     </div>
                 </div>
                 <div class="card">
@@ -220,7 +819,10 @@
                         <h3>By Program</h3>
                     </div>
                     <div class="card-body">
+                        <div class="chart-wrapper">
                         <canvas id="byProgramChart" height="160"></canvas>
+                            <div class="chart-legend" id="legend-byProgramChart"></div>
+                        </div>
                     </div>
                 </div>
                 <div class="card">
@@ -228,7 +830,10 @@
                         <h3>By Gender</h3>
                     </div>
                     <div class="card-body">
+                        <div class="chart-wrapper">
                         <canvas id="byGenderChart" height="160"></canvas>
+                            <div class="chart-legend" id="legend-byGenderChart"></div>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -241,23 +846,23 @@
                 </div>
                 <div class="card-body">
                     <div class="dashboard-filters">
-                        <input type="date" id="start" placeholder="Start date" class="form-control">
-                        <input type="date" id="end" placeholder="End date" class="form-control">
-                        <input type="text" id="academic_year" placeholder="Academic Year (e.g., 2024-2025)" class="form-control">
-                        <select id="semester" class="form-control">
-                            <option value="">Semester</option>
-                            <option value="1">1</option>
-                            <option value="2">2</option>
-                        </select>
+                        <input type="text" id="search" placeholder="Search by name, student ID, college, program, or violation type..." class="form-control" style="grid-column: 1 / -1;">
+                        <div class="filter-field">
+                            <label for="start">From</label>
+                            <input type="date" id="start" class="form-control">
+                        </div>
+                        <div class="filter-field">
+                            <label for="end">To</label>
+                            <input type="date" id="end" class="form-control">
+                        </div>
                         <select id="program" class="form-control">
-                            <option value="">All Programs (Your College)</option>
+                            <option value="">All Programs</option>
                         </select>
-                        <select id="group_by" class="form-control">
+                        <!-- <select id="group_by" class="form-control">
                             <option value="day">Day</option>
                             <option value="week">Week</option>
                             <option value="month">Month</option>
-                        </select>
-                        <button class="btn btn-primary" onclick="applyFilters()">Apply</button>
+                        </select> -->
                     </div>
                 </div>
             </div>
@@ -268,6 +873,19 @@
                             <h3>Violation Records</h3>
                         </div>
                         <div class="pagination-controls">
+                            <label for="page-size" style="font-size: 0.875rem; color: #6b7280; margin-right: 0.5rem;">Show:</label>
+                            <select id="page-size" class="form-control" style="width: auto; display: inline-block; padding: 0.375rem 2.5rem 0.375rem 0.75rem; margin-right: 1rem;" onchange="changePageSize()">
+                                <option value="10" selected>10</option>
+                                <option value="20">20</option>
+                                <option value="30">30</option>
+                                <option value="40">40</option>
+                                <option value="50">50</option>
+                                <option value="60">60</option>
+                                <option value="70">70</option>
+                                <option value="80">80</option>
+                                <option value="90">90</option>
+                                <option value="100">100</option>
+                            </select>
                             <button class="btn btn-secondary" onclick="prevPage()">Prev</button>
                             <span>Page <span id="page">1</span></span>
                             <button class="btn btn-secondary" onclick="nextPage()">Next</button>
@@ -280,15 +898,15 @@
                         <table class="table">
                             <thead>
                                 <tr>
-                                    <th>ID</th>
-                                    <th>Date</th>
-                                    <th>Student ID</th>
-                                    <th>Name</th>
-                                    <th>College</th>
-                                    <th>Program</th>
-                                    <th>Gender</th>
-                                    <th>Type</th>
-                                    <th>Status</th>
+                                    <th data-sort="violation_id" onclick="sortViolations('violation_id')" style="cursor: pointer; user-select: none;">ID <span class="sort-indicator"></span></th>
+                                    <th data-sort="timestamp" onclick="sortViolations('timestamp')" style="cursor: pointer; user-select: none;">Date <span class="sort-indicator"></span></th>
+                                    <th data-sort="student_id" onclick="sortViolations('student_id')" style="cursor: pointer; user-select: none;">Student ID <span class="sort-indicator"></span></th>
+                                    <th data-sort="name" onclick="sortViolations('name')" style="cursor: pointer; user-select: none;">Name <span class="sort-indicator"></span></th>
+                                    <th data-sort="college" onclick="sortViolations('college')" style="cursor: pointer; user-select: none;">College <span class="sort-indicator"></span></th>
+                                    <th data-sort="program" onclick="sortViolations('program')" style="cursor: pointer; user-select: none;">Program <span class="sort-indicator"></span></th>
+                                    <th data-sort="gender" onclick="sortViolations('gender')" style="cursor: pointer; user-select: none;">Gender <span class="sort-indicator"></span></th>
+                                    <th data-sort="violation_type" onclick="sortViolations('violation_type')" style="cursor: pointer; user-select: none;">Type <span class="sort-indicator"></span></th>
+                                    <th data-sort="status" onclick="sortViolations('status')" style="cursor: pointer; user-select: none;">Status <span class="sort-indicator"></span></th>
                                 </tr>
                             </thead>
                             <tbody id="violations-body"></tbody>
@@ -404,24 +1022,94 @@
             const topPrograms = (data.by_program || []).slice(0,3);
             const list = document.getElementById('ov-top-programs');
             list.innerHTML = '';
-            topPrograms.forEach(p=>{
-                const li = document.createElement('li');
-                li.textContent = `${p.label} (${p.cnt})`;
-                list.appendChild(li);
-            });
+            if (topPrograms.length === 0) {
+                list.innerHTML = '<li class="top-list-item"><span style="color: #9ca3af; font-style: italic;">No data available</span></li>';
+            } else {
+                topPrograms.forEach((p, idx)=>{
+                    const li = document.createElement('li');
+                    li.className = 'top-list-item';
+                    const rank = idx + 1;
+                    li.innerHTML = `
+                        <span class="top-list-rank rank-${rank}">${rank}</span>
+                        <div class="top-list-content">
+                            <div class="top-list-label">${p.label || 'Unknown'}</div>
+                            <div class="top-list-count">${p.cnt || 0} violation${p.cnt !== 1 ? 's' : ''}</div>
+                        </div>
+                    `;
+                    list.appendChild(li);
+                });
+            }
 
-            const trendGroup = 'day';
-            const trend = await fetchJSON(`/dean/trend?${params.toString()}&group_by=${trendGroup}`);
-            const trendPayload = { labels: (trend.series || []).map(p=>p.label), rows: (trend.series || []).map(p=>p.cnt) };
-            renderLine('ov-trend', trendPayload);
+            const trend = await fetchJSON(`/dean/trend?${params.toString()}&group_by=day`);
+            trendBaseSeries = (trend.series || []).map(p => ({ label: normalizeDateLabel(p.label), cnt: p.cnt || 0 }));
+            updateTrendChart();
             renderPieChart('ov-resolve-pie', [ { label: 'Resolved', cnt: resolved }, { label: 'Unresolved', cnt: Math.max(0, total - resolved) } ]);
             renderBarChart('ov-gender', data.by_gender || []);
         }
 
-        function renderLine(id, trend){
+        function renderLine(id, trend = { labels: [], rows: [] }, mode = 'day'){
             const ctx = document.getElementById(id).getContext('2d');
+            const labels = trend.labels || [];
+            const data = trend.rows || [];
+            const pointColor = '#F59E0B'; // Amber color for points, different from blue line
+            
+            // Format X-axis labels based on mode
+            const formatXLabel = (label) => {
+                if (!label) return '';
+                const date = new Date(label);
+                if (Number.isNaN(date.getTime())) return label;
+                
+                if (mode === 'week') {
+                    // Show "Week of [Mon, DD MMM]" format
+                    const weekStart = getWeekStart(date);
+                    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+                    const day = weekStart.getDate();
+                    const month = months[weekStart.getMonth()];
+                    return `${day} ${month}`;
+                } else if (mode === 'month') {
+                    // Show month abbreviation
+                    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+                    return months[date.getMonth()];
+                }
+                return label;
+            };
+            
+            const formattedLabels = labels.map(formatXLabel);
+            const showXAxis = mode === 'week' || mode === 'month';
+            
             charts[id]?.destroy?.();
-            charts[id] = new Chart(ctx, { type: 'line', data: { labels: trend.labels, datasets: [{ label: 'Violations', data: trend.rows, borderColor: '#007FFF', backgroundColor: 'rgba(0,127,255,0.15)', tension: 0.3 }] }, options: { responsive: true, plugins: { legend: { display: false } } } });
+            charts[id] = new Chart(ctx, { 
+                type: 'line', 
+                data: { 
+                    labels: formattedLabels, 
+                    datasets: [{ 
+                        label: 'Violations', 
+                        data, 
+                        borderColor: '#007FFF', 
+                        backgroundColor: 'rgba(0,127,255,0.15)', 
+                        pointBackgroundColor: pointColor,
+                        pointBorderColor: pointColor,
+                        tension: 0.3 
+                    }] 
+                }, 
+                options: { 
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: { legend: { display: false } },
+                    scales: {
+                        x: { 
+                            ticks: { 
+                                display: showXAxis,
+                                maxRotation: 45,
+                                minRotation: 0
+                            }, 
+                            grid: { display: showXAxis } 
+                        },
+                        y: { beginAtZero: true }
+                    }
+                } 
+            });
+            renderTrendLegend(id, labels, [pointColor], mode);
         }
 
         async function loadNotifications(){
@@ -454,7 +1142,7 @@
                                 if (wrap && wrap.style.display === 'none') {
                                     // Show the list
                                     body.innerHTML = payload.rows.map(s=>`
-                                        <tr><td>${s.student_id||''}</td><td>${s.name||''}</td><td>${s.course||''}</td></tr>
+                                        <tr><td>${s.student_id||''}</td><td>${s.name||''}</td><td>${s.program||''}</td></tr>
                                     `).join('');
                                     wrap.style.display = '';
                                 } else if (wrap) {
