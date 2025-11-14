@@ -7,6 +7,7 @@ import os
 import base64
 import threading
 import time
+import re
 from src.botsort_tracker import BotSORT
 from werkzeug.security import check_password_hash
 try:
@@ -1395,6 +1396,137 @@ def osas_dashboard():
         return redirect(url_for('login'))
     return render_template('osas_dashboard.html')
 
+@app.route('/osas/colleges', methods=['GET'])
+def osas_colleges():
+    """Return distinct colleges for OSAS filtering."""
+    conn = get_connection() if get_connection else None
+    if conn is None:
+        return jsonify({'success': False, 'error': 'DB not configured'}), 500
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT DISTINCT COALESCE(college,'') AS college FROM students WHERE COALESCE(college,'')<>'' ORDER BY college ASC"
+            )
+            rows = cur.fetchall() or []
+        colleges = [r.get('college') for r in rows if r.get('college')]
+        return jsonify({'success': True, 'colleges': colleges})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+    finally:
+        conn.close()
+
+def get_programs_by_college(college):
+    """Return all programs for a given college based on the program-to-college mapping.
+    Uses the exact college names from the database enum."""
+    college_program_map = {
+        'College of Sciences': [
+            'Bachelor of Science in Biology',
+            'Bachelor of Science in Marine Biology',
+            'Bachelor of Science in Computer Science',
+            'Bachelor of Science in Environmental Science',
+            'Bachelor of Science in Information Technology'
+        ],
+        'College of Arts and Humanities': [
+            'Bachelor of Arts in Communication',
+            'Bachelor of Arts in Political Science',
+            'Bachelor of Arts in Philippine Studies',
+            'Bachelor of Science in Social Work',
+            'Bachelor of Science in Psychology'
+        ],
+        'College of Business and Accountancy': [
+            'Bachelor of Science in Accountancy',
+            'Bachelor of Science in Management Accounting',
+            'Bachelor of Science in Business Administration',
+            'Bachelor of Science in Entrepreneurship',
+            'Bachelor of Science in Public Administration'
+        ],
+        'College of Criminal Justice Education': [
+            'Bachelor of Science in Criminology'
+        ],
+        'College of Engineering': [
+            'Bachelor of Science in Civil Engineering',
+            'Bachelor of Science in Electrical Engineering',
+            'Bachelor of Science in Mechanical Engineering',
+            'Bachelor of Science in Petroleum Engineering'
+        ],
+        'College of Architecture and Design': [
+            'Bachelor of Science in Architecture'
+        ],
+        'College of Hospitality Management and Tourism': [
+            'Bachelor of Science in Hospitality Management',
+            'Bachelor of Science in Tourism Management'
+        ],
+        'College of Nursing and Health Sciences': [
+            'Bachelor of Science in Nursing',
+            'Bachelor of Science in Midwifery'
+        ],
+        'College of Teacher Education': [
+            'Bachelor of Elementary Education',
+            'Bachelor of Secondary Education',
+            'Bachelor of Physical Education'
+        ]
+    }
+    # Handle case-insensitive matching and common variations
+    college_lower = college.lower() if college else ''
+    for key, programs in college_program_map.items():
+        if key.lower() == college_lower:
+            return programs
+    # Also handle some common variations
+    if 'arts' in college_lower and 'humanities' in college_lower:
+        return college_program_map.get('College of Arts and Humanities', [])
+    if 'criminal' in college_lower and 'justice' in college_lower:
+        return college_program_map.get('College of Criminal Justice Education', [])
+    if 'nursing' in college_lower or 'health' in college_lower:
+        return college_program_map.get('College of Nursing and Health Sciences', [])
+    return college_program_map.get(college, [])
+
+@app.route('/osas/programs', methods=['GET'])
+def osas_programs():
+    """Return distinct programs for OSAS filtering (optionally filtered by college).
+    Returns all enum values from the database schema, optionally filtered by college mapping."""
+    college = request.args.get('college')
+    conn = get_connection() if get_connection else None
+    if conn is None:
+        return jsonify({'success': False, 'error': 'DB not configured'}), 500
+    try:
+        # Get all enum values from the database schema
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT COLUMN_TYPE 
+                FROM INFORMATION_SCHEMA.COLUMNS 
+                WHERE TABLE_SCHEMA = DATABASE() 
+                AND TABLE_NAME = 'students' 
+                AND COLUMN_NAME = 'program'
+            """)
+            enum_row = cur.fetchone()
+            
+            if enum_row and enum_row.get('COLUMN_TYPE'):
+                # Parse enum values from format: enum('value1','value2',...)
+                enum_str = enum_row.get('COLUMN_TYPE', '')
+                enum_values = re.findall(r"'([^']+)'", enum_str)
+                all_programs = sorted(enum_values)
+            else:
+                # Fallback: query from students table
+                cur.execute(
+                    "SELECT DISTINCT COALESCE(program,'') AS program FROM students WHERE COALESCE(program,'')<>'' ORDER BY program ASC"
+                )
+                rows = cur.fetchall() or []
+                all_programs = [r.get('program') for r in rows if r.get('program')]
+            
+            # If college filter is provided, return all programs for that college based on mapping
+            if college:
+                college_programs = get_programs_by_college(college)
+                # Filter to only include programs that are in both the enum and the college mapping
+                programs = [p for p in all_programs if p in college_programs]
+            else:
+                programs = all_programs
+                
+        return jsonify({'success': True, 'programs': programs})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+    finally:
+        conn.close()
+
 @app.route('/guidance', methods=['GET'])
 def guidance_dashboard():
     """Guidance dashboard - only accessible to admins with role 'guidance'."""
@@ -1509,11 +1641,11 @@ def dean_programs():
     try:
         with conn.cursor() as cur:
             cur.execute(
-                "SELECT DISTINCT COALESCE(course,'') AS course FROM students WHERE college=%s AND COALESCE(course,'')<>'' ORDER BY course ASC",
+                "SELECT DISTINCT COALESCE(program,'') AS program FROM students WHERE college=%s AND COALESCE(program,'')<>'' ORDER BY program ASC",
                 (college,)
             )
             rows = cur.fetchall() or []
-        programs = [r.get('course') for r in rows if r.get('course')]
+        programs = [r.get('program') for r in rows if r.get('program')]
         return jsonify({'success': True, 'programs': programs})
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
@@ -1557,7 +1689,7 @@ def dean_get_violations():
         where.append("s.college = %s")
         params.append(college)
         if program:
-            where.append("s.course = %s")
+            where.append("s.program = %s")
             params.append(program)
         if start_dt:
             where.append("v.timestamp >= %s")
@@ -1583,7 +1715,7 @@ def dean_get_violations():
         base_select = (
             "SELECT v.violation_id, v.student_id, v.violation_type, v.timestamp, v.image_proof, "
             "CASE WHEN v.status = 'forwarded_dean' THEN 'pending' ELSE v.status END AS status, "
-            "s.name, s.gender, s.course, s.college "
+            "s.name, s.gender, s.program, s.college "
             "FROM violations v LEFT JOIN students s ON v.student_id = s.student_id"
         )
 
@@ -1654,7 +1786,7 @@ def dean_notifications():
                 f"""
                 SELECT v.violation_id, v.student_id, v.violation_type, v.timestamp, v.image_proof,
                        CASE WHEN v.status = 'forwarded_dean' THEN 'pending' ELSE v.status END AS status,
-                       s.name, s.gender, s.course, s.college
+                       s.name, s.gender, s.program, s.college
                 FROM violations v
                 LEFT JOIN students s ON v.student_id = s.student_id
                 {where_sql}
@@ -1697,7 +1829,7 @@ def dean_analytics():
         where.append("s.college = %s")
         params.append(college)
         if program:
-            where.append("s.course = %s")
+            where.append("s.program = %s")
             params.append(program)
         if start_dt:
             where.append("v.timestamp >= %s")
@@ -1725,7 +1857,7 @@ def dean_analytics():
             total = (cur.fetchone() or {}).get('total', 0)
 
             cur.execute(
-                f"SELECT COALESCE(s.course,'Unknown') AS label, COUNT(*) AS cnt FROM violations v LEFT JOIN students s ON v.student_id=s.student_id{where_sql} GROUP BY label ORDER BY cnt DESC",
+                f"SELECT COALESCE(s.program,'Unknown') AS label, COUNT(*) AS cnt FROM violations v LEFT JOIN students s ON v.student_id=s.student_id{where_sql} GROUP BY label ORDER BY cnt DESC",
                 params,
             )
             by_program = cur.fetchall() or []
@@ -1794,7 +1926,7 @@ def dean_alerts():
             if alert:
                 cur.execute(
                     """
-                    SELECT DISTINCT v.student_id, s.name, s.course
+                    SELECT DISTINCT v.student_id, s.name, s.program
                     FROM violations v
                     LEFT JOIN students s ON v.student_id = s.student_id
                     WHERE (v.status = 'pending' OR v.status = 'forwarded_dean') AND v.timestamp < NOW() - INTERVAL 3 DAY AND s.college = %s
@@ -1824,7 +1956,7 @@ def dean_alert_students():
         with conn.cursor() as cur:
             cur.execute(
                 """
-                SELECT DISTINCT v.student_id, s.name, s.course
+                SELECT DISTINCT v.student_id, s.name, s.program
                 FROM violations v
                 LEFT JOIN students s ON v.student_id = s.student_id
                 WHERE (v.status = 'pending' OR v.status = 'forwarded_dean') AND v.timestamp < NOW() - INTERVAL 3 DAY AND s.college = %s
@@ -1867,7 +1999,7 @@ def dean_trend():
         where.append("s.college = %s")
         params.append(college)
         if program:
-            where.append("s.course = %s")
+            where.append("s.program = %s")
             params.append(program)
         if start_dt:
             where.append("v.timestamp >= %s")
@@ -1884,7 +2016,7 @@ def dean_trend():
                 else:
                     ay_start = f"{start_year+1}-01-01 00:00:00"
                     ay_end = f"{start_year+1}-05-31 23:59:59"
-                where.append("timestamp BETWEEN %s AND %s")
+                where.append("v.timestamp BETWEEN %s AND %s")
                 params.extend([ay_start, ay_end])
             except Exception:
                 pass
@@ -1923,6 +2055,8 @@ def osas_get_violations():
         end_dt = request.args.get('end')
         academic_year = request.args.get('academic_year')
         semester = request.args.get('semester')
+        college = request.args.get('college')
+        program = request.args.get('program')
         page = int(request.args.get('page', 1))
         page_size = int(request.args.get('page_size', 50))
         offset = max(0, (page - 1) * page_size)
@@ -1936,6 +2070,12 @@ def osas_get_violations():
         if status_filter:
             where.append("v.status = %s")
             params.append(status_filter)
+        if college:
+            where.append("s.college = %s")
+            params.append(college)
+        if program:
+            where.append("s.program = %s")
+            params.append(program)
         if start_dt:
             where.append("v.timestamp >= %s")
             params.append(start_dt)
@@ -1959,7 +2099,7 @@ def osas_get_violations():
 
         base_select = (
             "SELECT v.violation_id, v.student_id, v.violation_type, v.timestamp, v.image_proof, v.status, "
-            "s.name, s.gender, s.course, s.college "
+            "s.name, s.gender, s.program, s.college "
             "FROM violations v LEFT JOIN students s ON v.student_id = s.student_id"
         )
 
@@ -2040,7 +2180,7 @@ def guidance_get_violations():
 
         base_select = (
             "SELECT v.violation_id, v.student_id, v.violation_type, v.timestamp, v.image_proof, v.status, "
-            "s.name, s.gender, s.course, s.college "
+            "s.name, s.gender, s.program, s.college "
             "FROM violations v LEFT JOIN students s ON v.student_id = s.student_id"
         )
 
@@ -2149,7 +2289,7 @@ def guidance_analytics():
             by_college = cur.fetchall() or []
 
             cur.execute(
-                f"SELECT COALESCE(s.course,'Unknown') AS label, COUNT(*) AS cnt FROM violations v LEFT JOIN students s ON v.student_id=s.student_id{where_sql} GROUP BY label ORDER BY cnt DESC",
+                f"SELECT COALESCE(s.program,'Unknown') AS label, COUNT(*) AS cnt FROM violations v LEFT JOIN students s ON v.student_id=s.student_id{where_sql} GROUP BY label ORDER BY cnt DESC",
                 params,
             )
             by_program = cur.fetchall() or []
@@ -2266,6 +2406,8 @@ def osas_analytics():
         semester = request.args.get('semester')
         # Show all statuses by default; only filter if provided
         status_filter = request.args.get('status')
+        college = request.args.get('college')
+        program = request.args.get('program')
 
         conn = get_connection() if get_connection else None
         if conn is None:
@@ -2276,6 +2418,12 @@ def osas_analytics():
         if status_filter:
             where.append("v.status = %s")
             params.append(status_filter)
+        if college:
+            where.append("s.college = %s")
+            params.append(college)
+        if program:
+            where.append("s.program = %s")
+            params.append(program)
         if start_dt:
             where.append("v.timestamp >= %s")
             params.append(start_dt)
@@ -2308,7 +2456,7 @@ def osas_analytics():
             by_college = cur.fetchall() or []
 
             cur.execute(
-                f"SELECT COALESCE(s.course,'Unknown') AS label, COUNT(*) AS cnt FROM violations v LEFT JOIN students s ON v.student_id=s.student_id{where_sql} GROUP BY label ORDER BY cnt DESC",
+                f"SELECT COALESCE(s.program,'Unknown') AS label, COUNT(*) AS cnt FROM violations v LEFT JOIN students s ON v.student_id=s.student_id{where_sql} GROUP BY label ORDER BY cnt DESC",
                 params,
             )
             by_program = cur.fetchall() or []
@@ -2340,6 +2488,8 @@ def osas_trend():
         # Show all statuses by default; only filter if provided
         status_filter = request.args.get('status')
         group_by = request.args.get('group_by', 'day')
+        college = request.args.get('college')
+        program = request.args.get('program')
 
         conn = get_connection() if get_connection else None
         if conn is None:
@@ -2350,6 +2500,12 @@ def osas_trend():
         if status_filter:
             where.append("v.status = %s")
             params.append(status_filter)
+        if college:
+            where.append("s.college = %s")
+            params.append(college)
+        if program:
+            where.append("s.program = %s")
+            params.append(program)
         if start_dt:
             where.append("v.timestamp >= %s")
             params.append(start_dt)
@@ -2546,7 +2702,7 @@ def violation_log():
             # Get recent violations (last 50)
             cur.execute("""
                 SELECT v.violation_id, v.student_id, v.violation_type, v.timestamp, v.image_proof,
-                       s.name as student_name, s.gender, s.course, s.college
+                       s.name as student_name, s.gender, s.program, s.college
                 FROM violations v 
                 LEFT JOIN students s ON v.student_id = s.student_id
                 ORDER BY v.timestamp DESC 
@@ -2723,7 +2879,7 @@ def violation_report():
             # Get violations with student details
             query = f"""
                 SELECT v.violation_id, v.student_id, v.violation_type, v.timestamp, v.image_proof,
-                       s.name as student_name, s.gender, s.course, s.college, s.student_id as student_number
+                       s.name as student_name, s.gender, s.program, s.college, s.student_id as student_number
                 FROM violations v 
                 LEFT JOIN students s ON v.student_id = s.student_id
                 {where_clause}

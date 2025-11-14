@@ -128,7 +128,7 @@
                     <td>${v.student_id || ''}</td>
                     <td>${v.name || ''}</td>
                     <td>${v.college || ''}</td>
-                    <td>${v.course || ''}</td>
+                    <td>${v.program || ''}</td>
                     <td>${v.gender || ''}</td>
                     <td>${v.violation_type || ''}</td>
                     <td><span class=\"status ${v.status}\">${v.status}</span></td>
@@ -531,7 +531,7 @@
                                 if (wrap && wrap.style.display === 'none') {
                                     // Show the list
                                     body.innerHTML = payload.rows.map(s=>`
-                                        <tr><td>${s.student_id||''}</td><td>${s.name||''}</td><td>${s.course||''}</td></tr>
+                                        <tr><td>${s.student_id||''}</td><td>${s.name||''}</td><td>${s.program||''}</td></tr>
                                     `).join('');
                                     wrap.style.display = '';
                                 } else if (wrap) {

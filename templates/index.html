@@ -125,7 +125,7 @@
                                 </div>
                                 <div>
                                     <strong><i class="fas fa-book"></i>Program:</strong>
-                                    <span id="studentCourse">-</span>
+                                    <span id="studentProgram">-</span>
                                 </div>
                                 <div>
                                     <strong><i class="fas fa-university"></i>College:</strong>
@@ -519,7 +519,7 @@
             const nameEl = document.getElementById('studentName');
             const idEl = document.getElementById('studentId');
             const genderEl = document.getElementById('studentGender');
-            const courseEl = document.getElementById('studentCourse');
+            const programEl = document.getElementById('studentProgram');
             const collegeEl = document.getElementById('studentCollege');
             const delayEl = document.getElementById('rfidDisplayDelay');
             
@@ -548,13 +548,13 @@
                     nameEl.textContent = student.name || '-';
                     idEl.textContent = student.student_id || '-';
                     genderEl.textContent = student.gender || '-';
-                    courseEl.textContent = student.course || '-';
+                    programEl.textContent = student.program || '-';
                     collegeEl.textContent = student.college || '-';
                 } else {
                     nameEl.textContent = '-';
                     idEl.textContent = '-';
                     genderEl.textContent = '-';
-                    courseEl.textContent = '-';
+                    programEl.textContent = '-';
                     collegeEl.textContent = '-';
                 }
             }
