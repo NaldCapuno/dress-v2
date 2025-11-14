@@ -11,6 +11,7 @@ import re
 from io import BytesIO
 from datetime import datetime
 from src.botsort_tracker import BotSORT
+from src.email_templates import generate_violation_email_body
 from werkzeug.security import check_password_hash
 
 # Diagnostic: Print Python path for debugging
@@ -139,6 +140,16 @@ def add_charset_to_json(response):
         response.headers['Content-Type'] = 'application/json; charset=utf-8'
     return response
 
+# Register Blueprints
+from routes import auth_bp, dashboards_bp, violations_bp, files_bp, camera_bp, rfid_bp, debug_bp
+app.register_blueprint(auth_bp)
+app.register_blueprint(dashboards_bp)
+app.register_blueprint(violations_bp)
+app.register_blueprint(files_bp)
+app.register_blueprint(camera_bp)
+app.register_blueprint(rfid_bp)
+app.register_blueprint(debug_bp)
+
 # Configure upload folder
 UPLOAD_FOLDER = 'uploads'
 RESULT_FOLDER = 'results'
@@ -261,10 +272,29 @@ def rfid_event_handler():
                             print(f"RFID DB handling error: {e}")
                     
                     # Only enable detection and capture images if RFID has a record in database
+                    # Don't re-enable detection if violation was already recorded for this UID or if student already has violation today
                     if rfid_last_student is not None:
+                        student_id = rfid_last_student.get('student_id')
+                        # Check if student already has a violation today
+                        has_violation_today = False
+                        if has_student_violation_today and student_id:
+                            try:
+                                has_violation_today = has_student_violation_today(student_id)
+                            except Exception as e:
+                                print(f"DEBUG: Error checking violation today: {e}")
+                        
                         with rfid_lock:
-                            detection_enabled = True
-                        print(f"RFID Card detected: {event['uid']} - Student found: {rfid_last_student.get('name', 'Unknown')} - Detection ENABLED")
+                            # If student already has violation today, mark as violated and disable detection
+                            if has_violation_today:
+                                rfid_current_uid_violated = True
+                                detection_enabled = False
+                                print(f"RFID Card detected: {event['uid']} - Student found: {rfid_last_student.get('name', 'Unknown')} - Detection DISABLED (student already has violation today)")
+                            # Only enable detection if it's a new UID, no violation was recorded yet, and no violation today
+                            elif not is_same_uid or not rfid_current_uid_violated:
+                                detection_enabled = True
+                                print(f"RFID Card detected: {event['uid']} - Student found: {rfid_last_student.get('name', 'Unknown')} - Detection ENABLED")
+                            else:
+                                print(f"RFID Card detected: {event['uid']} - Student found: {rfid_last_student.get('name', 'Unknown')} - Detection DISABLED (violation already recorded in this session)")
                         # Capture a clean snapshot on each RFID scan (no overlays/bounding boxes) - only once per UID
                         try:
                             snapshot = None
@@ -414,183 +444,6 @@ def format_dress_class(class_name):
         'doll_shoes': 'Doll Shoes'
     }
     return class_mapping.get(class_name, class_name.replace('_', ' ').title())
-
-def generate_violation_email_body(student_name, violation_datetime, strike_num, offense_line, violation_history, image_cid=None):
-    """
-    Generate HTML email body for dress code violation notification.
-    Mobile-responsive design with inline CSS.
-    
-    Args:
-        student_name (str): Name of the student
-        violation_datetime (str): Date and time of the violation
-        strike_num (int): Current strike number (1-3)
-        offense_line (str): Text description of the offense (e.g., "1st Offense")
-        violation_history (str): Formatted list of previous violations
-        image_cid (str, optional): Content-ID (CID) for inline image attachment
-    
-    Returns:
-        str: HTML formatted email body
-    """
-    # Format violation history as HTML list (matching web app colors)
-    if violation_history and violation_history != 'No history available':
-        history_items = violation_history.split('\n')
-        formatted_history = '<ul style="margin: 10px 0; padding-left: 20px;">'
-        for item in history_items:
-            if item.strip():
-                formatted_history += f'<li style="margin: 5px 0; color: #374151; font-size: 14px;">{item.strip()}</li>'
-        formatted_history += '</ul>'
-    else:
-        formatted_history = '<p style="color: #9ca3af; font-style: italic; font-size: 14px;">No history available</p>'
-    
-    # Determine strike color based on number (matching web app colors)
-    if strike_num == 1:
-        strike_color = '#f59e0b'  # Warning (matches web app)
-    elif strike_num == 2:
-        strike_color = '#ef4444'  # Error (matches web app)
-    else:
-        strike_color = '#e55100'  # Accent-dark (matches web app)
-    
-    html_template = """
-<!DOCTYPE html>
-<html>
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Dress Code Violation Notification</title>
-</head>
-<body style="margin: 0; padding: 0; font-family: 'Inter', 'Segoe UI', system-ui, -apple-system, sans-serif; background-color: #f8fafc;">
-    <table role="presentation" style="width: 100%; border-collapse: collapse; background-color: #f8fafc; padding: 20px 0;">
-        <tr>
-            <td align="center" style="padding: 20px 10px;">
-                <table role="presentation" style="max-width: 600px; width: 100%; border-collapse: collapse; background-color: #ffffff; border-radius: 8px; box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px 0 rgba(0, 0, 0, 0.06);">
-                    <!-- Header -->
-                    <tr>
-                        <td style="background: linear-gradient(135deg, #2ca9e1 0%, #1e7bb8 100%); padding: 30px 20px; text-align: center; border-radius: 8px 8px 0 0;">
-                            <h1 style="margin: 0; color: #ffffff; font-size: 24px; font-weight: 600; letter-spacing: 0.5px;">
-                                DRESS CODE VIOLATION
-                            </h1>
-                            <p style="margin: 10px 0 0 0; color: #ffffff; font-size: 14px; opacity: 0.95;">
-                                Dress-code Recognition Surveillance System
-                            </p>
-                        </td>
-                    </tr>
-                    
-                    <!-- Content -->
-                    <tr>
-                        <td style="padding: 30px 20px;">
-                            <p style="margin: 0 0 15px 0; color: #374151; font-size: 16px; line-height: 1.6;">
-                                Dear <strong style="color: #2ca9e1;">{student_name}</strong>,
-                            </p>
-                            <p style="margin: 0 0 20px 0; color: #4b5563; font-size: 15px; line-height: 1.6;">
-                                This is to inform you that the DRESS (Dress-code Recognition Surveillance System) detected a dress code violation on your part on <strong style="color: #374151;">{violation_datetime}</strong>.
-                            </p>
-                            <p style="margin: 0 0 25px 0; color: #4b5563; font-size: 15px; line-height: 1.6;">
-                                Please remember that following the university dress code is part of maintaining discipline and professionalism. We ask that you correct your attire and comply on your next visit.
-                            </p>
-                            
-                            <!-- Violation Details Box -->
-                            <div style="background-color: #f8fafc; border-left: 4px solid {strike_color}; padding: 20px; margin: 25px 0; border-radius: 4px;">
-                                <h2 style="margin: 0 0 15px 0; color: #1f2937; font-size: 18px; font-weight: 600;">
-                                    Violation Details
-                                </h2>
-                                <table role="presentation" style="width: 100%; border-collapse: collapse;">
-                                    <tr>
-                                        <td style="padding: 8px 0; color: #6b7280; font-size: 14px; width: 50%;">Current Strike Count:</td>
-                                        <td style="padding: 8px 0; color: {strike_color}; font-size: 16px; font-weight: 600;">{strike_num} of 3</td>
-                                    </tr>
-                                    <tr>
-                                        <td style="padding: 8px 0; color: #6b7280; font-size: 14px;">Your Current Offense:</td>
-                                        <td style="padding: 8px 0; color: #374151; font-size: 14px; font-weight: 500;">{offense_line}</td>
-                                    </tr>
-                                </table>
-                                <div style="margin-top: 15px; padding-top: 15px; border-top: 1px solid #e5e7eb;">
-                                    <p style="margin: 0 0 10px 0; color: #6b7280; font-size: 14px; font-weight: 500;">Recorded Violations:</p>
-                                    {violation_history}
-                                </div>
-                            </div>
-                            
-                            <!-- Proof Image -->
-                            {proof_image_section}
-                            
-                            <!-- Guidelines Box -->
-                            <div style="background-color: #fff7ed; border: 1px solid #f25a04; padding: 20px; margin: 25px 0; border-radius: 4px;">
-                                <h2 style="margin: 0 0 15px 0; color: #1f2937; font-size: 18px; font-weight: 600;">
-                                    University Guidelines
-                                </h2>
-                                <ul style="margin: 0; padding-left: 20px; color: #4b5563; font-size: 14px; line-height: 1.8;">
-                                    <li style="margin: 5px 0;"><strong style="color: #f25a04;">1st Offense</strong> – Warning</li>
-                                    <li style="margin: 5px 0;"><strong style="color: #f25a04;">2nd Offense</strong> – 5-day suspension</li>
-                                    <li style="margin: 5px 0;"><strong style="color: #f25a04;">3rd Offense</strong> – 2-week to 1-month suspension</li>
-                                </ul>
-                            </div>
-                            
-                            <!-- Action Required -->
-                            <div style="background-color: #fef2f2; border-left: 4px solid #ef4444; padding: 15px 20px; margin: 25px 0; border-radius: 4px;">
-                                <p style="margin: 0; color: #991b1b; font-size: 15px; font-weight: 600;">
-                                    ⚠️ Action Required
-                                </p>
-                                <p style="margin: 10px 0 0 0; color: #7f1d1d; font-size: 14px; line-height: 1.6;">
-                                    Please report to the Guidance Office to address this matter and complete the required procedures.
-                                </p>
-                            </div>
-                            
-                            <p style="margin: 25px 0 0 0; color: #4b5563; font-size: 15px; line-height: 1.6;">
-                                Thank you for your cooperation.
-                            </p>
-                        </td>
-                    </tr>
-                    
-                    <!-- Footer -->
-                    <tr>
-                        <td style="background-color: #f8fafc; padding: 25px 20px; text-align: center; border-radius: 0 0 8px 8px; border-top: 1px solid #e5e7eb;">
-                            <p style="margin: 0 0 10px 0; color: #374151; font-size: 15px; font-weight: 500;">
-                                Respectfully,
-                            </p>
-                            <p style="margin: 0 0 5px 0; color: #2ca9e1; font-size: 14px; font-weight: 600;">
-                                DRESS Monitoring Team
-                            </p>
-                            <p style="margin: 0; color: #6b7280; font-size: 13px;">
-                                Palawan State University
-                            </p>
-                            <p style="margin: 20px 0 0 0; color: #9ca3af; font-size: 12px; font-style: italic;">
-                                This is an automated notification. Please do not reply to this email.
-                            </p>
-                        </td>
-                    </tr>
-                </table>
-            </td>
-        </tr>
-    </table>
-</body>
-</html>
-"""
-    
-    # Generate proof image section if image CID is provided
-    if image_cid:
-        proof_image_section = f"""
-                            <div style="background-color: #f8fafc; padding: 20px; margin: 25px 0; border-radius: 4px; border: 1px solid #e5e7eb;">
-                                <h2 style="margin: 0 0 15px 0; color: #1f2937; font-size: 18px; font-weight: 600;">
-                                    Proof of Violation
-                                </h2>
-                                <div style="text-align: center; margin: 15px 0;">
-                                    <img src="cid:{image_cid}" alt="Violation Proof Image" style="max-width: 100%; height: auto; border-radius: 4px; box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.1); border: 1px solid #e5e7eb;" />
-                                </div>
-                                <p style="margin: 10px 0 0 0; color: #6b7280; font-size: 12px; text-align: center; font-style: italic;">
-                                    Proof image attached to this email
-                                </p>
-                            </div>"""
-    else:
-        proof_image_section = ""
-    
-    return html_template.format(
-        student_name=student_name,
-        violation_datetime=violation_datetime,
-        strike_num=strike_num,
-        offense_line=offense_line,
-        violation_history=formatted_history,
-        strike_color=strike_color,
-        proof_image_section=proof_image_section
-    )
 
 def validate_dress_code(detected_items, gender='male'):
     """Validate dress code compliance based on gender requirements"""
@@ -1423,6 +1276,10 @@ def _maybe_record_violation(frame, detections, admin_user):
                 rfid_last_violation_ts = now_ts
                 with rfid_lock:
                     rfid_current_uid_violated = True
+                    # Disable detection after violation is recorded
+                    detection_enabled = False
+                    print(f"✓ DETECTION STOPPED: Violation recorded for student {rfid_last_student.get('student_id')} - Detection is now DISABLED")
+                    print(f"DEBUG: rfid_current_uid_violated={rfid_current_uid_violated}, detection_enabled={detection_enabled}")
                 
                 # Create violation summary for logging
                 violation_summary = {
@@ -1656,7 +1513,9 @@ def generate_frames():
                 with rfid_lock:
                     _present = rfid_present
                     _student_set = (rfid_last_student is not None)
-                    rfid_detection_enabled = detection_enabled and _present and _student_set
+                    _violated = rfid_current_uid_violated
+                    # Detection is enabled only if: detection flag is True, RFID is present, student is set, AND no violation was recorded yet
+                    rfid_detection_enabled = detection_enabled and _present and _student_set and not _violated
                 
                 # In test mode, detection always runs regardless of RFID
                 detection_enabled_for_frame = rfid_detection_enabled or test_mode_active
@@ -1698,52 +1557,6 @@ def generate_frames():
                        b'Content-Type: image/jpeg\r\n\r\n' + frame_bytes + b'\r\n')
         
         time.sleep(0.03)  # ~30 FPS
-
-@app.route('/')
-def index():
-    # Only allow SECURITY role to access the main index/dashboard
-    admin = session.get('admin') or {}
-    role = str(admin.get('role') or '').lower()
-    if role != 'security':
-        return redirect(url_for('login'))
-    return render_template('index.html')
-
-@app.route('/dashboard')
-def dashboard():
-    """Alias for the main dashboard; restricted to security role."""
-    admin = session.get('admin') or {}
-    role = str(admin.get('role') or '').lower()
-    if role != 'security':
-        return redirect(url_for('login'))
-    return render_template('index.html')
-
-@app.route('/osas', methods=['GET'])
-def osas_dashboard():
-    """OSAS dashboard - only accessible to admins with role 'osas'."""
-    admin = session.get('admin') or {}
-    role = str(admin.get('role') or '').lower()
-    if role != 'osas':
-        return redirect(url_for('login'))
-    return render_template('osas_dashboard.html')
-
-@app.route('/osas/colleges', methods=['GET'])
-def osas_colleges():
-    """Return distinct colleges for OSAS filtering."""
-    conn = get_connection() if get_connection else None
-    if conn is None:
-        return jsonify({'success': False, 'error': 'DB not configured'}), 500
-    try:
-        with conn.cursor() as cur:
-            cur.execute(
-                "SELECT DISTINCT COALESCE(college,'') AS college FROM students WHERE COALESCE(college,'')<>'' ORDER BY college ASC"
-            )
-            rows = cur.fetchall() or []
-        colleges = [r.get('college') for r in rows if r.get('college')]
-        return jsonify({'success': True, 'colleges': colleges})
-    except Exception as e:
-        return jsonify({'success': False, 'error': str(e)}), 500
-    finally:
-        conn.close()
 
 def get_programs_by_college(college):
     """Return all programs for a given college based on the program-to-college mapping.
@@ -4495,4 +4308,4 @@ if __name__ == '__main__':
         _t.Thread(target=(lambda: __import__('time') or None), daemon=True)
     except Exception:
         pass
-    app.run(debug=True, host='0.0.0.0', port=5000)
+    app.run(debug=True, host='0.0.0.0', port=5000) 
