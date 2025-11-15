@@ -1,0 +1,111 @@
+/**
+ * Shared table styles for all dashboards
+ * Include this file in all dashboards to maintain consistent table styling
+ */
+
+/* Count display styling - smaller, grey, fixed width to prevent layout shifts */
+#violations-count-display,
+#students-count-display {
+    font-size: 0.8125rem;
+    color: #6b7280;
+    min-width: 180px;
+    display: inline-block;
+    text-align: left;
+    padding: 0 0.5rem;
+    box-sizing: border-box;
+    white-space: nowrap;
+    font-variant-numeric: tabular-nums; /* Makes numbers consistent width */
+}
+
+/* Pagination controls - smaller and consistent sizing */
+.pagination-controls {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.8125rem;
+}
+
+.pagination-controls label {
+    font-size: 0.8125rem;
+    color: #6b7280;
+    margin: 0;
+}
+
+.pagination-controls select {
+    font-size: 0.8125rem;
+    padding: 0.25rem 1.5rem 0.25rem 0.5rem;
+    height: 28px;
+    width: 55px;
+}
+
+.pagination-controls .btn {
+    font-size: 0.8125rem;
+    padding: 0.25rem 0.75rem;
+    height: 28px;
+    min-width: 50px;
+    line-height: 1.2;
+}
+
+.pagination-controls span {
+    font-size: 0.8125rem;
+    color: #374151;
+    white-space: nowrap;
+}
+
+.pagination-controls #show-add-student-btn {
+    font-size: 0.875rem;
+    padding: 0.375rem 1rem;
+    height: 32px;
+    margin-left: 1rem;
+}
+
+.dashboard-pagination {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.pagination-info {
+    display: flex;
+    align-items: center;
+}
+
+.pagination-info h3 {
+    margin: 0;
+    line-height: 1;
+}
+
+/* Sortable table headers */
+#violations-section th[data-sort],
+#add-students-section th[data-sort] {
+    position: relative;
+    padding-right: 20px;
+}
+
+#violations-section th[data-sort]:hover,
+#add-students-section th[data-sort]:hover {
+    background-color: #f3f4f6;
+}
+
+#violations-section .sort-indicator,
+#add-students-section .sort-indicator {
+    position: absolute;
+    right: 8px;
+    top: 50%;
+    transform: translateY(-50%);
+    font-size: 0.75rem;
+    opacity: 0.3;
+}
+
+#violations-section th.sort-asc .sort-indicator::after,
+#add-students-section th.sort-asc .sort-indicator::after {
+    content: '▲';
+    opacity: 1;
+}
+
+#violations-section th.sort-desc .sort-indicator::after,
+#add-students-section th.sort-desc .sort-indicator::after {
+    content: '▼';
+    opacity: 1;
+}
+
