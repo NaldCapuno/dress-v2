@@ -74,7 +74,7 @@ def generate_violation_email_body(student_name, violation_datetime, strike_num, 
                                 This is to inform you that the DRESS (Dress-code Recognition Surveillance System) detected a dress code violation on your part on <strong style="color: #374151;">{violation_datetime}</strong>.
                             </p>
                             <p style="margin: 0 0 25px 0; color: #4b5563; font-size: 15px; line-height: 1.6;">
-                                Please remember that following the university dress code is part of maintaining discipline and professionalism. We ask that you correct your attire and comply on your next visit.
+                                Please remember that following the university dress code is part of maintaining discipline and professionalism. We ask you to comply with the proper uniform prescribed by the University, as stated in the Student Handbook, on your next visit.
                             </p>
                             
                             <!-- Violation Details Box -->
