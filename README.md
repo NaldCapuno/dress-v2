@@ -1,113 +1,121 @@
-# Person Detection Flask App with YOLOv8n
+# DRESS: Dress-code Recognition Surveillance System
 
-A modern web application for detecting persons in images using YOLOv8n (You Only Look Once version 8 nano) model.
+A web application for automated dress code monitoring and violation tracking using computer vision and RFID technology.
 
 ## Features
 
-- **Real-time Person Detection**: Upload images and detect persons with bounding boxes
-- **Modern Web Interface**: Beautiful, responsive UI with drag-and-drop functionality
-- **High Accuracy**: Uses YOLOv8n model with 50% confidence threshold
-- **Multiple Image Formats**: Supports JPG, PNG, GIF, BMP formats
-- **Visual Results**: Shows detection results with confidence scores and bounding boxes
+- **Real-time Dress Code Detection**: Automated detection of dress code violations using YOLOv8 and custom models
+- **RFID Integration**: Student identification via RFID cards
+- **Role-based Dashboards**: Separate interfaces for Deans, OSAS, and Guidance counselors
+- **Violation Management**: Track, filter, and manage dress code violations
+- **PDF Reports**: Generate violation reports with analytics
+- **Student Database**: Manage student information and records
 
 ## Installation
 
-1. **Clone or download this project**
-
-2. **Install Python dependencies**:
+1. **Install dependencies**:
    ```bash
    pip install -r requirements.txt
    ```
 
-3. **Run the application**:
+2. **Set up database**:
+   - Create MySQL database
+   - Import schema: `database/dress_clean.sql`
+   - (Optional) Import sample data: `database/dummy_data.sql`
+
+3. **Configure database**:
+   - Update database connection in `src/config.py`
+
+4. **Create admin account**:
+   ```bash
+   python scripts/create_admin.py
+   ```
+
+5. **Run the application**:
    ```bash
    python app.py
    ```
 
-4. **Open your browser** and go to `http://localhost:5000`
+6. **Access the application**:
+   - Open browser: `http://localhost:5000`
+   - Login with admin credentials
 
-## Usage
+## User Roles
 
-1. **Upload an Image**: 
-   - Drag and drop an image onto the upload area, or
-   - Click "Choose File" to browse and select an image
-
-2. **View Results**: 
-   - The app will process the image and show:
-     - Number of persons detected
-     - Confidence scores for each detection
-     - Image with bounding boxes around detected persons
-
-3. **Upload Another**: Click "Upload Another Image" to process more images
-
-## Technical Details
-
-- **Model**: YOLOv8n (nano version for fast inference)
-- **Detection Class**: Person (class ID 0 in COCO dataset)
-- **Confidence Threshold**: 50%
-- **Framework**: Flask web framework
-- **Computer Vision**: OpenCV for image processing
-- **Deep Learning**: PyTorch backend via Ultralytics
-
-## File Structure
-
-```
-dress-v2/
-├── app.py                 # Main Flask application
-├── requirements.txt       # Python dependencies
-├── LICENSE                # License file
-├── README.md              # This file
-├── src/                   # Source code modules
-│   ├── __init__.py
-│   ├── botsort_tracker.py # Bot-SORT tracking implementation
-│   ├── config.py          # Database configuration and helpers
-│   └── rfid_scanner.py    # RFID scanner module
-├── scripts/               # Utility scripts
-│   └── create_admin.py    # Admin account creation script
-├── models/                # ML model files
-│   ├── best.pt            # Dress code detection model
-│   └── yolov8n.pt         # Person detection model
-├── database/              # Database schema files
-│   ├── dress_clean.sql    # Clean database schema
-│   └── dummy_data.sql     # Sample data
-├── templates/             # Flask HTML templates
-│   ├── index.html
-│   ├── login.html
-│   ├── dean_dashboard.html
-│   ├── guidance_dashboard.html
-│   └── osas_dashboard.html
-├── static/                # Static assets (CSS, JS, images)
-│   ├── style.css
-│   └── images/
-├── uploads/               # Temporary upload directory (auto-created)
-└── results/               # Processed images with detections (auto-created)
-```
-
-## API Endpoints
-
-- `GET /` - Main web interface
-- `POST /upload` - Upload image for person detection
-- `POST /detect` - Detect persons from image URL (JSON API)
-- `GET /results/<filename>` - Serve processed result images
+- **Security**: Monitor real-time violations via camera feed
+- **Dean**: View and manage violations for their college
+- **OSAS**: University-wide violation oversight and analytics
+- **Guidance**: Counseling and student support for violations
 
 ## Requirements
 
 - Python 3.8+
-- Modern web browser
-- Internet connection (for downloading YOLOv8n model on first run)
+- MySQL database
+- Webcam (for real-time detection)
+- RFID reader (optional, for student identification)
 
-## Troubleshooting
+## Project Structure
 
-1. **Model Download**: On first run, the app will download the YOLOv8n model (~6MB)
-2. **Memory**: Ensure sufficient RAM for image processing
-3. **File Permissions**: Make sure the app has write permissions for uploads/ and results/ folders
-
-## Customization
-
-- **Confidence Threshold**: Modify the threshold in `app.py` (currently 0.5)
-- **Detection Classes**: Change class ID to detect other objects (see COCO dataset classes)
-- **UI Styling**: Edit CSS in `templates/index.html`
+```
+dress-v2/
+├── app.py                      # Main Flask application
+├── requirements.txt            # Python dependencies
+├── LICENSE                     # License file
+├── README.md                   # This file
+│
+├── routes/                     # Route blueprints
+│   ├── __init__.py            # Blueprint initialization
+│   ├── auth.py                # Authentication routes
+│   ├── violations.py          # Violation management routes
+│   ├── dashboards.py          # Dashboard routes
+│   ├── camera.py              # Camera and detection routes
+│   ├── files.py               # File upload and serving
+│   ├── rfid.py                # RFID scanner routes
+│   ├── students.py            # Student management routes
+│   └── debug.py               # Debug utilities
+│
+├── templates/                  # HTML templates
+│   ├── login.html             # Login page
+│   ├── index.html             # Main security dashboard
+│   ├── dean_dashboard.html    # Dean dashboard
+│   ├── osas_dashboard.html    # OSAS dashboard
+│   └── guidance_dashboard.html # Guidance dashboard
+│
+├── static/                     # Static assets
+│   ├── css/
+│   │   ├── style.css          # Main stylesheet
+│   │   └── table-styles.css   # Table-specific styles
+│   ├── js/
+│   │   ├── shared-table.js    # Shared table functionality
+│   │   ├── table-pagination.js # Table pagination
+│   │   └── table-utils.js     # Table utilities
+│   └── images/
+│       ├── login_bg.png       # Login background
+│       └── login_logo.png     # Login logo
+│
+├── database/                   # Database files
+│   ├── dress_clean.sql        # Clean database schema
+│   └── dummy_data.sql         # Sample data for testing
+│
+├── models/                     # ML model files
+│   ├── best.pt                # Custom dress code detection model
+│   └── yolov8n.pt             # YOLOv8 person detection model
+│
+├── src/                        # Core modules
+│   ├── config.py              # Database configuration
+│   ├── rfid_scanner.py        # RFID scanner module
+│   ├── botsort_tracker.py     # Bot-SORT tracking implementation
+│   └── email_templates.py     # Email template helpers
+│
+├── scripts/                    # Utility scripts
+│   └── create_admin.py        # Admin account creation script
+│
+├── uploads/                    # Uploaded files (auto-created)
+├── results/                    # Processed images (auto-created)
+│   └── violations/            # Violation images
+└── __pycache__/               # Python cache (auto-generated)
+```
 
 ## License
 
-This project is open source and available under the MIT License.
+MIT License
