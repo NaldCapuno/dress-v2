@@ -1119,13 +1119,12 @@ def _maybe_record_violation(frame, detections, admin_user):
             # This check happens early to prevent detection
             student_id = (rfid_last_student or {}).get('student_id')
             if has_student_violation_today and student_id:
-                pass
-                # if has_student_violation_today(student_id):
-                #     print(f"DEBUG: Daily limit reached - violation already recorded today for student {student_id}")
-                #     # Keep violation flag True to prevent detection
-                #     with rfid_lock:
-                #         rfid_current_uid_violated = True  # Keep it True to prevent detection
-                #     # Don't return here - let the function continue to check threshold
+                if has_student_violation_today(student_id):
+                    print(f"DEBUG: Daily limit reached - violation already recorded today for student {student_id}")
+                    # Keep violation flag True to prevent detection
+                    with rfid_lock:
+                        rfid_current_uid_violated = True  # Keep it True to prevent detection
+                    # Don't return here - let the function continue to check threshold
             
             # Only reset counter if status changes from violation state (NON-COMPLIANT/PARTIALLY COMPLIANT) to COMPLIANT
             # Don't reset if changing between NON-COMPLIANT and PARTIALLY COMPLIANT (both are violations)
@@ -1504,7 +1503,7 @@ Dear {student_name},
 
 This is to inform you that the DRESS (Dress-code Recognition Surveillance System) detected a dress code violation on your part on {dt_str}.
 
-Please remember that following the university dress code is part of maintaining discipline and professionalism. We ask that you correct your attire and comply on your next visit.
+Please remember that following the university dress code is part of maintaining discipline and professionalism. We ask you to comply with the proper uniform prescribed by the University, as stated in the Student Handbook, on your next visit.
 
 VIOLATION DETAILS
 Current Strike Count: {strike_num} of 3
