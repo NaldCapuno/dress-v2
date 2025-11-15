@@ -8,6 +8,7 @@ import base64
 import threading
 import time
 import re
+import queue
 from io import BytesIO
 from datetime import datetime
 from src.botsort_tracker import BotSORT
@@ -182,6 +183,13 @@ current_frame = None
 frame_lock = threading.Lock()
 selected_camera_id = 0
 
+# Global variables for smooth detection (async processing)
+detection_queue = None  # Queue for frames to be processed
+latest_detections = None  # Latest detection results
+latest_detection_frame = None  # Frame that was used for latest detections
+detection_results_lock = threading.Lock()  # Lock for detection results
+detection_thread = None  # Background detection thread
+
 # Global variables for RFID integration
 rfid_event_queue = None
 rfid_last_uid = None
@@ -206,11 +214,24 @@ test_mode_lock = threading.Lock()
 
 # Auto-initialize camera
 def initialize_camera():
-    global camera, selected_camera_id
+    global camera, selected_camera_id, detection_queue, detection_thread, latest_detections, latest_detection_frame
     try:
         camera = cv2.VideoCapture(selected_camera_id)  # Use selected camera
         if camera.isOpened():
             print(f"Camera {selected_camera_id} initialized successfully")
+            
+            # Initialize detection queue and start detection thread if not already running
+            if detection_queue is None:
+                detection_queue = queue.Queue(maxsize=2)  # Small queue to prevent lag
+                latest_detections = None
+                latest_detection_frame = None
+                
+                # Start detection worker thread
+                if detection_thread is None or not detection_thread.is_alive():
+                    detection_thread = threading.Thread(target=detection_worker, daemon=True)
+                    detection_thread.start()
+                    print("Detection worker thread started")
+            
             return True
         else:
             print(f"Failed to initialize camera {selected_camera_id}")
@@ -1098,12 +1119,13 @@ def _maybe_record_violation(frame, detections, admin_user):
             # This check happens early to prevent detection
             student_id = (rfid_last_student or {}).get('student_id')
             if has_student_violation_today and student_id:
-                if has_student_violation_today(student_id):
-                    print(f"DEBUG: Daily limit reached - violation already recorded today for student {student_id}")
-                    # Keep violation flag True to prevent detection
-                    with rfid_lock:
-                        rfid_current_uid_violated = True  # Keep it True to prevent detection
-                    # Don't return here - let the function continue to check threshold
+                pass
+                # if has_student_violation_today(student_id):
+                #     print(f"DEBUG: Daily limit reached - violation already recorded today for student {student_id}")
+                #     # Keep violation flag True to prevent detection
+                #     with rfid_lock:
+                #         rfid_current_uid_violated = True  # Keep it True to prevent detection
+                #     # Don't return here - let the function continue to check threshold
             
             # Only reset counter if status changes from violation state (NON-COMPLIANT/PARTIALLY COMPLIANT) to COMPLIANT
             # Don't reset if changing between NON-COMPLIANT and PARTIALLY COMPLIANT (both are violations)
@@ -1319,6 +1341,16 @@ def _maybe_record_violation(frame, detections, admin_user):
         # Use the violation type that was already created for the image
         violation_type = violation_type_for_image
 
+        # Get violation count BEFORE inserting the new violation to calculate correct strike number
+        student_id = rfid_last_student.get('student_id')
+        previous_violation_count = 0
+        try:
+            from src.config import get_student_violation_count as _get_v_cnt
+        except Exception:
+            _get_v_cnt = None
+        if _get_v_cnt and student_id:
+            previous_violation_count = int(_get_v_cnt(student_id) or 0)
+            print(f"DEBUG: Previous violation count for student {student_id}: {previous_violation_count}")
 
         # Store relative path in DB; serve via /results/violations/<filename>
         rel_path = os.path.join(VIOLATION_SUBDIR, proof_name) if proof_path else None
@@ -1385,16 +1417,16 @@ def _maybe_record_violation(frame, detections, admin_user):
                             print(f"DEBUG: find_student_by_id function not available")
                     if student_email:
                         print(f"DEBUG: Student email found: {student_email}, proceeding with email composition...")
-                        # Determine strike number (cap at 3)
-                        strike_num = 1
+                        # Determine strike number based on previous violations + 1 (the one we just inserted)
+                        # Cap at 3
+                        strike_num = previous_violation_count + 1
+                        strike_num = max(1, min(3, strike_num))
+                        print(f"DEBUG: Strike number calculated: {strike_num} (previous violations: {previous_violation_count})")
+                        
                         try:
-                            from src.config import get_student_violation_count as _get_v_cnt, get_student_violations as _get_v_list
+                            from src.config import get_student_violations as _get_v_list
                         except Exception:
-                            _get_v_cnt = None
                             _get_v_list = None
-                        if _get_v_cnt and student_id:
-                            total = int(_get_v_cnt(student_id) or 1)
-                            strike_num = max(1, min(3, total))
                         # Build violation list lines
                         violation_lines = []
                         if _get_v_list and student_id:
@@ -1552,9 +1584,46 @@ This is an automated notification. Please do not reply to this email."""
         print(f"Violation record error: {e}")
         return None
 
+def detection_worker():
+    """Background thread that processes frames for detection without blocking camera feed"""
+    global detection_queue, latest_detections, latest_detection_frame, detection_results_lock, detection_enabled
+    
+    while True:
+        try:
+            # Get frame from queue (with timeout to allow checking if thread should continue)
+            try:
+                frame_data = detection_queue.get(timeout=0.1)
+                if frame_data is None:  # Shutdown signal
+                    break
+                
+                frame, detection_enabled_flag = frame_data
+                
+                if detection_enabled_flag and frame is not None:
+                    # Perform detection on the frame
+                    detections = detect_persons_frame_with_dress(frame.copy())
+                    
+                    # Store latest detection results
+                    with detection_results_lock:
+                        latest_detections = detections
+                        latest_detection_frame = frame.copy()
+                    
+                    # Attempt to record violation using the frame
+                    _maybe_record_violation(frame.copy(), detections, None)
+                
+                detection_queue.task_done()
+            except queue.Empty:
+                # No frame to process, continue
+                continue
+        except Exception as e:
+            print(f"Error in detection worker: {e}")
+            import traceback
+            traceback.print_exc()
+            time.sleep(0.1)
+
 def generate_frames():
-    """Generate video frames for streaming"""
-    global camera, detection_enabled, current_frame, frame_lock
+    """Generate video frames for streaming with smooth async detection"""
+    global camera, detection_enabled, current_frame, frame_lock, detection_queue
+    global latest_detections, latest_detection_frame, detection_results_lock
     
     while True:
         if camera is not None:
@@ -1580,22 +1649,32 @@ def generate_frames():
                 # In test mode, detection always runs regardless of RFID
                 detection_enabled_for_frame = rfid_detection_enabled or test_mode_active
                 
-                if detection_enabled_for_frame:
-                    # Keep a clean copy of the frame (without live overlays) for proof image
-                    clean_frame_for_proof = frame.copy()
-                    
-                    detections = detect_persons_frame_with_dress(frame)
-                    frame = draw_detections_frame(frame, detections)
-                    
-                    # Attempt to record violation using the CLEAN frame (no overlay text)
-                    # Note: admin_user is None in background thread, will be handled in violation function
-                    _maybe_record_violation(clean_frame_for_proof, detections, None)
-                    
-                    # Status overlay removed as requested
-                    pass
-                else:
-                    # Status overlay removed as requested
-                    pass
+                # Add frame to detection queue (non-blocking, drop old frames if queue is full)
+                if detection_enabled_for_frame and detection_queue is not None:
+                    try:
+                        # Try to add frame to queue, but don't block if queue is full
+                        # This ensures camera feed stays smooth even if detection is slow
+                        detection_queue.put_nowait((frame.copy(), True))
+                    except queue.Full:
+                        # Queue is full, skip this frame (detection will catch up)
+                        pass
+                elif not detection_enabled_for_frame:
+                    # Clear detection results when detection is disabled
+                    with detection_results_lock:
+                        latest_detections = None
+                        latest_detection_frame = None
+                
+                # Get latest detection results (non-blocking)
+                detections_to_draw = None
+                with detection_results_lock:
+                    if latest_detections is not None:
+                        detections_to_draw = latest_detections
+                
+                # Draw detections on current frame if available
+                if detection_enabled_for_frame and detections_to_draw is not None:
+                    # Use the current frame but draw detections from latest results
+                    # This keeps the video smooth while showing detection results
+                    frame = draw_detections_frame(frame, detections_to_draw)
                 
                 # Encode frame as JPEG
                 ret, buffer = cv2.imencode('.jpg', frame)
