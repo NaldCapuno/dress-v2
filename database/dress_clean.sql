@@ -145,7 +145,7 @@ CREATE TABLE `violations` (
   `violation_type` varchar(100) NOT NULL,
   `timestamp` timestamp NULL DEFAULT CURRENT_TIMESTAMP,
   `image_proof` varchar(255) DEFAULT NULL,
-  `status` enum('pending','forwarded_dean','forwarded_guidance','resolved') NOT NULL DEFAULT 'pending',
+  `status` enum('pending','resolved') NOT NULL DEFAULT 'pending',
   PRIMARY KEY (`violation_id`),
   KEY `student_id` (`student_id`),
   CONSTRAINT `violations_ibfk_1` FOREIGN KEY (`student_id`) REFERENCES `students` (`student_id`) ON DELETE CASCADE

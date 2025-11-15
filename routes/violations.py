@@ -38,12 +38,8 @@ def dean_get_violations():
         where = []
         params = []
         if status_filter:
-            # For dean view, treat 'forwarded_dean' as 'pending' in filters
-            if status_filter == 'pending':
-                where.append("(v.status = 'pending' OR v.status = 'forwarded_dean')")
-            else:
-                where.append("v.status = %s")
-                params.append(status_filter)
+            where.append("v.status = %s")
+            params.append(status_filter)
         # Enforce dean operates per-college: require college filter
         if not college:
             return jsonify({'success': True, 'rows': [], 'total': 0})
@@ -74,8 +70,7 @@ def dean_get_violations():
         where_sql = (" WHERE " + " AND ".join(where)) if where else ""
 
         base_select = (
-            "SELECT v.violation_id, v.student_id, v.violation_type, v.timestamp, v.image_proof, "
-            "CASE WHEN v.status = 'forwarded_dean' THEN 'pending' ELSE v.status END AS status, "
+            "SELECT v.violation_id, v.student_id, v.violation_type, v.timestamp, v.image_proof, v.status, "
             "s.name, s.gender, s.program, s.college "
             "FROM violations v LEFT JOIN students s ON v.student_id = s.student_id"
         )
@@ -105,7 +100,7 @@ def dean_update_violation_status(violation_id: int):
         data = request.get_json(silent=True) or {}
         status = str(data.get('status') or '').strip().lower()
         print(f"Dean status update: violation_id={violation_id}, status={status}, data={data}")
-        allowed = {"pending", "forwarded_guidance", "resolved"}
+        allowed = {"pending", "resolved"}
         if status not in allowed:
             return jsonify({'success': False, 'error': 'Invalid status'}), 400
         conn = get_connection() if get_connection else None
@@ -139,20 +134,15 @@ def dean_notifications():
         where = ["s.college = %s"]
         params = [college]
         if status_filter:
-            # For dean view, treat 'pending' filter to include both 'pending' and 'forwarded_dean'
-            if status_filter == 'pending':
-                where.append("(v.status = 'pending' OR v.status = 'forwarded_dean')")
-            else:
-                where.append("v.status = %s")
-                params.append(status_filter)
+            where.append("v.status = %s")
+            params.append(status_filter)
         # Older than 3 days by default
         where.append("v.timestamp < NOW() - INTERVAL 3 DAY")
         where_sql = " WHERE " + " AND ".join(where)
         with conn.cursor() as cur:
             cur.execute(
                 f"""
-                SELECT v.violation_id, v.student_id, v.violation_type, v.timestamp, v.image_proof,
-                       CASE WHEN v.status = 'forwarded_dean' THEN 'pending' ELSE v.status END AS status,
+                SELECT v.violation_id, v.student_id, v.violation_type, v.timestamp, v.image_proof, v.status,
                        s.name, s.gender, s.program, s.college
                 FROM violations v
                 LEFT JOIN students s ON v.student_id = s.student_id
@@ -239,9 +229,8 @@ def dean_analytics():
             by_gender = cur.fetchall() or []
 
             # by_status must include the students join because filters may reference s.*
-            # For dean view, transform 'forwarded_dean' to 'pending' in status counts
             cur.execute(
-                f"SELECT CASE WHEN v.status = 'forwarded_dean' THEN 'pending' ELSE v.status END AS label, COUNT(*) AS cnt FROM violations v LEFT JOIN students s ON v.student_id=s.student_id{where_sql} GROUP BY CASE WHEN v.status = 'forwarded_dean' THEN 'pending' ELSE v.status END",
+                f"SELECT v.status AS label, COUNT(*) AS cnt FROM violations v LEFT JOIN students s ON v.student_id=s.student_id{where_sql} GROUP BY v.status",
                 params,
             )
             by_status = cur.fetchall() or []
@@ -280,7 +269,7 @@ def dean_alerts():
                 SELECT COUNT(DISTINCT v.student_id) AS num_students
                 FROM violations v
                 LEFT JOIN students s ON v.student_id = s.student_id
-                WHERE (v.status = 'pending' OR v.status = 'forwarded_dean') AND v.timestamp < NOW() - INTERVAL 3 DAY AND s.college = %s
+                WHERE v.status = 'pending' AND v.timestamp < NOW() - INTERVAL 3 DAY AND s.college = %s
                 """,
                 (college,)
             )
@@ -302,7 +291,7 @@ def dean_alerts():
                     SELECT DISTINCT v.student_id, s.name, s.program
                     FROM violations v
                     LEFT JOIN students s ON v.student_id = s.student_id
-                    WHERE (v.status = 'pending' OR v.status = 'forwarded_dean') AND v.timestamp < NOW() - INTERVAL 3 DAY AND s.college = %s
+                    WHERE v.status = 'pending' AND v.timestamp < NOW() - INTERVAL 3 DAY AND s.college = %s
                     ORDER BY s.name ASC
                     LIMIT 10
                     """,
@@ -335,7 +324,7 @@ def dean_alert_students():
                 SELECT DISTINCT v.student_id, s.name, s.program
                 FROM violations v
                 LEFT JOIN students s ON v.student_id = s.student_id
-                WHERE (v.status = 'pending' OR v.status = 'forwarded_dean') AND v.timestamp < NOW() - INTERVAL 3 DAY AND s.college = %s
+                WHERE v.status = 'pending' AND v.timestamp < NOW() - INTERVAL 3 DAY AND s.college = %s
                 ORDER BY s.name ASC
                 LIMIT %s
                 """,
@@ -486,22 +475,6 @@ def osas_get_violations():
         )
 
         with conn.cursor() as cur:
-            # Auto-forward pending >3 days to dean when OSAS views violations
-            try:
-                cur.execute(
-                    """
-                    UPDATE violations
-                    SET status = 'forwarded_dean'
-                    WHERE status = 'pending' AND timestamp < NOW() - INTERVAL 3 DAY
-                    """
-                )
-                if cur.rowcount:
-                    try:
-                        conn.commit()
-                    except Exception as _ce:
-                        print(f"OSAS auto-forward commit failed: {_ce}")
-            except Exception as _e:
-                print(f"OSAS auto-forward failed: {_e}")
             cur.execute(f"SELECT COUNT(*) AS cnt FROM violations v LEFT JOIN students s ON v.student_id = s.student_id{where_sql}", params)
             total = (cur.fetchone() or {}).get('cnt', 0)
 
@@ -570,22 +543,6 @@ def guidance_get_violations():
         )
 
         with conn.cursor() as cur:
-            # Auto-forward pending >3 days to dean when Guidance views violations
-            try:
-                cur.execute(
-                    """
-                    UPDATE violations
-                    SET status = 'forwarded_dean'
-                    WHERE status = 'pending' AND timestamp < NOW() - INTERVAL 3 DAY
-                    """
-                )
-                if cur.rowcount:
-                    try:
-                        conn.commit()
-                    except Exception as _ce:
-                        print(f"Guidance auto-forward commit failed: {_ce}")
-            except Exception as _e:
-                print(f"Guidance auto-forward failed: {_e}")
             cur.execute(f"SELECT COUNT(*) AS cnt FROM violations v LEFT JOIN students s ON v.student_id = s.student_id{where_sql}", params)
             total = (cur.fetchone() or {}).get('cnt', 0)
 
@@ -776,8 +733,7 @@ def osas_update_violation_status(violation_id: int):
         data = request.get_json(silent=True) or {}
         status = str(data.get('status') or '').strip().lower()
         print(f"OSAS status update: violation_id={violation_id}, status={status}, data={data}")
-        # OSAS cannot forward to guidance (only dean). Remove forwarded_guidance from allowed.
-        allowed = {"pending", "forwarded_dean", "resolved"}
+        allowed = {"pending", "resolved"}
         if status not in allowed:
             return jsonify({'success': False, 'error': 'Invalid status'}), 400
         conn = get_connection() if get_connection else None
@@ -1106,8 +1062,7 @@ def dean_generate_pdf_report():
         
         # Get all violations (no pagination for PDF)
         query = (
-            "SELECT v.violation_id, v.student_id, v.violation_type, v.timestamp, "
-            "CASE WHEN v.status = 'forwarded_dean' THEN 'pending' ELSE v.status END AS status, "
+            "SELECT v.violation_id, v.student_id, v.violation_type, v.timestamp, v.status, "
             "s.name, s.gender, s.program, s.college "
             "FROM violations v LEFT JOIN students s ON v.student_id = s.student_id"
             f"{where_sql} ORDER BY v.timestamp DESC"
@@ -1152,7 +1107,7 @@ def dean_generate_pdf_report():
         title_style = ParagraphStyle(
             'CustomTitle',
             parent=styles['Heading1'],
-            fontSize=18,
+            fontSize=14,
             textColor=colors.HexColor('#f25a04'),
             spaceAfter=12,
             alignment=1  # Center
@@ -1160,11 +1115,15 @@ def dean_generate_pdf_report():
         heading_style = ParagraphStyle(
             'CustomHeading',
             parent=styles['Heading2'],
-            fontSize=14,
+            fontSize=11,
             textColor=colors.HexColor('#1e293b'),
             spaceAfter=8
         )
-        normal_style = styles['Normal']
+        normal_style = ParagraphStyle(
+            'CustomNormal',
+            parent=styles['Normal'],
+            fontSize=9
+        )
         
         # Title
         elements.append(Paragraph("Violation Records Report", title_style))
@@ -1199,7 +1158,7 @@ def dean_generate_pdf_report():
             ('TEXTCOLOR', (0, 0), (-1, -1), colors.black),
             ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
             ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-            ('FONTSIZE', (0, 0), (-1, 0), 11),
+            ('FONTSIZE', (0, 0), (-1, 0), 9),
             ('BOTTOMPADDING', (0, 0), (-1, 0), 8),
             ('BACKGROUND', (0, 1), (-1, -1), colors.white),
             ('GRID', (0, 0), (-1, -1), 1, colors.grey),
@@ -1216,7 +1175,6 @@ def dean_generate_pdf_report():
         else:
             # Table headers - use Paragraph for headers too
             table_data = [[
-                Paragraph('ID', normal_style),
                 Paragraph('Date', normal_style),
                 Paragraph('Student ID', normal_style),
                 Paragraph('Name', normal_style),
@@ -1232,7 +1190,20 @@ def dean_generate_pdf_report():
                 if timestamp:
                     try:
                         dt = datetime.strptime(str(timestamp), '%Y-%m-%d %H:%M:%S')
-                        formatted_date = dt.strftime('%Y-%m-%d %H:%M')
+                        # Match table format: "Mon, 25 Oct 2025 08:00 AM"
+                        # JavaScript getDay(): 0=Sun, 1=Mon, ..., 6=Sat
+                        # Python weekday(): 0=Mon, 1=Tue, ..., 6=Sun
+                        # Convert Python weekday to JavaScript getDay: (weekday + 1) % 7
+                        weekdays = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
+                        months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+                        weekday = weekdays[(dt.weekday() + 1) % 7]
+                        day = dt.strftime('%d')
+                        month = months[dt.month - 1]
+                        year = dt.year
+                        hour_12 = dt.hour % 12 or 12
+                        minute = dt.strftime('%M')
+                        am_pm = 'AM' if dt.hour < 12 else 'PM'
+                        formatted_date = f"{weekday}, {day} {month} {year} {hour_12}:{minute} {am_pm}"
                     except:
                         formatted_date = str(timestamp)[:16]
                 else:
@@ -1248,7 +1219,6 @@ def dean_generate_pdf_report():
                     # Check for status patterns at the end of violation_type
                     # Patterns to look for (longest first to avoid partial matches)
                     status_patterns = [
-                        '_forwarded_guid', '_forwarded_dean', 'forwarded_guid', 'forwarded_dean',
                         '_pending', '_resolved', 'pending', 'resolved'
                     ]
                     
@@ -1317,7 +1287,6 @@ def dean_generate_pdf_report():
                 
                 # Use Paragraph objects for better text wrapping
                 table_data.append([
-                    Paragraph(str(v.get('violation_id', '')), normal_style),
                     Paragraph(formatted_date, normal_style),
                     Paragraph(str(v.get('student_id', '')), normal_style),
                     Paragraph(str(v.get('name', ''))[:30], normal_style),
@@ -1328,20 +1297,20 @@ def dean_generate_pdf_report():
                 ])
             
             # Create table with adjusted column widths - total width ~7.2 inches (fits A4 with margins)
-            # ID, Date, Student ID, Name, Program, Gender, Non Compliant, Status
-            violation_table = Table(table_data, colWidths=[0.4*inch, 1.0*inch, 0.9*inch, 1.0*inch, 1.1*inch, 0.7*inch, 1.2*inch, 0.9*inch])
+            # Date, Student ID, Name, Program, Gender, Non Compliant, Status
+            violation_table = Table(table_data, colWidths=[1.0*inch, 0.9*inch, 1.0*inch, 1.1*inch, 0.7*inch, 1.2*inch, 0.9*inch])
             violation_table.setStyle(TableStyle([
                 ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#f25a04')),
                 ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
                 ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
                 ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-                ('FONTSIZE', (0, 0), (-1, 0), 8),
+                ('FONTSIZE', (0, 0), (-1, 0), 7),
                 ('BOTTOMPADDING', (0, 0), (-1, 0), 8),
                 ('TOPPADDING', (0, 0), (-1, 0), 6),
                 ('BACKGROUND', (0, 1), (-1, -1), colors.white),
                 ('TEXTCOLOR', (0, 1), (-1, -1), colors.black),
                 ('FONTNAME', (0, 1), (-1, -1), 'Helvetica'),
-                ('FONTSIZE', (0, 1), (-1, -1), 7),
+                ('FONTSIZE', (0, 1), (-1, -1), 6),
                 ('GRID', (0, 0), (-1, -1), 0.5, colors.grey),
                 ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.HexColor('#f9fafb')]),
                 ('VALIGN', (0, 0), (-1, -1), 'TOP'),
@@ -1462,7 +1431,7 @@ def osas_generate_pdf_report():
         title_style = ParagraphStyle(
             'CustomTitle',
             parent=styles['Heading1'],
-            fontSize=18,
+            fontSize=14,
             textColor=colors.HexColor('#f25a04'),
             spaceAfter=12,
             alignment=1  # Center
@@ -1470,11 +1439,15 @@ def osas_generate_pdf_report():
         heading_style = ParagraphStyle(
             'CustomHeading',
             parent=styles['Heading2'],
-            fontSize=14,
+            fontSize=11,
             textColor=colors.HexColor('#1e293b'),
             spaceAfter=8
         )
-        normal_style = styles['Normal']
+        normal_style = ParagraphStyle(
+            'CustomNormal',
+            parent=styles['Normal'],
+            fontSize=9
+        )
         
         # Title
         elements.append(Paragraph("OSAS Violation Records Report", title_style))
@@ -1512,7 +1485,7 @@ def osas_generate_pdf_report():
             ('TEXTCOLOR', (0, 0), (-1, -1), colors.black),
             ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
             ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-            ('FONTSIZE', (0, 0), (-1, 0), 11),
+            ('FONTSIZE', (0, 0), (-1, 0), 9),
             ('BOTTOMPADDING', (0, 0), (-1, 0), 8),
             ('BACKGROUND', (0, 1), (-1, -1), colors.white),
             ('GRID', (0, 0), (-1, -1), 1, colors.grey),
@@ -1529,7 +1502,6 @@ def osas_generate_pdf_report():
         else:
             # Table headers - use Paragraph for headers too
             table_data = [[
-                Paragraph('ID', normal_style),
                 Paragraph('Date', normal_style),
                 Paragraph('Student ID', normal_style),
                 Paragraph('Name', normal_style),
@@ -1546,7 +1518,20 @@ def osas_generate_pdf_report():
                 if timestamp:
                     try:
                         dt = datetime.strptime(str(timestamp), '%Y-%m-%d %H:%M:%S')
-                        formatted_date = dt.strftime('%Y-%m-%d %H:%M')
+                        # Match table format: "Mon, 25 Oct 2025 08:00 AM"
+                        # JavaScript getDay(): 0=Sun, 1=Mon, ..., 6=Sat
+                        # Python weekday(): 0=Mon, 1=Tue, ..., 6=Sun
+                        # Convert Python weekday to JavaScript getDay: (weekday + 1) % 7
+                        weekdays = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
+                        months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+                        weekday = weekdays[(dt.weekday() + 1) % 7]
+                        day = dt.strftime('%d')
+                        month = months[dt.month - 1]
+                        year = dt.year
+                        hour_12 = dt.hour % 12 or 12
+                        minute = dt.strftime('%M')
+                        am_pm = 'AM' if dt.hour < 12 else 'PM'
+                        formatted_date = f"{weekday}, {day} {month} {year} {hour_12}:{minute} {am_pm}"
                     except:
                         formatted_date = str(timestamp)[:16]
                 else:
@@ -1562,7 +1547,6 @@ def osas_generate_pdf_report():
                     # Check for status patterns at the end of violation_type
                     # Patterns to look for (longest first to avoid partial matches)
                     status_patterns = [
-                        '_forwarded_guid', '_forwarded_dean', 'forwarded_guid', 'forwarded_dean',
                         '_pending', '_resolved', 'pending', 'resolved'
                     ]
                     
@@ -1635,7 +1619,6 @@ def osas_generate_pdf_report():
                 college_display = get_college_abbreviation(student_college) if student_college else 'N/A'
                 
                 table_data.append([
-                    Paragraph(str(v.get('violation_id', '')), normal_style),
                     Paragraph(formatted_date, normal_style),
                     Paragraph(str(v.get('student_id', '')), normal_style),
                     Paragraph(str(v.get('name', ''))[:30], normal_style),
@@ -1647,20 +1630,20 @@ def osas_generate_pdf_report():
                 ])
             
             # Create table with adjusted column widths - total width ~7.2 inches (fits A4 with margins)
-            # ID, Date, Student ID, Name, College, Program, Gender, Non Compliant, Status
-            violation_table = Table(table_data, colWidths=[0.4*inch, 0.95*inch, 0.85*inch, 0.9*inch, 0.9*inch, 0.9*inch, 0.7*inch, 0.9*inch, 0.75*inch])
+            # Date, Student ID, Name, College, Program, Gender, Non Compliant, Status
+            violation_table = Table(table_data, colWidths=[0.95*inch, 0.85*inch, 0.9*inch, 0.9*inch, 0.9*inch, 0.7*inch, 0.9*inch, 0.75*inch])
             violation_table.setStyle(TableStyle([
                 ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#f25a04')),
                 ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
                 ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
                 ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-                ('FONTSIZE', (0, 0), (-1, 0), 8),
+                ('FONTSIZE', (0, 0), (-1, 0), 7),
                 ('BOTTOMPADDING', (0, 0), (-1, 0), 8),
                 ('TOPPADDING', (0, 0), (-1, 0), 6),
                 ('BACKGROUND', (0, 1), (-1, -1), colors.white),
                 ('TEXTCOLOR', (0, 1), (-1, -1), colors.black),
                 ('FONTNAME', (0, 1), (-1, -1), 'Helvetica'),
-                ('FONTSIZE', (0, 1), (-1, -1), 7),
+                ('FONTSIZE', (0, 1), (-1, -1), 6),
                 ('GRID', (0, 0), (-1, -1), 0.5, colors.grey),
                 ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.HexColor('#f9fafb')]),
                 ('VALIGN', (0, 0), (-1, -1), 'TOP'),

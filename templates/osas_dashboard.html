@@ -165,7 +165,6 @@
                 // Format gender - capitalize first letter
                 const gender = v.gender ? v.gender.charAt(0).toUpperCase() + v.gender.slice(1).toLowerCase() : '';
                 tr.innerHTML = `
-                    <td>${v.violation_id}</td>
                     <td>${formatTimestamp(v.timestamp)}</td>
                     <td>${v.student_id || ''}</td>
                     <td>${v.name || ''}</td>
@@ -181,7 +180,6 @@
         
         function getCellValue(row, column) {
             const columnMap = {
-                'violation_id': 'violation_id',
                 'timestamp': 'timestamp',
                 'student_id': 'student_id',
                 'name': 'name',
@@ -1003,7 +1001,6 @@
                         <table class="table">
                             <thead>
                                 <tr>
-                                    <th data-sort="violation_id" onclick="sortViolations('violation_id')" style="cursor: pointer; user-select: none;">ID <span class="sort-indicator"></span></th>
                                     <th data-sort="timestamp" onclick="sortViolations('timestamp')" style="cursor: pointer; user-select: none;">Date <span class="sort-indicator"></span></th>
                                     <th data-sort="student_id" onclick="sortViolations('student_id')" style="cursor: pointer; user-select: none;">Student ID <span class="sort-indicator"></span></th>
                                     <th data-sort="name" onclick="sortViolations('name')" style="cursor: pointer; user-select: none;">Name <span class="sort-indicator"></span></th>
