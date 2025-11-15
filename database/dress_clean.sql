@@ -29,10 +29,11 @@ CREATE TABLE `admins` (
   `role` enum('security','osas','dean','guidance') NOT NULL,
   `college` enum('College of Sciences','College of Engineering','College of Architecture and Design','College of Arts and Humanities','College of Business and Accountancy','College of Criminal Justice Education','College of Hospitality Management and Tourism','College of Nursing and Health Sciences','College of Teacher Education') DEFAULT NULL,
   `email` varchar(45) NOT NULL,
+  `app_password` varchar(16) DEFAULT NULL,
   `created_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (`admin_id`),
   UNIQUE KEY `username_UNIQUE` (`username`)
-) ENGINE=InnoDB AUTO_INCREMENT=6 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -169,5 +170,4 @@ UNLOCK TABLES;
 /*!40101 SET COLLATION_CONNECTION=@OLD_COLLATION_CONNECTION */;
 /*!40111 SET SQL_NOTES=@OLD_SQL_NOTES */;
 
--- Dump completed on 2025-11-14 14:21:37
-
+-- Dump completed on 2025-11-15  9:47:12
