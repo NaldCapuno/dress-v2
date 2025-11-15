@@ -1761,16 +1761,51 @@ def get_programs_by_college(college):
         return college_program_map.get('College of Nursing and Health Sciences', [])
     return college_program_map.get(college, [])
 
+
+def followup_email_scheduler():
+    """Background thread that periodically checks for and sends follow-up emails for unresolved violations."""
+    # Wait for app to be fully initialized
+    time.sleep(10)
+    
+    while True:
+        try:
+            # Check once per day for violations that need follow-up emails
+            # This ensures we catch violations that are exactly 3 days old
+            with app.app_context():
+                try:
+                    # Call the follow-up email endpoint internally
+                    from routes.violations import send_followup_emails
+                    with app.test_request_context():
+                        result = send_followup_emails()
+                        if result and hasattr(result, 'get_json'):
+                            data = result.get_json()
+                            if data and data.get('sent', 0) > 0:
+                                print(f"✓ Follow-up email scheduler: Sent {data.get('sent')} follow-up emails")
+                except Exception as e:
+                    print(f"✗ Error in follow-up email scheduler: {e}")
+                    import traceback
+                    traceback.print_exc()
+        except Exception as e:
+            print(f"✗ Error in follow-up email scheduler loop: {e}")
+        
+        # Sleep for 24 hours (86400 seconds) before checking again
+        # This ensures we check once per day for violations that are 3+ days old
+        time.sleep(86400)
+
+
 if __name__ == '__main__':
     print("Starting Flask app for person detection with Bot-SORT tracking...")
     print("Camera will auto-start when the app launches")
     print("RFID monitoring will start automatically")
     print("Detection will only work when RFID card is present")
     print("Make sure you have installed: pip install ultralytics opencv-python flask pillow scipy pyscard")
-    # Start alerts checker in background
+    
+    # Start follow-up email scheduler in background
     try:
-        import threading as _t
-        _t.Thread(target=(lambda: __import__('time') or None), daemon=True)
-    except Exception:
-        pass
+        followup_thread = threading.Thread(target=followup_email_scheduler, daemon=True)
+        followup_thread.start()
+        print("✓ Follow-up email scheduler started (checks daily for violations 3+ days old)")
+    except Exception as e:
+        print(f"✗ Warning: Could not start follow-up email scheduler: {e}")
+    
     app.run(debug=True, host='0.0.0.0', port=5000)
