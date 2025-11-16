@@ -115,7 +115,7 @@ def test_email():
 def toggle_test_mode():
     """Toggle test mode on/off"""
     # Import here to avoid circular imports
-    from app import test_mode, detection_enabled, test_mode_lock, rfid_lock, rfid_present
+    from app import test_mode, detection_enabled, test_mode_lock, rfid_lock, rfid_present, rfid_enabled, set_rfid_enabled
     import app as app_module
     
     try:
@@ -126,11 +126,19 @@ def toggle_test_mode():
             app_module.test_mode = test_mode_enabled
             
         if test_mode_enabled:
-            # In test mode, always enable detection
+            # In test mode, always enable detection and disable RFID
             app_module.detection_enabled = True
-            return jsonify({'success': True, 'test_mode': True, 'message': 'Test mode activated - Detection always enabled'})
+            # Disable RFID processing during test mode
+            if set_rfid_enabled:
+                set_rfid_enabled(False)
+            app_module.rfid_enabled = False
+            return jsonify({'success': True, 'test_mode': True, 'message': 'Test mode activated - Detection always enabled, RFID disabled'})
         else:
             # Exit test mode, return to RFID-based detection
+            # Re-enable RFID if it was enabled before
+            if set_rfid_enabled:
+                set_rfid_enabled(True)
+            app_module.rfid_enabled = True
             with rfid_lock:
                 app_module.detection_enabled = rfid_present
             return jsonify({'success': True, 'test_mode': False, 'message': 'Test mode deactivated - Detection requires RFID card'})

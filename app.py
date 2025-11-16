@@ -8,6 +8,7 @@ import base64
 import threading
 import time
 import re
+import queue
 from io import BytesIO
 from datetime import datetime
 from src.botsort_tracker import BotSORT
@@ -141,7 +142,7 @@ def add_charset_to_json(response):
     return response
 
 # Register Blueprints
-from routes import auth_bp, dashboards_bp, violations_bp, files_bp, camera_bp, rfid_bp, debug_bp, students_bp
+from routes import auth_bp, dashboards_bp, violations_bp, files_bp, camera_bp, rfid_bp, debug_bp, students_bp, settings_bp
 app.register_blueprint(auth_bp)
 app.register_blueprint(dashboards_bp)
 app.register_blueprint(violations_bp)
@@ -150,6 +151,7 @@ app.register_blueprint(camera_bp)
 app.register_blueprint(rfid_bp)
 app.register_blueprint(debug_bp)
 app.register_blueprint(students_bp)
+app.register_blueprint(settings_bp)
 
 # Configure upload folder
 UPLOAD_FOLDER = 'uploads'
@@ -182,6 +184,13 @@ current_frame = None
 frame_lock = threading.Lock()
 selected_camera_id = 0
 
+# Global variables for smooth detection (async processing)
+detection_queue = None  # Queue for frames to be processed
+latest_detections = None  # Latest detection results
+latest_detection_frame = None  # Frame that was used for latest detections
+detection_results_lock = threading.Lock()  # Lock for detection results
+detection_thread = None  # Background detection thread
+
 # Global variables for RFID integration
 rfid_event_queue = None
 rfid_last_uid = None
@@ -204,13 +213,73 @@ rfid_violation_timeout = 30  # seconds after which violation flag resets (allows
 test_mode = False
 test_mode_lock = threading.Lock()
 
+# Schedule checking function
+def is_system_scheduled_active():
+    """Check if the system should be active based on the schedule settings"""
+    try:
+        if get_connection is None:
+            # If DB not configured, allow system to run
+            return True
+        
+        conn = get_connection()
+        try:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT setting_value FROM settings WHERE setting_key = 'system_schedule'"
+                )
+                result = cur.fetchone()
+                
+                if not result or not result.get('setting_value'):
+                    # No schedule set, system is always active
+                    return True
+                
+                import json
+                schedule = json.loads(result['setting_value'])
+                
+                if not schedule or len(schedule) == 0:
+                    # Empty schedule, system is always active
+                    return True
+                
+                # Get current day and time
+                now = datetime.now()
+                current_day = now.strftime('%A')  # e.g., 'Monday'
+                current_time = now.strftime('%H:%M')  # e.g., '14:30'
+                
+                # Check if current time falls within any schedule entry for today
+                for entry in schedule:
+                    if entry['day'] == current_day:
+                        if entry['start_time'] <= current_time < entry['end_time']:
+                            return True
+                
+                # Not within any schedule
+                return False
+        finally:
+            conn.close()
+    except Exception as e:
+        print(f"Error checking schedule: {e}")
+        # On error, allow system to run (fail open)
+        return True
+
 # Auto-initialize camera
 def initialize_camera():
-    global camera, selected_camera_id
+    global camera, selected_camera_id, detection_queue, detection_thread, latest_detections, latest_detection_frame
     try:
         camera = cv2.VideoCapture(selected_camera_id)  # Use selected camera
         if camera.isOpened():
             print(f"Camera {selected_camera_id} initialized successfully")
+            
+            # Initialize detection queue and start detection thread if not already running
+            if detection_queue is None:
+                detection_queue = queue.Queue(maxsize=2)  # Small queue to prevent lag
+                latest_detections = None
+                latest_detection_frame = None
+                
+                # Start detection worker thread
+                if detection_thread is None or not detection_thread.is_alive():
+                    detection_thread = threading.Thread(target=detection_worker, daemon=True)
+                    detection_thread.start()
+                    print("Detection worker thread started")
+            
             return True
         else:
             print(f"Failed to initialize camera {selected_camera_id}")
@@ -237,12 +306,67 @@ def initialize_rfid():
         print(f"Error initializing RFID: {e}")
         return False
 
+def update_rfid_enabled_based_on_schedule():
+    """Update rfid_enabled flag based on schedule and test mode"""
+    global rfid_enabled, test_mode, test_mode_lock, camera
+    
+    # Check test mode first
+    with test_mode_lock:
+        test_mode_active = test_mode
+    
+    # If test mode is active, RFID should be disabled
+    if test_mode_active:
+        if rfid_enabled:
+            rfid_enabled = False
+            set_rfid_enabled(False)
+            print("RFID disabled: Test mode is active")
+        return
+    
+    # Check schedule
+    is_active = is_system_scheduled_active()
+    
+    if is_active:
+        # Within scheduled hours - enable RFID if camera is running
+        if camera is not None and camera.isOpened():
+            if not rfid_enabled:
+                rfid_enabled = True
+                set_rfid_enabled(True)
+                print("RFID enabled: Within scheduled hours")
+        else:
+            # Camera not running, disable RFID
+            if rfid_enabled:
+                rfid_enabled = False
+                set_rfid_enabled(False)
+                print("RFID disabled: Camera is not running")
+    else:
+        # Outside scheduled hours - disable RFID
+        if rfid_enabled:
+            rfid_enabled = False
+            set_rfid_enabled(False)
+            print("RFID disabled: Outside scheduled hours")
+
 def rfid_event_handler():
     """Handle RFID events in background thread"""
-    global rfid_last_uid, rfid_present, detection_enabled, rfid_lock, rfid_last_student, rfid_consecutive_non_compliant, rfid_last_compliance_status, rfid_last_violation_ts, camera, rfid_enabled, tracker
+    global rfid_last_uid, rfid_present, detection_enabled, rfid_lock, rfid_last_student, rfid_consecutive_non_compliant, rfid_last_compliance_status, rfid_last_violation_ts, camera, rfid_enabled, tracker, test_mode, test_mode_lock
     
     while True:
         try:
+            # Update RFID enabled status based on schedule and test mode
+            update_rfid_enabled_based_on_schedule()
+            
+            # Skip RFID processing if test mode is active
+            with test_mode_lock:
+                test_mode_active = test_mode
+            
+            if test_mode_active:
+                time.sleep(0.1)  # Small delay to avoid busy waiting
+                continue
+            
+            # Check if system is scheduled to be active - RFID only works during scheduled hours
+            if not is_system_scheduled_active():
+                time.sleep(0.1)  # Small delay to avoid busy waiting
+                continue
+            
             if rfid_event_queue and rfid_enabled and camera is not None and camera.isOpened():
                 event = rfid_event_queue.get(timeout=1.0)
                 if event['type'] == 'uid':
@@ -1319,6 +1443,16 @@ def _maybe_record_violation(frame, detections, admin_user):
         # Use the violation type that was already created for the image
         violation_type = violation_type_for_image
 
+        # Get violation count BEFORE inserting the new violation to calculate correct strike number
+        student_id = rfid_last_student.get('student_id')
+        previous_violation_count = 0
+        try:
+            from src.config import get_student_violation_count as _get_v_cnt
+        except Exception:
+            _get_v_cnt = None
+        if _get_v_cnt and student_id:
+            previous_violation_count = int(_get_v_cnt(student_id) or 0)
+            print(f"DEBUG: Previous violation count for student {student_id}: {previous_violation_count}")
 
         # Store relative path in DB; serve via /results/violations/<filename>
         rel_path = os.path.join(VIOLATION_SUBDIR, proof_name) if proof_path else None
@@ -1385,16 +1519,16 @@ def _maybe_record_violation(frame, detections, admin_user):
                             print(f"DEBUG: find_student_by_id function not available")
                     if student_email:
                         print(f"DEBUG: Student email found: {student_email}, proceeding with email composition...")
-                        # Determine strike number (cap at 3)
-                        strike_num = 1
+                        # Determine strike number based on previous violations + 1 (the one we just inserted)
+                        # Cap at 3
+                        strike_num = previous_violation_count + 1
+                        strike_num = max(1, min(3, strike_num))
+                        print(f"DEBUG: Strike number calculated: {strike_num} (previous violations: {previous_violation_count})")
+                        
                         try:
-                            from src.config import get_student_violation_count as _get_v_cnt, get_student_violations as _get_v_list
+                            from src.config import get_student_violations as _get_v_list
                         except Exception:
-                            _get_v_cnt = None
                             _get_v_list = None
-                        if _get_v_cnt and student_id:
-                            total = int(_get_v_cnt(student_id) or 1)
-                            strike_num = max(1, min(3, total))
                         # Build violation list lines
                         violation_lines = []
                         if _get_v_list and student_id:
@@ -1472,7 +1606,7 @@ Dear {student_name},
 
 This is to inform you that the DRESS (Dress-code Recognition Surveillance System) detected a dress code violation on your part on {dt_str}.
 
-Please remember that following the university dress code is part of maintaining discipline and professionalism. We ask that you correct your attire and comply on your next visit.
+Please remember that following the university dress code is part of maintaining discipline and professionalism. We ask you to comply with the proper uniform prescribed by the University, as stated in the Student Handbook, on your next visit.
 
 VIOLATION DETAILS
 Current Strike Count: {strike_num} of 3
@@ -1552,9 +1686,58 @@ This is an automated notification. Please do not reply to this email."""
         print(f"Violation record error: {e}")
         return None
 
+def detection_worker():
+    """Background thread that processes frames for detection without blocking camera feed"""
+    global detection_queue, latest_detections, latest_detection_frame, detection_results_lock, detection_enabled, test_mode, test_mode_lock
+    
+    while True:
+        try:
+            # Get frame from queue (with timeout to allow checking if thread should continue)
+            try:
+                frame_data = detection_queue.get(timeout=0.1)
+                if frame_data is None:  # Shutdown signal
+                    break
+                
+                frame, detection_enabled_flag = frame_data
+                
+                # Note: Camera can work anytime, but detections/violations are only processed during scheduled hours
+                # This allows camera feed to work but prevents violations from being recorded outside schedule
+                # Exception: Test mode works outside scheduled hours
+                if detection_enabled_flag and frame is not None:
+                    # Check test mode first - test mode works outside scheduled hours
+                    with test_mode_lock:
+                        test_mode_active = test_mode
+                    
+                    # Only process detections if system is scheduled to be active OR test mode is active
+                    if not test_mode_active and not is_system_scheduled_active():
+                        # Skip detection processing if outside scheduled hours (but camera feed still works)
+                        detection_queue.task_done()
+                        continue
+                    # Perform detection on the frame
+                    detections = detect_persons_frame_with_dress(frame.copy())
+                    
+                    # Store latest detection results
+                    with detection_results_lock:
+                        latest_detections = detections
+                        latest_detection_frame = frame.copy()
+                    
+                    # Attempt to record violation using the frame
+                    _maybe_record_violation(frame.copy(), detections, None)
+                
+                detection_queue.task_done()
+            except queue.Empty:
+                # No frame to process, continue
+                continue
+        except Exception as e:
+            print(f"Error in detection worker: {e}")
+            import traceback
+            traceback.print_exc()
+            time.sleep(0.1)
+
 def generate_frames():
-    """Generate video frames for streaming"""
-    global camera, detection_enabled, current_frame, frame_lock
+    """Generate video frames for streaming with smooth async detection"""
+    global camera, detection_enabled, current_frame, frame_lock, detection_queue
+    global latest_detections, latest_detection_frame, detection_results_lock
     
     while True:
         if camera is not None:
@@ -1580,22 +1763,32 @@ def generate_frames():
                 # In test mode, detection always runs regardless of RFID
                 detection_enabled_for_frame = rfid_detection_enabled or test_mode_active
                 
-                if detection_enabled_for_frame:
-                    # Keep a clean copy of the frame (without live overlays) for proof image
-                    clean_frame_for_proof = frame.copy()
-                    
-                    detections = detect_persons_frame_with_dress(frame)
-                    frame = draw_detections_frame(frame, detections)
-                    
-                    # Attempt to record violation using the CLEAN frame (no overlay text)
-                    # Note: admin_user is None in background thread, will be handled in violation function
-                    _maybe_record_violation(clean_frame_for_proof, detections, None)
-                    
-                    # Status overlay removed as requested
-                    pass
-                else:
-                    # Status overlay removed as requested
-                    pass
+                # Add frame to detection queue (non-blocking, drop old frames if queue is full)
+                if detection_enabled_for_frame and detection_queue is not None:
+                    try:
+                        # Try to add frame to queue, but don't block if queue is full
+                        # This ensures camera feed stays smooth even if detection is slow
+                        detection_queue.put_nowait((frame.copy(), True))
+                    except queue.Full:
+                        # Queue is full, skip this frame (detection will catch up)
+                        pass
+                elif not detection_enabled_for_frame:
+                    # Clear detection results when detection is disabled
+                    with detection_results_lock:
+                        latest_detections = None
+                        latest_detection_frame = None
+                
+                # Get latest detection results (non-blocking)
+                detections_to_draw = None
+                with detection_results_lock:
+                    if latest_detections is not None:
+                        detections_to_draw = latest_detections
+                
+                # Draw detections on current frame if available
+                if detection_enabled_for_frame and detections_to_draw is not None:
+                    # Use the current frame but draw detections from latest results
+                    # This keeps the video smooth while showing detection results
+                    frame = draw_detections_frame(frame, detections_to_draw)
                 
                 # Encode frame as JPEG
                 ret, buffer = cv2.imencode('.jpg', frame)
@@ -1683,16 +1876,73 @@ def get_programs_by_college(college):
         return college_program_map.get('College of Nursing and Health Sciences', [])
     return college_program_map.get(college, [])
 
+
+def schedule_rfid_checker():
+    """Background thread that periodically checks schedule and updates RFID enabled status"""
+    # Wait for app to be fully initialized
+    time.sleep(5)
+    
+    while True:
+        try:
+            update_rfid_enabled_based_on_schedule()
+        except Exception as e:
+            print(f"Error in schedule RFID checker: {e}")
+        
+        # Check every 10 seconds
+        time.sleep(10)
+
+def followup_email_scheduler():
+    """Background thread that periodically checks for and sends follow-up emails for unresolved violations."""
+    # Wait for app to be fully initialized
+    time.sleep(10)
+    
+    while True:
+        try:
+            # Check once per day for violations that need follow-up emails
+            # This ensures we catch violations that are exactly 3 days old
+            with app.app_context():
+                try:
+                    # Call the follow-up email endpoint internally
+                    from routes.violations import send_followup_emails
+                    with app.test_request_context():
+                        result = send_followup_emails()
+                        if result and hasattr(result, 'get_json'):
+                            data = result.get_json()
+                            if data and data.get('sent', 0) > 0:
+                                print(f"✓ Follow-up email scheduler: Sent {data.get('sent')} follow-up emails")
+                except Exception as e:
+                    print(f"✗ Error in follow-up email scheduler: {e}")
+                    import traceback
+                    traceback.print_exc()
+        except Exception as e:
+            print(f"✗ Error in follow-up email scheduler loop: {e}")
+        
+        # Sleep for 24 hours (86400 seconds) before checking again
+        # This ensures we check once per day for violations that are 3+ days old
+        time.sleep(86400)
+
+
 if __name__ == '__main__':
     print("Starting Flask app for person detection with Bot-SORT tracking...")
     print("Camera will auto-start when the app launches")
     print("RFID monitoring will start automatically")
     print("Detection will only work when RFID card is present")
     print("Make sure you have installed: pip install ultralytics opencv-python flask pillow scipy pyscard")
-    # Start alerts checker in background
+    
+    # Start follow-up email scheduler in background
     try:
-        import threading as _t
-        _t.Thread(target=(lambda: __import__('time') or None), daemon=True)
-    except Exception:
-        pass
+        followup_thread = threading.Thread(target=followup_email_scheduler, daemon=True)
+        followup_thread.start()
+        print("✓ Follow-up email scheduler started (checks daily for violations 3+ days old)")
+    except Exception as e:
+        print(f"✗ Warning: Could not start follow-up email scheduler: {e}")
+    
+    # Start schedule RFID checker in background
+    try:
+        schedule_checker_thread = threading.Thread(target=schedule_rfid_checker, daemon=True)
+        schedule_checker_thread.start()
+        print("✓ Schedule RFID checker started (checks every 30 seconds to enable/disable RFID based on schedule)")
+    except Exception as e:
+        print(f"✗ Warning: Could not start schedule RFID checker: {e}")
+    
     app.run(debug=True, host='0.0.0.0', port=5000)

@@ -22,7 +22,7 @@ def video_feed():
 def start_camera():
     """Start webcam and RFID monitoring (or return status if already running)"""
     # Import here to avoid circular imports
-    from app import camera, selected_camera_id, rfid_event_queue, rfid_enabled, initialize_rfid, start_rfid_monitoring, set_rfid_enabled, RFID_AVAILABLE
+    from app import camera, selected_camera_id, rfid_event_queue, rfid_enabled, initialize_rfid, start_rfid_monitoring, set_rfid_enabled, RFID_AVAILABLE, initialize_camera, is_system_scheduled_active, update_rfid_enabled_based_on_schedule
     
     try:
         # Try to get camera_id from JSON, fallback to selected_camera_id
@@ -35,12 +35,10 @@ def start_camera():
             pass
         
         if camera is None or not camera.isOpened():
-            camera = cv2.VideoCapture(camera_id)
-            if camera.isOpened():
-                # Update global selected camera ID (need to import app module to modify)
-                import app as app_module
-                app_module.selected_camera_id = camera_id
-                
+            import app as app_module
+            app_module.selected_camera_id = camera_id
+            # Use initialize_camera which now handles detection queue setup
+            if initialize_camera():
                 # Initialize and start RFID monitoring when camera starts
                 if RFID_AVAILABLE:
                     try:
@@ -50,10 +48,9 @@ def start_camera():
                         else:
                             start_rfid_monitoring()
                         
-                        # Enable RFID processing
-                        app_module.rfid_enabled = True
-                        set_rfid_enabled(True)  # Enable RFID polling
-                        print(f"DEBUG: RFID enabled set to True, rfid_enabled: {app_module.rfid_enabled}")
+                        # Update RFID enabled status based on schedule (will enable if within schedule)
+                        update_rfid_enabled_based_on_schedule()
+                        print(f"DEBUG: RFID enabled status updated based on schedule, rfid_enabled: {app_module.rfid_enabled}")
                         print("RFID monitoring started with camera")
                     except Exception as e:
                         print(f"Warning: Could not start RFID monitoring: {e}")
@@ -73,7 +70,7 @@ def start_camera():
 def change_camera():
     """Change to a different camera and enable RFID monitoring"""
     # Import here to avoid circular imports
-    from app import camera, detection_enabled, selected_camera_id, rfid_enabled, rfid_event_queue, initialize_rfid, start_rfid_monitoring, set_rfid_enabled, RFID_AVAILABLE
+    from app import camera, detection_enabled, selected_camera_id, rfid_enabled, rfid_event_queue, initialize_rfid, start_rfid_monitoring, set_rfid_enabled, RFID_AVAILABLE, initialize_camera, update_rfid_enabled_based_on_schedule
     import app as app_module
     
     try:
@@ -85,11 +82,9 @@ def change_camera():
             camera.release()
             app_module.camera = None
         
-        # Start new camera
-        new_camera = cv2.VideoCapture(camera_id)
-        if new_camera.isOpened():
-            app_module.selected_camera_id = camera_id  # Update global selected camera ID
-            app_module.camera = new_camera
+        # Start new camera using initialize_camera which handles detection queue setup
+        app_module.selected_camera_id = camera_id  # Update global selected camera ID
+        if initialize_camera():
             app_module.detection_enabled = False  # Reset detection when changing camera
             
             # Enable RFID monitoring when camera is started via switching
@@ -100,10 +95,9 @@ def change_camera():
                     else:
                         start_rfid_monitoring()
                     
-                    # Enable RFID processing
-                    app_module.rfid_enabled = True
-                    set_rfid_enabled(True)  # Enable RFID polling
-                    print(f"DEBUG: RFID enabled via camera switch, rfid_enabled: {app_module.rfid_enabled}")
+                    # Update RFID enabled status based on schedule (will enable if within schedule)
+                    update_rfid_enabled_based_on_schedule()
+                    print(f"DEBUG: RFID enabled status updated via camera switch, rfid_enabled: {app_module.rfid_enabled}")
                     print("RFID monitoring started with camera switch")
                 except Exception as e:
                     print(f"Warning: Could not start RFID monitoring during camera switch: {e}")
@@ -322,7 +316,7 @@ def get_cameras():
 def reset_tracker():
     """Reset the tracker to clear all tracking IDs"""
     # Import here to avoid circular imports
-    from bot_sort import BotSORT
+    from src.botsort_tracker import BotSORT
     import app as app_module
     
     try:

@@ -4,8 +4,10 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Guidance Dashboard</title>
-    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/table-styles.css') }}">
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="{{ url_for('static', filename='js/table-pagination.js') }}"></script>
     <script>
         async function fetchJSON(url) {
             const res = await fetch(url);
@@ -64,6 +66,7 @@
         let page = 1;
         let pageSize = 10;
         let violationsData = [];
+        let violationsTotal = 0; // Total count from server
         let sortColumn = null;
         let sortDirection = 'asc';
         let searchTerm = '';
@@ -86,6 +89,7 @@
             const data = await fetchJSON(`/guidance/violations?${params.toString()}`);
             if (!data.success) return;
             violationsData = data.rows || [];
+            violationsTotal = data.total || 0;
             renderViolationsTable();
             document.getElementById('page').textContent = page;
         }
@@ -169,7 +173,6 @@
                     </div>
                 `;
                 tr.innerHTML = `
-                    <td>${v.violation_id}</td>
                     <td>${formatTimestamp(v.timestamp)}</td>
                     <td>${v.student_id || ''}</td>
                     <td>${v.name || ''}</td>
@@ -186,7 +189,6 @@
         
         function getCellValue(row, column) {
             const columnMap = {
-                'violation_id': 'violation_id',
                 'timestamp': 'timestamp',
                 'student_id': 'student_id',
                 'name': 'name',
@@ -285,8 +287,18 @@
             page = 1;
             loadViolations();
         }
-        function prevPage() { if (page > 1) { page--; loadViolations(); } }
-        function nextPage() { page++; loadViolations(); }
+        function prevPage() { 
+            if (canGoToPrevPage(page)) {
+                page--; 
+                loadViolations(); 
+            } 
+        }
+        function nextPage() { 
+            if (canGoToNextPage(page, violationsTotal, pageSize)) {
+                page++; 
+                loadViolations(); 
+            }
+        }
 
         let charts = {};
         let trendBaseSeries = [];
@@ -805,29 +817,6 @@
                 grid-template-columns: 1fr;
             }
         }
-        #violations-section th[data-sort] {
-            position: relative;
-            padding-right: 20px;
-        }
-        #violations-section th[data-sort]:hover {
-            background-color: #f3f4f6;
-        }
-        #violations-section .sort-indicator {
-            position: absolute;
-            right: 8px;
-            top: 50%;
-            transform: translateY(-50%);
-            font-size: 0.75rem;
-            opacity: 0.3;
-        }
-        #violations-section th.sort-asc .sort-indicator::after {
-            content: '▲';
-            opacity: 1;
-        }
-        #violations-section th.sort-desc .sort-indicator::after {
-            content: '▼';
-            opacity: 1;
-        }
     </style>
 </head>
 <body>
@@ -1021,8 +1010,8 @@
                             <h3>Violation Records</h3>
                         </div>
                         <div class="pagination-controls">
-                            <label for="page-size" style="font-size: 0.875rem; color: #6b7280; margin-right: 0.5rem;">Show:</label>
-                            <select id="page-size" class="form-control" style="width: auto; display: inline-block; padding: 0.375rem 2.5rem 0.375rem 0.75rem; margin-right: 1rem;" onchange="changePageSize()">
+                            <label for="page-size">Show:</label>
+                            <select id="page-size" class="form-control" onchange="changePageSize()">
                                 <option value="10" selected>10</option>
                                 <option value="20">20</option>
                                 <option value="30">30</option>
@@ -1046,7 +1035,6 @@
                         <table class="table">
                             <thead>
                                 <tr>
-                                    <th data-sort="violation_id" onclick="sortViolations('violation_id')" style="cursor: pointer; user-select: none;">ID <span class="sort-indicator"></span></th>
                                     <th data-sort="timestamp" onclick="sortViolations('timestamp')" style="cursor: pointer; user-select: none;">Date <span class="sort-indicator"></span></th>
                                     <th data-sort="student_id" onclick="sortViolations('student_id')" style="cursor: pointer; user-select: none;">Student ID <span class="sort-indicator"></span></th>
                                     <th data-sort="name" onclick="sortViolations('name')" style="cursor: pointer; user-select: none;">Name <span class="sort-indicator"></span></th>

@@ -4,7 +4,8 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Dean Dashboard</title>
-    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/table-styles.css') }}">
     <style>
         .notification-dot {
             color: #ff4444;
@@ -77,6 +78,90 @@
             outline: none;
             border-color: #f25a04;
             box-shadow: 0 0 0 3px rgba(242, 90, 4, 0.1);
+        }
+        #violations-section .dashboard-filters .filter-field {
+            display: flex;
+            flex-direction: column;
+            gap: 0.25rem;
+        }
+        #violations-section .dashboard-filters .filter-field label {
+            font-size: 0.75rem;
+            font-weight: 600;
+            color: #6b7280;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+        /* Students filter section styling - same as violations */
+        #add-students-section .card:first-child {
+            margin-bottom: 1rem;
+        }
+        #add-students-section .card:first-child .card-header {
+            padding: 0.75rem 1rem;
+            border-bottom: none;
+            background-color: transparent;
+            position: relative;
+        }
+        #add-students-section .card:first-child .card-header::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 3px;
+            background-color: #f25a04;
+            border-radius: 0.5rem 0.5rem 0 0;
+        }
+        #add-students-section .card:first-child .card-header h3 {
+            margin: 0;
+            font-size: 1.25rem;
+            font-weight: 600;
+            color: #1e293b;
+            padding-top: 0.5rem;
+        }
+        #add-students-section .card:first-child .card-body {
+            padding: 1rem;
+        }
+        #add-students-section .dashboard-filters {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+            gap: 0.75rem;
+            align-items: end;
+            padding: 0;
+            background-color: transparent;
+            border: none;
+            margin-bottom: 0;
+        }
+        #add-students-section .dashboard-filters input,
+        #add-students-section .dashboard-filters select {
+            min-width: 0;
+            padding: 0.5rem 0.75rem;
+            border: 1px solid #d1d5db;
+            border-radius: 0.375rem;
+            font-size: 0.875rem;
+            background-color: #ffffff;
+            transition: all 0.2s;
+            width: 100%;
+        }
+        #add-students-section .dashboard-filters input::placeholder {
+            color: #9ca3af;
+        }
+        #add-students-section .dashboard-filters input:focus,
+        #add-students-section .dashboard-filters select:focus {
+            outline: none;
+            border-color: #f25a04;
+            box-shadow: 0 0 0 3px rgba(242, 90, 4, 0.1);
+        }
+        #add-students-section .dashboard-filters .filter-field {
+            display: flex;
+            flex-direction: column;
+            gap: 0.25rem;
+        }
+        #add-students-section .dashboard-filters .filter-field label {
+            font-size: 0.75rem;
+            font-weight: 600;
+            color: #6b7280;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
         }
         #violations-section .dashboard-filters .filter-field {
             display: flex;
@@ -239,31 +324,9 @@
                 grid-template-columns: 1fr;
             }
         }
-        #violations-section th[data-sort] {
-            position: relative;
-            padding-right: 20px;
-        }
-        #violations-section th[data-sort]:hover {
-            background-color: #f3f4f6;
-        }
-        #violations-section .sort-indicator {
-            position: absolute;
-            right: 8px;
-            top: 50%;
-            transform: translateY(-50%);
-            font-size: 0.75rem;
-            opacity: 0.3;
-        }
-        #violations-section th.sort-asc .sort-indicator::after {
-            content: '▲';
-            opacity: 1;
-        }
-        #violations-section th.sort-desc .sort-indicator::after {
-            content: '▼';
-            opacity: 1;
-        }
     </style>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="{{ url_for('static', filename='js/table-pagination.js') }}"></script>
     <script>
         async function fetchJSON(url) {
             const res = await fetch(url);
@@ -322,9 +385,18 @@
         let page = 1;
         let pageSize = 10;
         let violationsData = [];
+        let violationsTotal = 0; // Total count from server
         let sortColumn = null;
         let sortDirection = 'asc';
         let searchTerm = '';
+        
+        // Students table variables
+        let studentsPage = 1;
+        let studentsPageSize = 10;
+        let studentsData = [];
+        let studentsSortColumn = null;
+        let studentsSortDirection = 'asc';
+        let studentsSearchTerm = '';
 
         async function loadAnalytics() {
             const params = new URLSearchParams(getFilterParams());
@@ -343,6 +415,7 @@
             const data = await fetchJSON(`/dean/violations?${params.toString()}`);
             if (!data.success) return;
             violationsData = data.rows || [];
+            violationsTotal = data.total || 0;
             renderViolationsTable();
             document.getElementById('page').textContent = page;
         }
@@ -410,15 +483,19 @@
                 });
             }
             
-            // Update total count to reflect filtered results
-            document.getElementById('total-count').textContent = sortedData.length;
+            // Calculate and display range
+            const displayedCount = sortedData.length;
+            const startIndex = (page - 1) * pageSize;
+            const endIndex = startIndex + displayedCount;
+            const totalCount = violationsTotal; // Use server total
+            const countDisplay = formatCountDisplay(startIndex, endIndex, totalCount);
+            document.getElementById('violations-count-display').textContent = countDisplay;
             
             sortedData.forEach(v => {
                 const tr = document.createElement('tr');
                 // Format gender - capitalize first letter
                 const gender = v.gender ? v.gender.charAt(0).toUpperCase() + v.gender.slice(1).toLowerCase() : '';
                 tr.innerHTML = `
-                    <td>${v.violation_id}</td>
                     <td>${formatTimestamp(v.timestamp)}</td>
                     <td>${v.student_id || ''}</td>
                     <td>${v.name || ''}</td>
@@ -434,7 +511,6 @@
         
         function getCellValue(row, column) {
             const columnMap = {
-                'violation_id': 'violation_id',
                 'timestamp': 'timestamp',
                 'student_id': 'student_id',
                 'name': 'name',
@@ -496,8 +572,18 @@
             page = 1;
             loadViolations();
         }
-        function prevPage() { if (page > 1) { page--; loadViolations(); } }
-        function nextPage() { page++; loadViolations(); }
+        function prevPage() { 
+            if (canGoToPrevPage(page)) {
+                page--; 
+                loadViolations(); 
+            } 
+        }
+        function nextPage() { 
+            if (canGoToNextPage(page, violationsTotal, pageSize)) {
+                page++; 
+                loadViolations(); 
+            }
+        }
         
         function generatePDFReport() {
             const params = new URLSearchParams(getFilterParams());
@@ -960,8 +1046,8 @@
                             <h3>Violation Records</h3>
                         </div>
                         <div class="pagination-controls">
-                            <label for="page-size" style="font-size: 0.875rem; color: #6b7280; margin-right: 0.5rem;">Show:</label>
-                            <select id="page-size" class="form-control" style="width: auto; display: inline-block; padding: 0.375rem 2.5rem 0.375rem 0.75rem; margin-right: 1rem;" onchange="changePageSize()">
+                            <label for="page-size">Show:</label>
+                            <select id="page-size" class="form-control" onchange="changePageSize()">
                                 <option value="10" selected>10</option>
                                 <option value="20">20</option>
                                 <option value="30">30</option>
@@ -976,7 +1062,7 @@
                             <button class="btn btn-secondary" onclick="prevPage()">Prev</button>
                             <span>Page <span id="page">1</span></span>
                             <button class="btn btn-secondary" onclick="nextPage()">Next</button>
-                            <span>Total: <span id="total-count">0</span></span>
+                            <span id="violations-count-display">Showing 0-0 of 0</span>
                         </div>
                     </div>
                 </div>
@@ -985,7 +1071,6 @@
                         <table class="table">
                             <thead>
                                 <tr>
-                                    <th data-sort="violation_id" onclick="sortViolations('violation_id')" style="cursor: pointer; user-select: none;">ID <span class="sort-indicator"></span></th>
                                     <th data-sort="timestamp" onclick="sortViolations('timestamp')" style="cursor: pointer; user-select: none;">Date <span class="sort-indicator"></span></th>
                                     <th data-sort="student_id" onclick="sortViolations('student_id')" style="cursor: pointer; user-select: none;">Student ID <span class="sort-indicator"></span></th>
                                     <th data-sort="name" onclick="sortViolations('name')" style="cursor: pointer; user-select: none;">Name <span class="sort-indicator"></span></th>
@@ -1045,11 +1130,45 @@
         </div>
 
         <div id="add-students-section" style="display:none;">
+            <div class="card">
+                <div class="card-header">
+                    <h3>Filters</h3>
+                </div>
+                <div class="card-body">
+                    <div class="dashboard-filters">
+                        <input type="text" id="students-search" placeholder="Search by name, student ID, email, program, or RFID UID..." class="form-control" style="grid-column: 1 / -1;">
+                        <select id="students-program-filter" class="form-control">
+                            <option value="">All Programs</option>
+                        </select>
+                    </div>
+                </div>
+            </div>
             <div class="card" id="students-list-card">
                 <div class="card-header">
-                    <div style="display: flex; justify-content: space-between; align-items: center;">
-                        <h3>Students</h3>
-                        <button class="btn btn-primary" id="show-add-student-btn" onclick="toggleAddStudentForm()">Add Student</button>
+                    <div class="dashboard-pagination">
+                        <div class="pagination-info">
+                            <h3>Students</h3>
+                        </div>
+                        <div class="pagination-controls">
+                            <label for="students-page-size">Show:</label>
+                            <select id="students-page-size" class="form-control" onchange="changeStudentsPageSize()">
+                                <option value="10" selected>10</option>
+                                <option value="20">20</option>
+                                <option value="30">30</option>
+                                <option value="40">40</option>
+                                <option value="50">50</option>
+                                <option value="60">60</option>
+                                <option value="70">70</option>
+                                <option value="80">80</option>
+                                <option value="90">90</option>
+                                <option value="100">100</option>
+                            </select>
+                            <button class="btn btn-secondary" onclick="prevStudentsPage()">Prev</button>
+                            <span>Page <span id="students-page">1</span></span>
+                            <button class="btn btn-secondary" onclick="nextStudentsPage()">Next</button>
+                            <span id="students-count-display">Showing 0-0 of 0</span>
+                            <button class="btn btn-primary" id="show-add-student-btn" onclick="toggleAddStudentForm()">Add Student</button>
+                        </div>
                     </div>
                 </div>
                 <div class="card-body">
@@ -1057,19 +1176,19 @@
                         <table class="table">
                             <thead>
                                 <tr>
-                                    <th>Student ID</th>
-                                    <th>Name</th>
-                                    <th>Email</th>
-                                    <th>Gender</th>
-                                    <th>Year Level</th>
-                                    <th>Program</th>
-                                    <th>RFID UID</th>
+                                    <th data-sort="student_id" onclick="sortStudents('student_id')" style="cursor: pointer; user-select: none;">Student ID <span class="sort-indicator"></span></th>
+                                    <th data-sort="name" onclick="sortStudents('name')" style="cursor: pointer; user-select: none;">Name <span class="sort-indicator"></span></th>
+                                    <th data-sort="email" onclick="sortStudents('email')" style="cursor: pointer; user-select: none;">Email <span class="sort-indicator"></span></th>
+                                    <th data-sort="gender" onclick="sortStudents('gender')" style="cursor: pointer; user-select: none;">Gender <span class="sort-indicator"></span></th>
+                                    <th data-sort="year_level" onclick="sortStudents('year_level')" style="cursor: pointer; user-select: none;">Year Level <span class="sort-indicator"></span></th>
+                                    <th data-sort="program" onclick="sortStudents('program')" style="cursor: pointer; user-select: none;">Program <span class="sort-indicator"></span></th>
+                                    <th data-sort="rfid_uid" onclick="sortStudents('rfid_uid')" style="cursor: pointer; user-select: none;">RFID UID <span class="sort-indicator"></span></th>
                                     <th>Actions</th>
                                 </tr>
                             </thead>
                             <tbody id="students-table-body">
                                 <tr>
-                                    <td colspan="7" style="text-align: center; padding: 2rem; color: #6b7280;">Loading students...</td>
+                                    <td colspan="8" style="text-align: center; padding: 2rem; color: #6b7280;">Loading students...</td>
                                 </tr>
                             </tbody>
                         </table>
@@ -1347,8 +1466,36 @@
                             sel.appendChild(opt);
                         });
                     }
+                    // Also populate students program filter
+                    const studentsProgramSel = document.getElementById('students-program-filter');
+                    if (studentsProgramSel) {
+                        (data.programs || []).forEach(p => {
+                            const opt = document.createElement('option');
+                            opt.value = p;
+                            opt.textContent = p;
+                            studentsProgramSel.appendChild(opt);
+                        });
+                    }
                 }
             } catch (e) {}
+            
+            // Attach event listeners for students search and filter
+            const studentsSearchInput = document.getElementById('students-search');
+            if (studentsSearchInput) {
+                studentsSearchInput.addEventListener('input', (e) => {
+                    studentsSearchTerm = e.target.value;
+                    studentsPage = 1; // Reset to first page when searching
+                    renderStudentsTable();
+                });
+            }
+            
+            const studentsProgramFilter = document.getElementById('students-program-filter');
+            if (studentsProgramFilter) {
+                studentsProgramFilter.addEventListener('change', () => {
+                    studentsPage = 1; // Reset to first page when filtering
+                    renderStudentsTable();
+                });
+            }
             
             // Toggle add student form (make it globally accessible)
             window.toggleAddStudentForm = function() {
@@ -1382,31 +1529,20 @@
                 try {
                     const res = await fetch('/dean/students');
                     const data = await res.json();
-                    const tbody = document.getElementById('students-table-body');
-                    if (!tbody) return;
-                    
-                    if (data.success && Array.isArray(data.students)) {
-                        if (data.students.length === 0) {
-                            tbody.innerHTML = '<tr><td colspan="8" style="text-align: center; padding: 2rem; color: #6b7280;">No students found.</td></tr>';
-                        } else {
-                            tbody.innerHTML = data.students.map(s => `
-                                <tr>
-                                    <td>${s.student_id || ''}</td>
-                                    <td>${s.name || ''}</td>
-                                    <td>${s.email || ''}</td>
-                                    <td>${(s.gender || '').charAt(0).toUpperCase() + (s.gender || '').slice(1)}</td>
-                                    <td>${s.year_level || ''}</td>
-                                    <td>${s.program || ''}</td>
-                                    <td>${s.rfid_uid || ''}</td>
-                                    <td>
-                                        <button class="btn btn-secondary" style="padding: 0.25rem 0.5rem; font-size: 0.875rem; margin-right: 0.25rem;" onclick="editStudent('${s.student_id}')">Edit</button>
-                                        <button class="btn btn-secondary" style="padding: 0.25rem 0.5rem; font-size: 0.875rem; background-color: #f25a04; border-color: #f25a04; color: #ffffff;" onclick="deleteStudent('${s.student_id}', '${(s.name || '').replace(/'/g, "\\'")}')">Delete</button>
-                                    </td>
-                                </tr>
-                            `).join('');
+                    if (!data.success) {
+                        const tbody = document.getElementById('students-table-body');
+                        if (tbody) {
+                            tbody.innerHTML = '<tr><td colspan="8" style="text-align: center; padding: 2rem; color: #ef4444;">Error loading students.</td></tr>';
                         }
+                        return;
+                    }
+                    
+                    if (Array.isArray(data.students)) {
+                        studentsData = data.students || [];
+                        renderStudentsTable();
                     } else {
-                        tbody.innerHTML = '<tr><td colspan="8" style="text-align: center; padding: 2rem; color: #ef4444;">Error loading students.</td></tr>';
+                        studentsData = [];
+                        renderStudentsTable();
                     }
                 } catch (e) {
                     console.error('Error loading students:', e);
@@ -1416,6 +1552,184 @@
                     }
                 }
             }
+            
+            window.sortStudents = function(column) {
+                if (studentsSortColumn === column) {
+                    studentsSortDirection = studentsSortDirection === 'asc' ? 'desc' : 'asc';
+                } else {
+                    studentsSortColumn = column;
+                    studentsSortDirection = 'asc';
+                }
+                renderStudentsTable();
+                updateStudentsSortIndicators();
+            };
+            
+            function renderStudentsTable() {
+                const tbody = document.getElementById('students-table-body');
+                if (!tbody) return;
+                tbody.innerHTML = '';
+                
+                let filteredData = [...studentsData];
+                
+                // Apply search filter
+                if (studentsSearchTerm.trim()) {
+                    const term = studentsSearchTerm.toLowerCase().trim();
+                    filteredData = filteredData.filter(s => {
+                        const name = (s.name || '').toLowerCase();
+                        const studentId = (s.student_id || '').toLowerCase();
+                        const email = (s.email || '').toLowerCase();
+                        const program = (s.program || '').toLowerCase();
+                        const rfidUid = (s.rfid_uid || '').toLowerCase();
+                        return name.includes(term) || 
+                               studentId.includes(term) || 
+                               email.includes(term) ||
+                               program.includes(term) ||
+                               rfidUid.includes(term);
+                    });
+                }
+                
+                // Apply program filter
+                const programFilter = document.getElementById('students-program-filter')?.value || '';
+                if (programFilter) {
+                    filteredData = filteredData.filter(s => (s.program || '') === programFilter);
+                }
+                
+                // Apply sorting
+                let sortedData = filteredData;
+                if (studentsSortColumn) {
+                    sortedData.sort((a, b) => {
+                        let aVal = getStudentCellValue(a, studentsSortColumn);
+                        let bVal = getStudentCellValue(b, studentsSortColumn);
+                        
+                        // Handle numeric values
+                        if (studentsSortColumn === 'year_level') {
+                            aVal = parseInt(aVal) || 0;
+                            bVal = parseInt(bVal) || 0;
+                        }
+                        
+                        // Handle string comparison
+                        if (typeof aVal === 'string') aVal = aVal.toLowerCase();
+                        if (typeof bVal === 'string') bVal = bVal.toLowerCase();
+                        
+                        if (aVal < bVal) return studentsSortDirection === 'asc' ? -1 : 1;
+                        if (aVal > bVal) return studentsSortDirection === 'asc' ? 1 : -1;
+                        return 0;
+                    });
+                }
+                
+                // Calculate total count (filtered results)
+                const totalCount = sortedData.length;
+                
+                // Apply pagination
+                const startIndex = (studentsPage - 1) * studentsPageSize;
+                const endIndexSlice = startIndex + studentsPageSize;
+                const paginatedData = sortedData.slice(startIndex, endIndexSlice);
+                
+                // Calculate and display range
+                const displayedCount = paginatedData.length;
+                const endIndex = startIndex + displayedCount;
+                const countDisplay = formatCountDisplay(startIndex, endIndex, totalCount);
+                document.getElementById('students-count-display').textContent = countDisplay;
+                
+                // Update page display
+                document.getElementById('students-page').textContent = studentsPage;
+                
+                if (paginatedData.length === 0) {
+                    tbody.innerHTML = '<tr><td colspan="8" style="text-align: center; padding: 2rem; color: #6b7280;">No students found.</td></tr>';
+                    return;
+                }
+                
+                paginatedData.forEach(s => {
+                    const tr = document.createElement('tr');
+                    const gender = s.gender ? s.gender.charAt(0).toUpperCase() + s.gender.slice(1).toLowerCase() : '';
+                    tr.innerHTML = `
+                        <td>${s.student_id || ''}</td>
+                        <td>${s.name || ''}</td>
+                        <td>${s.email || ''}</td>
+                        <td>${gender}</td>
+                        <td>${s.year_level || ''}</td>
+                        <td>${s.program || ''}</td>
+                        <td>${s.rfid_uid || ''}</td>
+                        <td>
+                            <button class="btn btn-secondary" style="padding: 0.25rem 0.5rem; font-size: 0.875rem; margin-right: 0.25rem;" onclick="editStudent('${s.student_id}')">Edit</button>
+                            <button class="btn btn-secondary" style="padding: 0.25rem 0.5rem; font-size: 0.875rem; background-color: #f25a04; border-color: #f25a04; color: #ffffff;" onclick="deleteStudent('${s.student_id}', '${(s.name || '').replace(/'/g, "\\'")}')">Delete</button>
+                        </td>
+                    `;
+                    tbody.appendChild(tr);
+                });
+            }
+            
+            function getStudentCellValue(row, column) {
+                const columnMap = {
+                    'student_id': 'student_id',
+                    'name': 'name',
+                    'email': 'email',
+                    'gender': 'gender',
+                    'year_level': 'year_level',
+                    'program': 'program',
+                    'rfid_uid': 'rfid_uid'
+                };
+                return row[columnMap[column]] || '';
+            }
+            
+            function updateStudentsSortIndicators() {
+                const headers = document.querySelectorAll('#add-students-section th[data-sort]');
+                headers.forEach(th => {
+                    const col = th.getAttribute('data-sort');
+                    th.classList.remove('sort-asc', 'sort-desc');
+                    if (col === studentsSortColumn) {
+                        th.classList.add(studentsSortDirection === 'asc' ? 'sort-asc' : 'sort-desc');
+                    }
+                });
+            }
+            
+            window.changeStudentsPageSize = function() {
+                const select = document.getElementById('students-page-size');
+                studentsPageSize = parseInt(select.value);
+                studentsPage = 1;
+                renderStudentsTable();
+            };
+            
+            window.prevStudentsPage = function() {
+                if (studentsPage > 1) {
+                    studentsPage--;
+                    renderStudentsTable();
+                }
+            };
+            
+            window.nextStudentsPage = function() {
+                // Get total count from studentsData length (after filtering)
+                let filteredData = [...studentsData];
+                
+                // Apply search filter
+                if (studentsSearchTerm.trim()) {
+                    const term = studentsSearchTerm.toLowerCase().trim();
+                    filteredData = filteredData.filter(s => {
+                        const name = (s.name || '').toLowerCase();
+                        const studentId = (s.student_id || '').toLowerCase();
+                        const email = (s.email || '').toLowerCase();
+                        const program = (s.program || '').toLowerCase();
+                        const rfidUid = (s.rfid_uid || '').toLowerCase();
+                        return name.includes(term) || 
+                               studentId.includes(term) || 
+                               email.includes(term) ||
+                               program.includes(term) ||
+                               rfidUid.includes(term);
+                    });
+                }
+                
+                // Apply program filter
+                const programFilter = document.getElementById('students-program-filter')?.value || '';
+                if (programFilter) {
+                    filteredData = filteredData.filter(s => (s.program || '') === programFilter);
+                }
+                
+                const totalCount = filteredData.length;
+                if (canGoToNextPage(studentsPage, totalCount, studentsPageSize)) {
+                    studentsPage++;
+                    renderStudentsTable();
+                }
+            };
             
             // Edit student function
             window.editStudent = async function(studentId) {

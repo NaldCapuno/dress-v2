@@ -38,12 +38,8 @@ def dean_get_violations():
         where = []
         params = []
         if status_filter:
-            # For dean view, treat 'forwarded_dean' as 'pending' in filters
-            if status_filter == 'pending':
-                where.append("(v.status = 'pending' OR v.status = 'forwarded_dean')")
-            else:
-                where.append("v.status = %s")
-                params.append(status_filter)
+            where.append("v.status = %s")
+            params.append(status_filter)
         # Enforce dean operates per-college: require college filter
         if not college:
             return jsonify({'success': True, 'rows': [], 'total': 0})
@@ -74,8 +70,7 @@ def dean_get_violations():
         where_sql = (" WHERE " + " AND ".join(where)) if where else ""
 
         base_select = (
-            "SELECT v.violation_id, v.student_id, v.violation_type, v.timestamp, v.image_proof, "
-            "CASE WHEN v.status = 'forwarded_dean' THEN 'pending' ELSE v.status END AS status, "
+            "SELECT v.violation_id, v.student_id, v.violation_type, v.timestamp, v.image_proof, v.status, "
             "s.name, s.gender, s.program, s.college "
             "FROM violations v LEFT JOIN students s ON v.student_id = s.student_id"
         )
@@ -105,7 +100,7 @@ def dean_update_violation_status(violation_id: int):
         data = request.get_json(silent=True) or {}
         status = str(data.get('status') or '').strip().lower()
         print(f"Dean status update: violation_id={violation_id}, status={status}, data={data}")
-        allowed = {"pending", "forwarded_guidance", "resolved"}
+        allowed = {"pending", "resolved"}
         if status not in allowed:
             return jsonify({'success': False, 'error': 'Invalid status'}), 400
         conn = get_connection() if get_connection else None
@@ -139,20 +134,15 @@ def dean_notifications():
         where = ["s.college = %s"]
         params = [college]
         if status_filter:
-            # For dean view, treat 'pending' filter to include both 'pending' and 'forwarded_dean'
-            if status_filter == 'pending':
-                where.append("(v.status = 'pending' OR v.status = 'forwarded_dean')")
-            else:
-                where.append("v.status = %s")
-                params.append(status_filter)
+            where.append("v.status = %s")
+            params.append(status_filter)
         # Older than 3 days by default
         where.append("v.timestamp < NOW() - INTERVAL 3 DAY")
         where_sql = " WHERE " + " AND ".join(where)
         with conn.cursor() as cur:
             cur.execute(
                 f"""
-                SELECT v.violation_id, v.student_id, v.violation_type, v.timestamp, v.image_proof,
-                       CASE WHEN v.status = 'forwarded_dean' THEN 'pending' ELSE v.status END AS status,
+                SELECT v.violation_id, v.student_id, v.violation_type, v.timestamp, v.image_proof, v.status,
                        s.name, s.gender, s.program, s.college
                 FROM violations v
                 LEFT JOIN students s ON v.student_id = s.student_id
@@ -239,9 +229,8 @@ def dean_analytics():
             by_gender = cur.fetchall() or []
 
             # by_status must include the students join because filters may reference s.*
-            # For dean view, transform 'forwarded_dean' to 'pending' in status counts
             cur.execute(
-                f"SELECT CASE WHEN v.status = 'forwarded_dean' THEN 'pending' ELSE v.status END AS label, COUNT(*) AS cnt FROM violations v LEFT JOIN students s ON v.student_id=s.student_id{where_sql} GROUP BY CASE WHEN v.status = 'forwarded_dean' THEN 'pending' ELSE v.status END",
+                f"SELECT v.status AS label, COUNT(*) AS cnt FROM violations v LEFT JOIN students s ON v.student_id=s.student_id{where_sql} GROUP BY v.status",
                 params,
             )
             by_status = cur.fetchall() or []
@@ -280,7 +269,7 @@ def dean_alerts():
                 SELECT COUNT(DISTINCT v.student_id) AS num_students
                 FROM violations v
                 LEFT JOIN students s ON v.student_id = s.student_id
-                WHERE (v.status = 'pending' OR v.status = 'forwarded_dean') AND v.timestamp < NOW() - INTERVAL 3 DAY AND s.college = %s
+                WHERE v.status = 'pending' AND v.timestamp < NOW() - INTERVAL 3 DAY AND s.college = %s
                 """,
                 (college,)
             )
@@ -302,7 +291,7 @@ def dean_alerts():
                     SELECT DISTINCT v.student_id, s.name, s.program
                     FROM violations v
                     LEFT JOIN students s ON v.student_id = s.student_id
-                    WHERE (v.status = 'pending' OR v.status = 'forwarded_dean') AND v.timestamp < NOW() - INTERVAL 3 DAY AND s.college = %s
+                    WHERE v.status = 'pending' AND v.timestamp < NOW() - INTERVAL 3 DAY AND s.college = %s
                     ORDER BY s.name ASC
                     LIMIT 10
                     """,
@@ -335,7 +324,7 @@ def dean_alert_students():
                 SELECT DISTINCT v.student_id, s.name, s.program
                 FROM violations v
                 LEFT JOIN students s ON v.student_id = s.student_id
-                WHERE (v.status = 'pending' OR v.status = 'forwarded_dean') AND v.timestamp < NOW() - INTERVAL 3 DAY AND s.college = %s
+                WHERE v.status = 'pending' AND v.timestamp < NOW() - INTERVAL 3 DAY AND s.college = %s
                 ORDER BY s.name ASC
                 LIMIT %s
                 """,
@@ -486,22 +475,6 @@ def osas_get_violations():
         )
 
         with conn.cursor() as cur:
-            # Auto-forward pending >3 days to dean when OSAS views violations
-            try:
-                cur.execute(
-                    """
-                    UPDATE violations
-                    SET status = 'forwarded_dean'
-                    WHERE status = 'pending' AND timestamp < NOW() - INTERVAL 3 DAY
-                    """
-                )
-                if cur.rowcount:
-                    try:
-                        conn.commit()
-                    except Exception as _ce:
-                        print(f"OSAS auto-forward commit failed: {_ce}")
-            except Exception as _e:
-                print(f"OSAS auto-forward failed: {_e}")
             cur.execute(f"SELECT COUNT(*) AS cnt FROM violations v LEFT JOIN students s ON v.student_id = s.student_id{where_sql}", params)
             total = (cur.fetchone() or {}).get('cnt', 0)
 
@@ -570,22 +543,6 @@ def guidance_get_violations():
         )
 
         with conn.cursor() as cur:
-            # Auto-forward pending >3 days to dean when Guidance views violations
-            try:
-                cur.execute(
-                    """
-                    UPDATE violations
-                    SET status = 'forwarded_dean'
-                    WHERE status = 'pending' AND timestamp < NOW() - INTERVAL 3 DAY
-                    """
-                )
-                if cur.rowcount:
-                    try:
-                        conn.commit()
-                    except Exception as _ce:
-                        print(f"Guidance auto-forward commit failed: {_ce}")
-            except Exception as _e:
-                print(f"Guidance auto-forward failed: {_e}")
             cur.execute(f"SELECT COUNT(*) AS cnt FROM violations v LEFT JOIN students s ON v.student_id = s.student_id{where_sql}", params)
             total = (cur.fetchone() or {}).get('cnt', 0)
 
@@ -776,8 +733,7 @@ def osas_update_violation_status(violation_id: int):
         data = request.get_json(silent=True) or {}
         status = str(data.get('status') or '').strip().lower()
         print(f"OSAS status update: violation_id={violation_id}, status={status}, data={data}")
-        # OSAS cannot forward to guidance (only dean). Remove forwarded_guidance from allowed.
-        allowed = {"pending", "forwarded_dean", "resolved"}
+        allowed = {"pending", "resolved"}
         if status not in allowed:
             return jsonify({'success': False, 'error': 'Invalid status'}), 400
         conn = get_connection() if get_connection else None
@@ -1106,8 +1062,7 @@ def dean_generate_pdf_report():
         
         # Get all violations (no pagination for PDF)
         query = (
-            "SELECT v.violation_id, v.student_id, v.violation_type, v.timestamp, "
-            "CASE WHEN v.status = 'forwarded_dean' THEN 'pending' ELSE v.status END AS status, "
+            "SELECT v.violation_id, v.student_id, v.violation_type, v.timestamp, v.status, "
             "s.name, s.gender, s.program, s.college "
             "FROM violations v LEFT JOIN students s ON v.student_id = s.student_id"
             f"{where_sql} ORDER BY v.timestamp DESC"
@@ -1152,7 +1107,7 @@ def dean_generate_pdf_report():
         title_style = ParagraphStyle(
             'CustomTitle',
             parent=styles['Heading1'],
-            fontSize=18,
+            fontSize=14,
             textColor=colors.HexColor('#f25a04'),
             spaceAfter=12,
             alignment=1  # Center
@@ -1160,11 +1115,15 @@ def dean_generate_pdf_report():
         heading_style = ParagraphStyle(
             'CustomHeading',
             parent=styles['Heading2'],
-            fontSize=14,
+            fontSize=11,
             textColor=colors.HexColor('#1e293b'),
             spaceAfter=8
         )
-        normal_style = styles['Normal']
+        normal_style = ParagraphStyle(
+            'CustomNormal',
+            parent=styles['Normal'],
+            fontSize=9
+        )
         
         # Title
         elements.append(Paragraph("Violation Records Report", title_style))
@@ -1199,7 +1158,7 @@ def dean_generate_pdf_report():
             ('TEXTCOLOR', (0, 0), (-1, -1), colors.black),
             ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
             ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-            ('FONTSIZE', (0, 0), (-1, 0), 11),
+            ('FONTSIZE', (0, 0), (-1, 0), 9),
             ('BOTTOMPADDING', (0, 0), (-1, 0), 8),
             ('BACKGROUND', (0, 1), (-1, -1), colors.white),
             ('GRID', (0, 0), (-1, -1), 1, colors.grey),
@@ -1216,7 +1175,6 @@ def dean_generate_pdf_report():
         else:
             # Table headers - use Paragraph for headers too
             table_data = [[
-                Paragraph('ID', normal_style),
                 Paragraph('Date', normal_style),
                 Paragraph('Student ID', normal_style),
                 Paragraph('Name', normal_style),
@@ -1232,7 +1190,20 @@ def dean_generate_pdf_report():
                 if timestamp:
                     try:
                         dt = datetime.strptime(str(timestamp), '%Y-%m-%d %H:%M:%S')
-                        formatted_date = dt.strftime('%Y-%m-%d %H:%M')
+                        # Match table format: "Mon, 25 Oct 2025 08:00 AM"
+                        # JavaScript getDay(): 0=Sun, 1=Mon, ..., 6=Sat
+                        # Python weekday(): 0=Mon, 1=Tue, ..., 6=Sun
+                        # Convert Python weekday to JavaScript getDay: (weekday + 1) % 7
+                        weekdays = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
+                        months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+                        weekday = weekdays[(dt.weekday() + 1) % 7]
+                        day = dt.strftime('%d')
+                        month = months[dt.month - 1]
+                        year = dt.year
+                        hour_12 = dt.hour % 12 or 12
+                        minute = dt.strftime('%M')
+                        am_pm = 'AM' if dt.hour < 12 else 'PM'
+                        formatted_date = f"{weekday}, {day} {month} {year} {hour_12}:{minute} {am_pm}"
                     except:
                         formatted_date = str(timestamp)[:16]
                 else:
@@ -1248,7 +1219,6 @@ def dean_generate_pdf_report():
                     # Check for status patterns at the end of violation_type
                     # Patterns to look for (longest first to avoid partial matches)
                     status_patterns = [
-                        '_forwarded_guid', '_forwarded_dean', 'forwarded_guid', 'forwarded_dean',
                         '_pending', '_resolved', 'pending', 'resolved'
                     ]
                     
@@ -1317,7 +1287,6 @@ def dean_generate_pdf_report():
                 
                 # Use Paragraph objects for better text wrapping
                 table_data.append([
-                    Paragraph(str(v.get('violation_id', '')), normal_style),
                     Paragraph(formatted_date, normal_style),
                     Paragraph(str(v.get('student_id', '')), normal_style),
                     Paragraph(str(v.get('name', ''))[:30], normal_style),
@@ -1328,20 +1297,20 @@ def dean_generate_pdf_report():
                 ])
             
             # Create table with adjusted column widths - total width ~7.2 inches (fits A4 with margins)
-            # ID, Date, Student ID, Name, Program, Gender, Non Compliant, Status
-            violation_table = Table(table_data, colWidths=[0.4*inch, 1.0*inch, 0.9*inch, 1.0*inch, 1.1*inch, 0.7*inch, 1.2*inch, 0.9*inch])
+            # Date, Student ID, Name, Program, Gender, Non Compliant, Status
+            violation_table = Table(table_data, colWidths=[1.0*inch, 0.9*inch, 1.0*inch, 1.1*inch, 0.7*inch, 1.2*inch, 0.9*inch])
             violation_table.setStyle(TableStyle([
                 ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#f25a04')),
                 ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
                 ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
                 ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-                ('FONTSIZE', (0, 0), (-1, 0), 8),
+                ('FONTSIZE', (0, 0), (-1, 0), 7),
                 ('BOTTOMPADDING', (0, 0), (-1, 0), 8),
                 ('TOPPADDING', (0, 0), (-1, 0), 6),
                 ('BACKGROUND', (0, 1), (-1, -1), colors.white),
                 ('TEXTCOLOR', (0, 1), (-1, -1), colors.black),
                 ('FONTNAME', (0, 1), (-1, -1), 'Helvetica'),
-                ('FONTSIZE', (0, 1), (-1, -1), 7),
+                ('FONTSIZE', (0, 1), (-1, -1), 6),
                 ('GRID', (0, 0), (-1, -1), 0.5, colors.grey),
                 ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.HexColor('#f9fafb')]),
                 ('VALIGN', (0, 0), (-1, -1), 'TOP'),
@@ -1462,7 +1431,7 @@ def osas_generate_pdf_report():
         title_style = ParagraphStyle(
             'CustomTitle',
             parent=styles['Heading1'],
-            fontSize=18,
+            fontSize=14,
             textColor=colors.HexColor('#f25a04'),
             spaceAfter=12,
             alignment=1  # Center
@@ -1470,11 +1439,15 @@ def osas_generate_pdf_report():
         heading_style = ParagraphStyle(
             'CustomHeading',
             parent=styles['Heading2'],
-            fontSize=14,
+            fontSize=11,
             textColor=colors.HexColor('#1e293b'),
             spaceAfter=8
         )
-        normal_style = styles['Normal']
+        normal_style = ParagraphStyle(
+            'CustomNormal',
+            parent=styles['Normal'],
+            fontSize=9
+        )
         
         # Title
         elements.append(Paragraph("OSAS Violation Records Report", title_style))
@@ -1512,7 +1485,7 @@ def osas_generate_pdf_report():
             ('TEXTCOLOR', (0, 0), (-1, -1), colors.black),
             ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
             ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-            ('FONTSIZE', (0, 0), (-1, 0), 11),
+            ('FONTSIZE', (0, 0), (-1, 0), 9),
             ('BOTTOMPADDING', (0, 0), (-1, 0), 8),
             ('BACKGROUND', (0, 1), (-1, -1), colors.white),
             ('GRID', (0, 0), (-1, -1), 1, colors.grey),
@@ -1529,7 +1502,6 @@ def osas_generate_pdf_report():
         else:
             # Table headers - use Paragraph for headers too
             table_data = [[
-                Paragraph('ID', normal_style),
                 Paragraph('Date', normal_style),
                 Paragraph('Student ID', normal_style),
                 Paragraph('Name', normal_style),
@@ -1546,7 +1518,20 @@ def osas_generate_pdf_report():
                 if timestamp:
                     try:
                         dt = datetime.strptime(str(timestamp), '%Y-%m-%d %H:%M:%S')
-                        formatted_date = dt.strftime('%Y-%m-%d %H:%M')
+                        # Match table format: "Mon, 25 Oct 2025 08:00 AM"
+                        # JavaScript getDay(): 0=Sun, 1=Mon, ..., 6=Sat
+                        # Python weekday(): 0=Mon, 1=Tue, ..., 6=Sun
+                        # Convert Python weekday to JavaScript getDay: (weekday + 1) % 7
+                        weekdays = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
+                        months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+                        weekday = weekdays[(dt.weekday() + 1) % 7]
+                        day = dt.strftime('%d')
+                        month = months[dt.month - 1]
+                        year = dt.year
+                        hour_12 = dt.hour % 12 or 12
+                        minute = dt.strftime('%M')
+                        am_pm = 'AM' if dt.hour < 12 else 'PM'
+                        formatted_date = f"{weekday}, {day} {month} {year} {hour_12}:{minute} {am_pm}"
                     except:
                         formatted_date = str(timestamp)[:16]
                 else:
@@ -1562,7 +1547,6 @@ def osas_generate_pdf_report():
                     # Check for status patterns at the end of violation_type
                     # Patterns to look for (longest first to avoid partial matches)
                     status_patterns = [
-                        '_forwarded_guid', '_forwarded_dean', 'forwarded_guid', 'forwarded_dean',
                         '_pending', '_resolved', 'pending', 'resolved'
                     ]
                     
@@ -1635,7 +1619,6 @@ def osas_generate_pdf_report():
                 college_display = get_college_abbreviation(student_college) if student_college else 'N/A'
                 
                 table_data.append([
-                    Paragraph(str(v.get('violation_id', '')), normal_style),
                     Paragraph(formatted_date, normal_style),
                     Paragraph(str(v.get('student_id', '')), normal_style),
                     Paragraph(str(v.get('name', ''))[:30], normal_style),
@@ -1647,20 +1630,20 @@ def osas_generate_pdf_report():
                 ])
             
             # Create table with adjusted column widths - total width ~7.2 inches (fits A4 with margins)
-            # ID, Date, Student ID, Name, College, Program, Gender, Non Compliant, Status
-            violation_table = Table(table_data, colWidths=[0.4*inch, 0.95*inch, 0.85*inch, 0.9*inch, 0.9*inch, 0.9*inch, 0.7*inch, 0.9*inch, 0.75*inch])
+            # Date, Student ID, Name, College, Program, Gender, Non Compliant, Status
+            violation_table = Table(table_data, colWidths=[0.95*inch, 0.85*inch, 0.9*inch, 0.9*inch, 0.9*inch, 0.7*inch, 0.9*inch, 0.75*inch])
             violation_table.setStyle(TableStyle([
                 ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#f25a04')),
                 ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
                 ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
                 ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-                ('FONTSIZE', (0, 0), (-1, 0), 8),
+                ('FONTSIZE', (0, 0), (-1, 0), 7),
                 ('BOTTOMPADDING', (0, 0), (-1, 0), 8),
                 ('TOPPADDING', (0, 0), (-1, 0), 6),
                 ('BACKGROUND', (0, 1), (-1, -1), colors.white),
                 ('TEXTCOLOR', (0, 1), (-1, -1), colors.black),
                 ('FONTNAME', (0, 1), (-1, -1), 'Helvetica'),
-                ('FONTSIZE', (0, 1), (-1, -1), 7),
+                ('FONTSIZE', (0, 1), (-1, -1), 6),
                 ('GRID', (0, 0), (-1, -1), 0.5, colors.grey),
                 ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.HexColor('#f9fafb')]),
                 ('VALIGN', (0, 0), (-1, -1), 'TOP'),
@@ -1688,6 +1671,301 @@ def osas_generate_pdf_report():
                 'Content-Disposition': f'attachment; filename="{filename}"'
             }
         )
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@violations_bp.route('/send-followup-emails', methods=['POST'])
+def send_followup_emails():
+    """Send follow-up emails for violations that are still pending after 3 days."""
+    # Import here to avoid circular imports
+    from app import get_connection, app, mail
+    from flask_mail import Message
+    from src.email_templates import generate_followup_email_body
+    from src.config import find_student_by_id
+    import os
+    
+    try:
+        conn = get_connection() if get_connection else None
+        if conn is None:
+            return jsonify({'success': False, 'error': 'DB not configured'}), 500
+        
+        # Ensure followup_sent column exists (add it if it doesn't)
+        with conn.cursor() as cur:
+            try:
+                cur.execute("""
+                    SELECT COUNT(*) as col_exists
+                    FROM INFORMATION_SCHEMA.COLUMNS
+                    WHERE TABLE_SCHEMA = DATABASE()
+                    AND TABLE_NAME = 'violations'
+                    AND COLUMN_NAME = 'followup_sent'
+                """)
+                col_exists = (cur.fetchone() or {}).get('col_exists', 0)
+                if col_exists == 0:
+                    cur.execute("ALTER TABLE violations ADD COLUMN followup_sent TINYINT(1) DEFAULT 0")
+                    conn.commit()
+                    print("✓ Added followup_sent column to violations table")
+            except Exception as e:
+                print(f"Note: Could not check/add followup_sent column: {e}")
+                # Continue anyway - the query will handle missing column gracefully
+        
+        # Find violations that are pending, 3+ days old, and haven't had follow-up sent yet
+        # Excludes violations where followup_sent = 1 (already sent)
+        # Use SELECT FOR UPDATE to lock rows and prevent race conditions
+        with conn.cursor() as cur:
+            try:
+                # Try query with followup_sent column - use FOR UPDATE to lock rows
+                # Only selects violations where followup_sent IS NULL or 0 (excludes 1)
+                cur.execute(
+                    """
+                    SELECT v.violation_id, v.student_id, v.violation_type, v.timestamp, v.image_proof, v.status,
+                           s.name, s.email, s.gender
+                    FROM violations v
+                    LEFT JOIN students s ON v.student_id = s.student_id
+                    WHERE v.status = 'pending' 
+                      AND v.timestamp <= NOW() - INTERVAL 3 DAY
+                      AND (v.followup_sent IS NULL OR v.followup_sent = 0)
+                      -- This condition excludes violations where followup_sent = 1
+                    ORDER BY v.timestamp ASC
+                    FOR UPDATE
+                    """
+                )
+                violations = cur.fetchall() or []
+            except Exception as e:
+                # Fallback if column doesn't exist yet or FOR UPDATE not supported
+                print(f"Warning: followup_sent column may not exist, using fallback query: {e}")
+                cur.execute(
+                    """
+                    SELECT v.violation_id, v.student_id, v.violation_type, v.timestamp, v.image_proof, v.status,
+                           s.name, s.email, s.gender
+                    FROM violations v
+                    LEFT JOIN students s ON v.student_id = s.student_id
+                    WHERE v.status = 'pending' 
+                      AND v.timestamp <= NOW() - INTERVAL 3 DAY
+                      AND v.timestamp > NOW() - INTERVAL 4 DAY
+                    ORDER BY v.timestamp ASC
+                    """
+                )
+                violations = cur.fetchall() or []
+        
+        if not violations:
+            return jsonify({'success': True, 'message': 'No violations require follow-up emails', 'sent': 0})
+        
+        sent_count = 0
+        errors = []
+        
+        for violation in violations:
+            try:
+                violation_id = violation.get('violation_id')
+                student_id = violation.get('student_id')
+                student_name = violation.get('name', 'Student')
+                student_email = violation.get('email')
+                violation_timestamp = violation.get('timestamp')
+                violation_type = violation.get('violation_type', '')
+                image_proof = violation.get('image_proof')
+                
+                if not student_email:
+                    errors.append(f"Violation {violation_id}: No email for student {student_id}")
+                    continue
+                
+                # Mark violation as being processed BEFORE sending email to prevent duplicates
+                # Use atomic UPDATE to mark it immediately
+                try:
+                    with conn.cursor() as mark_cur:
+                        # Try to atomically mark as sent (only if still 0/NULL)
+                        mark_cur.execute(
+                            """
+                            UPDATE violations 
+                            SET followup_sent = 1 
+                            WHERE violation_id = %s 
+                              AND (followup_sent IS NULL OR followup_sent = 0)
+                            """,
+                            (violation_id,)
+                        )
+                        rows_updated = mark_cur.rowcount
+                        conn.commit()
+                        
+                        # If no rows were updated, this violation was already processed by another instance
+                        if rows_updated == 0:
+                            print(f"⚠ Violation {violation_id} already processed, skipping duplicate")
+                            continue
+                except Exception as mark_err:
+                    print(f"Warning: Could not mark violation {violation_id} as processed: {mark_err}")
+                    # Continue anyway, but this might cause duplicates
+                
+                # Get student info to determine strike count
+                student = find_student_by_id(student_id) if find_student_by_id else None
+                if not student:
+                    errors.append(f"Violation {violation_id}: Student not found")
+                    continue
+                
+                # Get violation history for this student
+                violation_lines = []
+                try:
+                    from src.config import get_student_violations as _get_v_list
+                    if _get_v_list and student_id:
+                        vlist = _get_v_list(student_id) or []
+                        for v in vlist:
+                            timestamp = v.get('timestamp')
+                            if timestamp:
+                                try:
+                                    if isinstance(timestamp, str):
+                                        dt = datetime.strptime(str(timestamp), '%Y-%m-%d %H:%M:%S')
+                                    else:
+                                        dt = timestamp
+                                    tstr = dt.strftime('%a, %d %b %Y %I:%M %p')
+                                except:
+                                    tstr = str(timestamp)
+                            else:
+                                tstr = 'Unknown date'
+                            vtype = str(v.get('violation_type') or '')
+                            violation_lines.append(f"{tstr} – {vtype}")
+                except:
+                    pass
+                violation_text = '\n'.join(violation_lines) if violation_lines else 'No history available'
+                
+                # Count strikes (pending violations count as strikes)
+                with conn.cursor() as cur:
+                    cur.execute(
+                        """
+                        SELECT COUNT(*) as strike_count
+                        FROM violations
+                        WHERE student_id = %s AND status != 'resolved'
+                        ORDER BY timestamp ASC
+                        """,
+                        (student_id,)
+                    )
+                    strike_result = cur.fetchone() or {}
+                    strike_count = min(int(strike_result.get('strike_count', 1)), 3)
+                
+                # Format dates
+                if violation_timestamp:
+                    try:
+                        if isinstance(violation_timestamp, str):
+                            dt = datetime.strptime(str(violation_timestamp), '%Y-%m-%d %H:%M:%S')
+                        else:
+                            dt = violation_timestamp
+                        dt_str = dt.strftime('%a, %d %b %Y %I:%M %p')
+                        first_notice_date = dt_str  # Use violation date as first notice date
+                    except:
+                        dt_str = str(violation_timestamp)[:19]
+                        first_notice_date = dt_str
+                else:
+                    dt_str = 'Unknown date'
+                    first_notice_date = 'Unknown date'
+                
+                # Determine offense line
+                if strike_count == 1:
+                    offense_line = '1st Offense'
+                    subject = 'Dress Code Violation Follow-Up - 1st Offense (Warning)'
+                elif strike_count == 2:
+                    offense_line = '2nd Offense'
+                    subject = 'Dress Code Violation Follow-Up - 2nd Offense (5-day Suspension)'
+                else:
+                    offense_line = '3rd Offense'
+                    subject = 'Dress Code Violation Follow-Up - 3rd Offense (Up to 1 month Suspension)'
+                
+                # Prepare image attachment
+                image_cid = None
+                proof_path = None
+                if image_proof:
+                    proof_path = os.path.join('results', 'violations', image_proof)
+                    if os.path.exists(proof_path):
+                        image_cid = f"violation_proof_{violation_id}"
+                
+                # Generate email body
+                html_body = generate_followup_email_body(
+                    student_name=student_name,
+                    first_notice_date=first_notice_date,
+                    violation_datetime=dt_str,
+                    strike_num=strike_count,
+                    offense_line=offense_line,
+                    violation_history=violation_text,
+                    image_cid=image_cid
+                )
+                
+                # Create plain text fallback
+                image_attachment_text = "\n\nPROOF OF VIOLATION\nA proof image is attached to this email.\n" if image_cid else ""
+                plain_text_body = f"""DRESS CODE VIOLATION FOLLOW-UP NOTICE
+
+Dear {student_name},
+
+This is a follow-up to the DRESS (Dress-code Recognition Surveillance System) notification sent on {first_notice_date}. Our records show that the dress code violation detected on {dt_str} has not yet been addressed.
+
+Following the university dress code is an important part of maintaining discipline and professionalism. We remind you to comply with the proper uniform prescribed by the University, as stated in the Student Handbook, on your next visit.
+
+VIOLATION DETAILS
+Current Strike Count: {strike_count} of 3
+Your Recorded Offense: {offense_line}
+
+Previously Recorded Violations:
+{violation_text}{image_attachment_text}
+
+UNIVERSITY GUIDELINES
+• 1st Offense – Warning
+• 2nd Offense – 5-day suspension
+• 3rd Offense – 2-week to 1-month suspension
+
+ACTION REQUIRED
+Please report to the Guidance Office as soon as possible to settle this matter. Continued failure to respond may affect the sanction applied to your case.
+
+Thank you for your immediate attention.
+
+Respectfully,
+DRESS Monitoring Team
+Palawan State University
+
+This is an automated notification. Please do not reply to this email."""
+                
+                # Create and send email
+                with app.app_context():
+                    msg = Message(
+                        subject=subject,
+                        recipients=[student_email],
+                        html=html_body,
+                        body=plain_text_body,
+                        sender=app.config.get('MAIL_DEFAULT_SENDER', app.config.get('MAIL_USERNAME'))
+                    )
+                    
+                    # Attach proof image if available
+                    if image_cid and proof_path and os.path.exists(proof_path):
+                        try:
+                            with open(proof_path, 'rb') as img_file:
+                                msg.attach(
+                                    filename=image_proof,
+                                    content_type='image/jpeg',
+                                    data=img_file.read(),
+                                    disposition='inline',
+                                    headers={'Content-ID': f'<{image_cid}>'}
+                                )
+                        except Exception as attach_err:
+                            print(f"Warning: Could not attach image for violation {violation_id}: {attach_err}")
+                    
+                    mail.send(msg)
+                    
+                    # Violation was already marked as sent before sending email
+                    # This prevents race conditions and duplicate sends
+                    sent_count += 1
+                    print(f"✓ Follow-up email sent to {student_email} for violation {violation_id}")
+            
+            except Exception as e:
+                error_msg = f"Violation {violation.get('violation_id', 'unknown')}: {str(e)}"
+                errors.append(error_msg)
+                print(f"✗ Error sending follow-up email: {error_msg}")
+                import traceback
+                print(traceback.format_exc())
+        
+        conn.close()
+        
+        result = {
+            'success': True,
+            'sent': sent_count,
+            'total': len(violations),
+            'errors': errors if errors else None
+        }
+        
+        return jsonify(result)
+    
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
 

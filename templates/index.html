@@ -6,14 +6,109 @@
     <title>Dress Code Detection System</title>
     
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
-    <link href="{{ url_for('static', filename='style.css') }}" rel="stylesheet">
+    <link href="{{ url_for('static', filename='css/style.css') }}" rel="stylesheet">
 </head>
 <body>
     <div class="container">
-        <!-- Floating Logout Button -->
-        <button class="btn btn-secondary" id="logout-btn" style="position: fixed; top: 20px; right: 20px; z-index: 1000; padding: 10px 20px; box-shadow: 0 2px 8px rgba(0,0,0,0.15); border-radius: 6px;">
-            <i class="fas fa-sign-out-alt"></i> Logout
-        </button>
+        <!-- Floating Menu Button Container -->
+        <div id="floating-menu" style="position: fixed; bottom: 30px; right: 30px; z-index: 1000; display: flex; flex-direction: column; align-items: center; gap: 15px;">
+            <!-- Settings Button -->
+            <button class="btn btn-primary" id="settings-btn" style="width: 60px; height: 60px; border-radius: 50%; box-shadow: 0 4px 12px rgba(0,0,0,0.2); display: none; align-items: center; justify-content: center; font-size: 24px; border: none; cursor: pointer; opacity: 0; transform: translateY(20px); transition: all 0.3s ease;">
+                <i class="fas fa-cog"></i>
+            </button>
+            
+            <!-- Logout Button -->
+            <button class="btn btn-secondary" id="logout-btn" style="width: 60px; height: 60px; border-radius: 50%; box-shadow: 0 4px 12px rgba(0,0,0,0.2); display: none; align-items: center; justify-content: center; font-size: 24px; border: none; cursor: pointer; opacity: 0; transform: translateY(20px); transition: all 0.3s ease;">
+                <i class="fas fa-sign-out-alt"></i>
+            </button>
+            
+            <!-- Main Menu Button -->
+            <button class="btn btn-primary" id="menu-toggle-btn" style="width: 60px; height: 60px; border-radius: 50%; box-shadow: 0 4px 12px rgba(0,0,0,0.2); display: flex; align-items: center; justify-content: center; font-size: 24px; border: none; cursor: pointer; background-color: #007bff;">
+                <i class="fas fa-bars"></i>
+            </button>
+        </div>
+        
+        <!-- Settings Modal -->
+        <div id="settings-modal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background-color: rgba(0, 0, 0, 0.5); z-index: 2000; align-items: center; justify-content: center;">
+            <div style="background-color: white; border-radius: 12px; max-width: 600px; width: 90%; max-height: 80vh; box-shadow: 0 8px 32px rgba(0,0,0,0.3); position: relative; margin: auto; display: flex; flex-direction: column; overflow: hidden;">
+                <div style="padding: 30px 30px 20px 30px; border-bottom: 1px solid #e0e0e0; flex-shrink: 0;">
+                    <button id="close-settings-btn" style="position: absolute; top: 15px; right: 15px; background: none; border: none; font-size: 28px; cursor: pointer; color: #666; padding: 5px 10px; line-height: 1;">
+                        <i class="fas fa-times"></i>
+                    </button>
+                    <h2 style="margin-top: 0; margin-bottom: 0; color: #333;">
+                        <i class="fas fa-cog"></i> Settings
+                    </h2>
+                </div>
+                <div id="settings-content" style="padding: 30px; padding-bottom: 30px; overflow-y: auto; flex: 1; min-height: 0;">
+                    <!-- Schedule Settings -->
+                    <div style="margin-bottom: 0;">
+                        <h3 style="margin-top: 0; margin-bottom: 15px; color: #333; font-size: 18px;">
+                            <i class="fas fa-calendar-alt"></i> System Schedule
+                        </h3>
+                        <p style="color: #666; font-size: 14px; margin-bottom: 20px;">
+                            Configure the days and times when the system should be active.
+                        </p>
+                        
+                        <div id="schedule-settings" style="margin-bottom: 20px;">
+                            <!-- Days Selection -->
+                            <div style="margin-bottom: 20px;">
+                                <label style="display: block; margin-bottom: 10px; font-weight: 600; color: #333; font-size: 14px;">Select Days:</label>
+                                <div id="days-container" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 10px; margin-bottom: 20px;">
+                                    <!-- Days will be dynamically added here -->
+                                </div>
+                            </div>
+                            
+                            <!-- Time Range -->
+                            <div style="margin-bottom: 20px;">
+                                <label style="display: block; margin-bottom: 10px; font-weight: 600; color: #333; font-size: 14px;">Time Range:</label>
+                                <div style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
+                                    <input type="time" id="schedule-start-time" value="08:00" style="flex: 1; min-width: 150px; padding: 10px; border: 1px solid #ddd; border-radius: 6px; font-size: 14px;">
+                                    <span style="font-size: 14px; color: #666; font-weight: 500;">to</span>
+                                    <input type="time" id="schedule-end-time" value="17:00" style="flex: 1; min-width: 150px; padding: 10px; border: 1px solid #ddd; border-radius: 6px; font-size: 14px;">
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div style="display: flex; gap: 10px; margin-top: 20px;">
+                            <button id="save-schedule-btn" class="btn btn-primary" style="flex: 1; padding: 10px; font-size: 14px;">
+                                <i class="fas fa-save"></i> Save Schedule
+                            </button>
+                            <button id="cancel-schedule-btn" class="btn btn-secondary" style="flex: 1; padding: 10px; font-size: 14px;">
+                                Cancel
+                            </button>
+                        </div>
+                        
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Toast Notification Container -->
+        <div id="toast-container" style="position: fixed; top: 20px; right: 20px; z-index: 3000; display: flex; flex-direction: column; gap: 10px; align-items: flex-end; pointer-events: none;"></div>
+        
+        <style>
+            @keyframes slideInRight {
+                from {
+                    transform: translateX(100%);
+                    opacity: 0;
+                }
+                to {
+                    transform: translateX(0);
+                    opacity: 1;
+                }
+            }
+            
+            @keyframes slideOutRight {
+                from {
+                    transform: translateX(0);
+                    opacity: 1;
+                }
+                to {
+                    transform: translateX(100%);
+                    opacity: 0;
+                }
+            }
+        </style>
         
         <div class="status-bar">
             <div class="status-item">
@@ -34,6 +129,11 @@
             <div class="status-item">
                 <div class="status-label">Detection Mode</div>
                 <div class="status-value" id="detection-mode">RFID-Triggered</div>
+            </div>
+            <div class="status-divider"></div>
+            <div class="status-item">
+                <div class="status-label">Schedule Status</div>
+                <div class="status-value" id="schedule-status">Active</div>
             </div>
         </div>
             
@@ -62,10 +162,10 @@
                         </div>
                         <div id="cameraInitializingSign" class="camera-initializing-sign" style="display: none;">
                             <div class="camera-initializing-indicator">
-                                <i class="fas fa-spinner camera-spinner"></i>
+                                <i class="fas fa-circle-notch camera-spinner"></i>
                                 <span>INITIALIZING...</span>
-                                </div>
                             </div>
+                        </div>
                         </div>
                         <div class="webcam-controls" role="group" aria-label="Camera controls">
                             <select id="cameraSelect" class="form-control">
@@ -100,6 +200,11 @@
                             <div id="testModeStatus" class="test-mode-indicator" style="display: none;">
                                 <span class="badge bg-warning">
                                     <i class="fas fa-flask"></i>Test Mode Active
+                                </span>
+                            </div>
+                            <div id="scheduleWarningStatus" class="test-mode-indicator" style="display: none;">
+                                <span class="badge bg-warning" style="background-color: #ff9800; color: white;">
+                                    <i class="fas fa-clock"></i>Outside Scheduled Hours
                                 </span>
                             </div>
                         </div>
@@ -263,13 +368,13 @@
                     
                     console.log(`Switched to camera ${cameraId} successfully`);
                 } else {
-                    alert('Error switching camera: ' + data.message);
+                    showToast('Error switching camera: ' + data.message, 'error');
                     // Hide initializing sign on error
                     initializingSign.style.display = 'none';
                 }
             })
             .catch(error => {
-                alert('Error switching camera: ' + error.message);
+                showToast('Error switching camera: ' + error.message, 'error');
                 // Hide initializing sign on error
                 initializingSign.style.display = 'none';
             });
@@ -335,14 +440,14 @@
                     rfidStatus.innerHTML = '<i class="fas fa-check-circle"></i>RFID: Active';
                     rfidStatus.className = 'badge bg-success';
                 } else {
-                    alert('Error: ' + data.message);
+                    showToast('Error: ' + data.message, 'error');
                     // Hide initializing sign on error
                     const initializingSign = document.getElementById('cameraInitializingSign');
                     initializingSign.style.display = 'none';
                 }
             })
             .catch(error => {
-                alert('Error starting camera: ' + error.message);
+                showToast('Error starting camera: ' + error.message, 'error');
                 // Hide initializing sign on error
                 const initializingSign = document.getElementById('cameraInitializingSign');
                 initializingSign.style.display = 'none';
@@ -391,11 +496,11 @@
                     // Hide RFID display
                     hideRfidDisplay();
                 } else {
-                    alert('Error: ' + data.message);
+                    showToast('Error: ' + data.message, 'error');
                 }
             })
             .catch(error => {
-                alert('Error stopping camera: ' + error.message);
+                showToast('Error stopping camera: ' + error.message, 'error');
             });
         }
 
@@ -420,13 +525,13 @@
             .then(response => response.json())
             .then(data => {
                 if (data.success) {
-                    alert('Tracker reset successfully');
+                    showToast('Tracker reset successfully', 'success');
                 } else {
-                    alert('Error: ' + data.message);
+                    showToast('Error: ' + data.message, 'error');
                 }
             })
             .catch(error => {
-                alert('Error resetting tracker: ' + error.message);
+                showToast('Error resetting tracker: ' + error.message, 'error');
             });
         }
 
@@ -605,9 +710,108 @@
                 toggleBtn.addEventListener('click', toggleRfidTime);
             }
             
-            // Check RFID status every 2 seconds
-            setInterval(checkRfidStatus, 2000);
+            // Check RFID status every 5 seconds
+            setInterval(checkRfidStatus, 5000);
+            
+            // Check schedule status every 5 seconds
+            setInterval(checkScheduleStatus, 5000);
+            checkScheduleStatus(); // Check immediately on load
         });
+        
+        // Helper function to update RFID status based on schedule
+        function checkScheduleStatusForRFID(rfidOverviewEl) {
+            if (!rfidOverviewEl) return;
+            fetch('/api/settings/schedule/check')
+            .then(response => response.json())
+            .then(data => {
+                if (data.success && !data.active) {
+                    // Outside scheduled hours
+                    const currentText = rfidOverviewEl.textContent;
+                    if (!currentText.includes('Outside Hours')) {
+                        rfidOverviewEl.textContent = currentText + ' (Outside Hours)';
+                    }
+                    rfidOverviewEl.style.color = '#ff9800';
+                } else if (data.success && data.active) {
+                    // Within scheduled hours - remove the "(Outside Hours)" text
+                    const currentText = rfidOverviewEl.textContent;
+                    if (currentText.includes(' (Outside Hours)')) {
+                        rfidOverviewEl.textContent = currentText.replace(' (Outside Hours)', '');
+                    }
+                    rfidOverviewEl.style.color = '';
+                }
+            })
+            .catch(error => {
+                console.error('Error checking schedule status for RFID:', error);
+            });
+        }
+        
+        // Check schedule status
+        function checkScheduleStatus() {
+            fetch('/api/settings/schedule/check')
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    const scheduleStatusEl = document.getElementById('schedule-status');
+                    const scheduleWarningEl = document.getElementById('scheduleWarningStatus');
+                    const rfidStatusOverviewEl = document.getElementById('rfid-status-overview');
+                    const detectionModeEl = document.getElementById('detection-mode');
+                    
+                    if (data.active) {
+                        // System is within scheduled hours
+                        if (scheduleStatusEl) {
+                            scheduleStatusEl.textContent = 'Active';
+                            scheduleStatusEl.style.color = '';
+                        }
+                        if (scheduleWarningEl) {
+                            scheduleWarningEl.style.display = 'none';
+                        }
+                        // Restore normal status colors and remove "(Outside Hours)" text
+                        if (rfidStatusOverviewEl) {
+                            const currentText = rfidStatusOverviewEl.textContent;
+                            if (currentText.includes(' (Outside Hours)')) {
+                                rfidStatusOverviewEl.textContent = currentText.replace(' (Outside Hours)', '');
+                            }
+                            rfidStatusOverviewEl.style.color = '';
+                        }
+                        if (detectionModeEl) {
+                            const currentText = detectionModeEl.textContent;
+                            if (currentText.includes(' (Outside Hours)')) {
+                                detectionModeEl.textContent = currentText.replace(' (Outside Hours)', '');
+                            }
+                            detectionModeEl.style.color = '';
+                        }
+                    } else {
+                        // System is outside scheduled hours
+                        if (scheduleStatusEl) {
+                            scheduleStatusEl.textContent = 'Outside Hours';
+                            scheduleStatusEl.style.color = '#ff9800';
+                        }
+                        if (scheduleWarningEl) {
+                            scheduleWarningEl.style.display = 'block';
+                        }
+                        // Update RFID Scanner status to show it's disabled
+                        if (rfidStatusOverviewEl) {
+                            const currentText = rfidStatusOverviewEl.textContent;
+                            if (!currentText.includes('Outside Hours')) {
+                                rfidStatusOverviewEl.textContent = currentText + ' (Outside Hours)';
+                            }
+                            rfidStatusOverviewEl.style.color = '#ff9800';
+                        }
+                        // Update Detection Mode status to show it's disabled
+                        if (detectionModeEl) {
+                            const currentText = detectionModeEl.textContent;
+                            if (!currentText.includes('Outside Hours')) {
+                                detectionModeEl.textContent = currentText + ' (Outside Hours)';
+                            }
+                            detectionModeEl.style.color = '#ff9800';
+                        }
+                    }
+                }
+            })
+            .catch(error => {
+                console.error('Error checking schedule status:', error);
+            });
+        }
 
         // RFID Functions
         function checkRfidStatus() {
@@ -624,7 +828,10 @@
                             rfidStatus.className = 'badge bg-secondary';
                             
                             // Update overview metrics
-                            document.getElementById('rfid-status-overview').textContent = 'Inactive';
+                            const rfidOverview = document.getElementById('rfid-status-overview');
+                            rfidOverview.textContent = 'Inactive';
+                            // Check schedule status and update indicator
+                            checkScheduleStatusForRFID(rfidOverview);
                             
                             // Hide RFID display
                             hideRfidDisplay();
@@ -635,7 +842,10 @@
                             rfidStatus.className = 'badge bg-success';
                             
                             // Update overview metrics
-                            document.getElementById('rfid-status-overview').textContent = 'Active';
+                            const rfidOverview = document.getElementById('rfid-status-overview');
+                            rfidOverview.textContent = 'Active';
+                            // Check schedule status and update indicator
+                            checkScheduleStatusForRFID(rfidOverview);
                             
                             // Update RFID display with student data when present
                             updateRfidDisplay(status.last_uid, status.student || null, status.last_time);
@@ -644,7 +854,10 @@
                             rfidStatus.className = 'badge bg-secondary';
                             
                             // Update overview metrics
-                            document.getElementById('rfid-status-overview').textContent = 'Ready';
+                            const rfidOverview = document.getElementById('rfid-status-overview');
+                            rfidOverview.textContent = 'Ready';
+                            // Check schedule status and update indicator
+                            checkScheduleStatusForRFID(rfidOverview);
                             
                             // Hide RFID display
                             hideRfidDisplay();
@@ -656,9 +869,118 @@
             });
         }
         
-        // Logout functionality
+        // Floating menu hover functionality
         document.addEventListener('DOMContentLoaded', () => {
+            const floatingMenu = document.getElementById('floating-menu');
+            const menuToggleBtn = document.getElementById('menu-toggle-btn');
+            const settingsBtn = document.getElementById('settings-btn');
             const logoutBtn = document.getElementById('logout-btn');
+            const settingsModal = document.getElementById('settings-modal');
+            const closeSettingsBtn = document.getElementById('close-settings-btn');
+            
+            // Store timeout IDs to clear them if needed
+            let settingsShowTimeout = null;
+            let settingsHideTimeout = null;
+            let logoutShowTimeout = null;
+            let logoutHideTimeout = null;
+            
+            // Function to show menu buttons
+            function showMenuButtons() {
+                // Clear any pending hide timeouts
+                if (settingsHideTimeout) {
+                    clearTimeout(settingsHideTimeout);
+                    settingsHideTimeout = null;
+                }
+                if (logoutHideTimeout) {
+                    clearTimeout(logoutHideTimeout);
+                    logoutHideTimeout = null;
+                }
+                
+                // Show settings button
+                if (settingsBtn) {
+                    // Clear any pending show timeout
+                    if (settingsShowTimeout) {
+                        clearTimeout(settingsShowTimeout);
+                    }
+                    settingsBtn.style.display = 'flex';
+                    // Force reflow to ensure display change is applied
+                    settingsBtn.offsetHeight;
+                    settingsShowTimeout = setTimeout(() => {
+                        settingsBtn.style.opacity = '1';
+                        settingsBtn.style.transform = 'translateY(0)';
+                        settingsShowTimeout = null;
+                    }, 10);
+                }
+                
+                // Show logout button
+                if (logoutBtn) {
+                    // Clear any pending show timeout
+                    if (logoutShowTimeout) {
+                        clearTimeout(logoutShowTimeout);
+                    }
+                    logoutBtn.style.display = 'flex';
+                    // Force reflow to ensure display change is applied
+                    logoutBtn.offsetHeight;
+                    logoutShowTimeout = setTimeout(() => {
+                        logoutBtn.style.opacity = '1';
+                        logoutBtn.style.transform = 'translateY(0)';
+                        logoutShowTimeout = null;
+                    }, 50);
+                }
+            }
+            
+            // Function to hide menu buttons
+            function hideMenuButtons() {
+                // Clear any pending show timeouts
+                if (settingsShowTimeout) {
+                    clearTimeout(settingsShowTimeout);
+                    settingsShowTimeout = null;
+                }
+                if (logoutShowTimeout) {
+                    clearTimeout(logoutShowTimeout);
+                    logoutShowTimeout = null;
+                }
+                
+                // Hide settings button
+                if (settingsBtn) {
+                    // Clear any pending hide timeout
+                    if (settingsHideTimeout) {
+                        clearTimeout(settingsHideTimeout);
+                    }
+                    settingsBtn.style.opacity = '0';
+                    settingsBtn.style.transform = 'translateY(20px)';
+                    settingsHideTimeout = setTimeout(() => {
+                        if (settingsBtn.style.opacity === '0') {
+                            settingsBtn.style.display = 'none';
+                        }
+                        settingsHideTimeout = null;
+                    }, 300);
+                }
+                
+                // Hide logout button
+                if (logoutBtn) {
+                    // Clear any pending hide timeout
+                    if (logoutHideTimeout) {
+                        clearTimeout(logoutHideTimeout);
+                    }
+                    logoutBtn.style.opacity = '0';
+                    logoutBtn.style.transform = 'translateY(20px)';
+                    logoutHideTimeout = setTimeout(() => {
+                        if (logoutBtn.style.opacity === '0') {
+                            logoutBtn.style.display = 'none';
+                        }
+                        logoutHideTimeout = null;
+                    }, 300);
+                }
+            }
+            
+            // Hover event listeners
+            if (floatingMenu) {
+                floatingMenu.addEventListener('mouseenter', showMenuButtons);
+                floatingMenu.addEventListener('mouseleave', hideMenuButtons);
+            }
+            
+            // Logout functionality
             if (logoutBtn) {
                 logoutBtn.addEventListener('click', async () => {
                     try {
@@ -669,6 +991,323 @@
                         // Still redirect even if request fails
                         window.location.href = '/login';
                     }
+                });
+            }
+            
+            // Global toast notification function (accessible throughout the page)
+            // Supports multiple toasts stacking vertically
+            window.showToast = function(message, type = 'info') {
+                const toastContainer = document.getElementById('toast-container');
+                if (!toastContainer) return;
+                
+                // Create unique ID for this toast
+                const toastId = 'toast-' + Date.now() + '-' + Math.random().toString(36).substr(2, 9);
+                
+                // Create toast element
+                const toast = document.createElement('div');
+                toast.id = toastId;
+                toast.style.cssText = 'padding: 15px 20px; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.15); min-width: 250px; max-width: 400px; animation: slideInRight 0.3s ease-out; pointer-events: auto; display: flex; align-items: center; gap: 10px;';
+                
+                // Create icon
+                const icon = document.createElement('i');
+                icon.style.cssText = 'font-size: 20px; flex-shrink: 0;';
+                
+                // Create message
+                const messageSpan = document.createElement('span');
+                messageSpan.textContent = message;
+                messageSpan.style.cssText = 'flex: 1; font-size: 14px; font-weight: 500;';
+                
+                // Set colors and icon based on type
+                if (type === 'success') {
+                    toast.style.backgroundColor = '#d4edda';
+                    toast.style.color = '#155724';
+                    toast.style.border = '1px solid #c3e6cb';
+                    icon.className = 'fas fa-check-circle';
+                    icon.style.color = '#155724';
+                } else if (type === 'error') {
+                    toast.style.backgroundColor = '#f8d7da';
+                    toast.style.color = '#721c24';
+                    toast.style.border = '1px solid #f5c6cb';
+                    icon.className = 'fas fa-exclamation-circle';
+                    icon.style.color = '#721c24';
+                } else {
+                    toast.style.backgroundColor = '#d1ecf1';
+                    toast.style.color = '#0c5460';
+                    toast.style.border = '1px solid #bee5eb';
+                    icon.className = 'fas fa-info-circle';
+                    icon.style.color = '#0c5460';
+                }
+                
+                toast.appendChild(icon);
+                toast.appendChild(messageSpan);
+                
+                // Add toast to container
+                toastContainer.appendChild(toast);
+                
+                // Function to remove toast and update positions
+                function removeToast() {
+                    const toastElement = document.getElementById(toastId);
+                    if (!toastElement) return;
+                    
+                    // Animate out
+                    toastElement.style.animation = 'slideOutRight 0.3s ease-out';
+                    setTimeout(() => {
+                        if (toastElement && toastElement.parentNode) {
+                            toastElement.parentNode.removeChild(toastElement);
+                        }
+                    }, 300);
+                }
+                
+                // Auto-remove after 3 seconds
+                setTimeout(removeToast, 3000);
+            };
+            
+            // Schedule Settings functionality
+            let scheduleEntries = [];
+            const scheduleContainer = document.getElementById('schedule-settings');
+            const daysContainer = document.getElementById('days-container');
+            const saveScheduleBtn = document.getElementById('save-schedule-btn');
+            const cancelScheduleBtn = document.getElementById('cancel-schedule-btn');
+            const scheduleStartTime = document.getElementById('schedule-start-time');
+            const scheduleEndTime = document.getElementById('schedule-end-time');
+            
+            const daysOfWeek = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+            
+            // Create day toggle buttons
+            function createDayToggles() {
+                daysContainer.innerHTML = '';
+                daysOfWeek.forEach(day => {
+                    const dayDiv = document.createElement('div');
+                    dayDiv.style.cssText = 'display: flex; align-items: center; padding: 12px; background-color: #f8f9fa; border: 2px solid #e0e0e0; border-radius: 8px; cursor: pointer; transition: all 0.2s;';
+                    dayDiv.className = 'day-toggle';
+                    dayDiv.dataset.day = day;
+                    
+                    const checkbox = document.createElement('input');
+                    checkbox.type = 'checkbox';
+                    checkbox.id = `day-${day}`;
+                    checkbox.style.cssText = 'width: 18px; height: 18px; margin-right: 10px; cursor: pointer;';
+                    checkbox.className = 'day-checkbox';
+                    
+                    const label = document.createElement('label');
+                    label.htmlFor = `day-${day}`;
+                    label.textContent = day.substring(0, 3); // Show abbreviated day name
+                    label.style.cssText = 'cursor: pointer; font-size: 14px; font-weight: 500; color: #333; flex: 1; user-select: none;';
+                    
+                    dayDiv.appendChild(checkbox);
+                    dayDiv.appendChild(label);
+                    
+                    // Toggle on click anywhere in the container (both check and uncheck)
+                    dayDiv.addEventListener('click', (e) => {
+                        // Prevent default behavior and stop propagation
+                        e.preventDefault();
+                        e.stopPropagation();
+                        
+                        // Get current state before toggle
+                        const wasChecked = checkbox.checked;
+                        
+                        // Toggle the checkbox state (works for both checking and unchecking)
+                        checkbox.checked = !wasChecked;
+                        
+                        // Update styling immediately
+                        updateDayToggleStyle(dayDiv, checkbox.checked);
+                        
+                        // Manually trigger change event to ensure any other listeners are notified
+                        checkbox.dispatchEvent(new Event('change', { bubbles: true }));
+                    }, true); // Use capture phase to handle before checkbox's default behavior
+                    
+                    // Prevent checkbox from handling its own click (we handle it in container)
+                    checkbox.addEventListener('click', (e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                    }, true);
+                    
+                    // Update styling when checkbox changes (handles programmatic changes)
+                    checkbox.addEventListener('change', () => {
+                        updateDayToggleStyle(dayDiv, checkbox.checked);
+                    });
+                    
+                    // Prevent label from triggering default checkbox behavior
+                    label.addEventListener('click', (e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                    }, true);
+                    
+                    daysContainer.appendChild(dayDiv);
+                });
+            }
+            
+            function updateDayToggleStyle(dayDiv, isChecked) {
+                if (isChecked) {
+                    dayDiv.style.backgroundColor = '#e3f2fd';
+                    dayDiv.style.borderColor = '#2196f3';
+                    dayDiv.style.color = '#1976d2';
+                } else {
+                    dayDiv.style.backgroundColor = '#f8f9fa';
+                    dayDiv.style.borderColor = '#e0e0e0';
+                    dayDiv.style.color = '#333';
+                }
+            }
+            
+            // Settings modal functionality
+            if (settingsBtn && settingsModal) {
+                // Open settings modal and load schedule
+                settingsBtn.addEventListener('click', async () => {
+                    settingsModal.style.display = 'flex';
+                    createDayToggles();
+                    await loadSchedule();
+                });
+                
+                // Close settings modal
+                if (closeSettingsBtn) {
+                    closeSettingsBtn.addEventListener('click', () => {
+                        settingsModal.style.display = 'none';
+                    });
+                }
+                
+                // Close modal when clicking outside of it
+                settingsModal.addEventListener('click', (e) => {
+                    if (e.target === settingsModal) {
+                        settingsModal.style.display = 'none';
+                    }
+                });
+                
+                // Close modal with Escape key
+                document.addEventListener('keydown', (e) => {
+                    if (e.key === 'Escape' && settingsModal.style.display === 'flex') {
+                        settingsModal.style.display = 'none';
+                    }
+                });
+            }
+            
+            // Load schedule from server
+            async function loadSchedule() {
+                try {
+                    const response = await fetch('/api/settings/schedule');
+                    const data = await response.json();
+                    
+                    if (data.success && data.schedule) {
+                        scheduleEntries = data.schedule;
+                        
+                        // Group schedule entries by time to find common time ranges
+                        const timeGroups = {};
+                        scheduleEntries.forEach(entry => {
+                            const timeKey = `${entry.start_time}-${entry.end_time}`;
+                            if (!timeGroups[timeKey]) {
+                                timeGroups[timeKey] = {
+                                    start_time: entry.start_time,
+                                    end_time: entry.end_time,
+                                    days: []
+                                };
+                            }
+                            timeGroups[timeKey].days.push(entry.day);
+                        });
+                        
+                        // If there's a common time range, use it; otherwise use the first one
+                        const commonTime = Object.values(timeGroups)[0];
+                        if (commonTime) {
+                            scheduleStartTime.value = commonTime.start_time;
+                            scheduleEndTime.value = commonTime.end_time;
+                            
+                            // Check the days that have this time range
+                            commonTime.days.forEach(day => {
+                                const checkbox = document.getElementById(`day-${day}`);
+                                if (checkbox) {
+                                    checkbox.checked = true;
+                                    const dayDiv = checkbox.closest('.day-toggle');
+                                    if (dayDiv) {
+                                        updateDayToggleStyle(dayDiv, true);
+                                    }
+                                }
+                            });
+                        }
+                    } else {
+                        // Reset to defaults if no schedule
+                        scheduleStartTime.value = '08:00';
+                        scheduleEndTime.value = '17:00';
+                        document.querySelectorAll('.day-checkbox').forEach(cb => {
+                            cb.checked = false;
+                            const dayDiv = cb.closest('.day-toggle');
+                            if (dayDiv) {
+                                updateDayToggleStyle(dayDiv, false);
+                            }
+                        });
+                    }
+                } catch (error) {
+                    console.error('Error loading schedule:', error);
+                }
+            }
+            
+            // Save schedule
+            if (saveScheduleBtn) {
+                saveScheduleBtn.addEventListener('click', async () => {
+                    // Get selected days
+                    const selectedDays = [];
+                    document.querySelectorAll('.day-checkbox:checked').forEach(checkbox => {
+                        selectedDays.push(checkbox.id.replace('day-', ''));
+                    });
+                    
+                    // Get time range
+                    const startTime = scheduleStartTime.value;
+                    const endTime = scheduleEndTime.value;
+                    
+                    // Validate
+                    if (selectedDays.length === 0) {
+                        showToast('Please select at least one day.', 'error');
+                        return;
+                    }
+                    
+                    if (!startTime || !endTime) {
+                        showToast('Please set both start and end times.', 'error');
+                        return;
+                    }
+                    
+                    if (startTime >= endTime) {
+                        showToast('Start time must be before end time.', 'error');
+                        return;
+                    }
+                    
+                    // Create entries for each selected day
+                    const entries = selectedDays.map((day, index) => ({
+                        id: Date.now() + index,
+                        day: day,
+                        start_time: startTime,
+                        end_time: endTime
+                    }));
+                    
+                    try {
+                        const response = await fetch('/api/settings/schedule', {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json'
+                            },
+                            body: JSON.stringify({ schedule: entries })
+                        });
+                        
+                        const data = await response.json();
+                        
+                        if (data.success) {
+                            showToast('Schedule saved successfully!', 'success');
+                            scheduleEntries = entries;
+                            setTimeout(() => {
+                                // Close the settings modal after showing success message
+                                if (settingsModal) {
+                                    settingsModal.style.display = 'none';
+                                }
+                            }, 1500);
+                        } else {
+                            showToast(data.message || 'Failed to save schedule.', 'error');
+                        }
+                    } catch (error) {
+                        console.error('Error saving schedule:', error);
+                        showToast('Error saving schedule. Please try again.', 'error');
+                    }
+                });
+            }
+            
+            // Cancel button (reload schedule)
+            if (cancelScheduleBtn) {
+                cancelScheduleBtn.addEventListener('click', async () => {
+                    await loadSchedule();
                 });
             }
         });
