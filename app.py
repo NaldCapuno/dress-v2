@@ -142,7 +142,7 @@ def add_charset_to_json(response):
     return response
 
 # Register Blueprints
-from routes import auth_bp, dashboards_bp, violations_bp, files_bp, camera_bp, rfid_bp, debug_bp, students_bp
+from routes import auth_bp, dashboards_bp, violations_bp, files_bp, camera_bp, rfid_bp, debug_bp, students_bp, settings_bp
 app.register_blueprint(auth_bp)
 app.register_blueprint(dashboards_bp)
 app.register_blueprint(violations_bp)
@@ -151,6 +151,7 @@ app.register_blueprint(camera_bp)
 app.register_blueprint(rfid_bp)
 app.register_blueprint(debug_bp)
 app.register_blueprint(students_bp)
+app.register_blueprint(settings_bp)
 
 # Configure upload folder
 UPLOAD_FOLDER = 'uploads'
@@ -212,6 +213,53 @@ rfid_violation_timeout = 30  # seconds after which violation flag resets (allows
 test_mode = False
 test_mode_lock = threading.Lock()
 
+# Schedule checking function
+def is_system_scheduled_active():
+    """Check if the system should be active based on the schedule settings"""
+    try:
+        if get_connection is None:
+            # If DB not configured, allow system to run
+            return True
+        
+        conn = get_connection()
+        try:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT setting_value FROM settings WHERE setting_key = 'system_schedule'"
+                )
+                result = cur.fetchone()
+                
+                if not result or not result.get('setting_value'):
+                    # No schedule set, system is always active
+                    return True
+                
+                import json
+                schedule = json.loads(result['setting_value'])
+                
+                if not schedule or len(schedule) == 0:
+                    # Empty schedule, system is always active
+                    return True
+                
+                # Get current day and time
+                now = datetime.now()
+                current_day = now.strftime('%A')  # e.g., 'Monday'
+                current_time = now.strftime('%H:%M')  # e.g., '14:30'
+                
+                # Check if current time falls within any schedule entry for today
+                for entry in schedule:
+                    if entry['day'] == current_day:
+                        if entry['start_time'] <= current_time < entry['end_time']:
+                            return True
+                
+                # Not within any schedule
+                return False
+        finally:
+            conn.close()
+    except Exception as e:
+        print(f"Error checking schedule: {e}")
+        # On error, allow system to run (fail open)
+        return True
+
 # Auto-initialize camera
 def initialize_camera():
     global camera, selected_camera_id, detection_queue, detection_thread, latest_detections, latest_detection_frame
@@ -258,12 +306,67 @@ def initialize_rfid():
         print(f"Error initializing RFID: {e}")
         return False
 
+def update_rfid_enabled_based_on_schedule():
+    """Update rfid_enabled flag based on schedule and test mode"""
+    global rfid_enabled, test_mode, test_mode_lock, camera
+    
+    # Check test mode first
+    with test_mode_lock:
+        test_mode_active = test_mode
+    
+    # If test mode is active, RFID should be disabled
+    if test_mode_active:
+        if rfid_enabled:
+            rfid_enabled = False
+            set_rfid_enabled(False)
+            print("RFID disabled: Test mode is active")
+        return
+    
+    # Check schedule
+    is_active = is_system_scheduled_active()
+    
+    if is_active:
+        # Within scheduled hours - enable RFID if camera is running
+        if camera is not None and camera.isOpened():
+            if not rfid_enabled:
+                rfid_enabled = True
+                set_rfid_enabled(True)
+                print("RFID enabled: Within scheduled hours")
+        else:
+            # Camera not running, disable RFID
+            if rfid_enabled:
+                rfid_enabled = False
+                set_rfid_enabled(False)
+                print("RFID disabled: Camera is not running")
+    else:
+        # Outside scheduled hours - disable RFID
+        if rfid_enabled:
+            rfid_enabled = False
+            set_rfid_enabled(False)
+            print("RFID disabled: Outside scheduled hours")
+
 def rfid_event_handler():
     """Handle RFID events in background thread"""
-    global rfid_last_uid, rfid_present, detection_enabled, rfid_lock, rfid_last_student, rfid_consecutive_non_compliant, rfid_last_compliance_status, rfid_last_violation_ts, camera, rfid_enabled, tracker
+    global rfid_last_uid, rfid_present, detection_enabled, rfid_lock, rfid_last_student, rfid_consecutive_non_compliant, rfid_last_compliance_status, rfid_last_violation_ts, camera, rfid_enabled, tracker, test_mode, test_mode_lock
     
     while True:
         try:
+            # Update RFID enabled status based on schedule and test mode
+            update_rfid_enabled_based_on_schedule()
+            
+            # Skip RFID processing if test mode is active
+            with test_mode_lock:
+                test_mode_active = test_mode
+            
+            if test_mode_active:
+                time.sleep(0.1)  # Small delay to avoid busy waiting
+                continue
+            
+            # Check if system is scheduled to be active - RFID only works during scheduled hours
+            if not is_system_scheduled_active():
+                time.sleep(0.1)  # Small delay to avoid busy waiting
+                continue
+            
             if rfid_event_queue and rfid_enabled and camera is not None and camera.isOpened():
                 event = rfid_event_queue.get(timeout=1.0)
                 if event['type'] == 'uid':
@@ -1585,7 +1688,7 @@ This is an automated notification. Please do not reply to this email."""
 
 def detection_worker():
     """Background thread that processes frames for detection without blocking camera feed"""
-    global detection_queue, latest_detections, latest_detection_frame, detection_results_lock, detection_enabled
+    global detection_queue, latest_detections, latest_detection_frame, detection_results_lock, detection_enabled, test_mode, test_mode_lock
     
     while True:
         try:
@@ -1597,7 +1700,19 @@ def detection_worker():
                 
                 frame, detection_enabled_flag = frame_data
                 
+                # Note: Camera can work anytime, but detections/violations are only processed during scheduled hours
+                # This allows camera feed to work but prevents violations from being recorded outside schedule
+                # Exception: Test mode works outside scheduled hours
                 if detection_enabled_flag and frame is not None:
+                    # Check test mode first - test mode works outside scheduled hours
+                    with test_mode_lock:
+                        test_mode_active = test_mode
+                    
+                    # Only process detections if system is scheduled to be active OR test mode is active
+                    if not test_mode_active and not is_system_scheduled_active():
+                        # Skip detection processing if outside scheduled hours (but camera feed still works)
+                        detection_queue.task_done()
+                        continue
                     # Perform detection on the frame
                     detections = detect_persons_frame_with_dress(frame.copy())
                     
@@ -1762,6 +1877,20 @@ def get_programs_by_college(college):
     return college_program_map.get(college, [])
 
 
+def schedule_rfid_checker():
+    """Background thread that periodically checks schedule and updates RFID enabled status"""
+    # Wait for app to be fully initialized
+    time.sleep(5)
+    
+    while True:
+        try:
+            update_rfid_enabled_based_on_schedule()
+        except Exception as e:
+            print(f"Error in schedule RFID checker: {e}")
+        
+        # Check every 10 seconds
+        time.sleep(10)
+
 def followup_email_scheduler():
     """Background thread that periodically checks for and sends follow-up emails for unresolved violations."""
     # Wait for app to be fully initialized
@@ -1807,5 +1936,13 @@ if __name__ == '__main__':
         print("✓ Follow-up email scheduler started (checks daily for violations 3+ days old)")
     except Exception as e:
         print(f"✗ Warning: Could not start follow-up email scheduler: {e}")
+    
+    # Start schedule RFID checker in background
+    try:
+        schedule_checker_thread = threading.Thread(target=schedule_rfid_checker, daemon=True)
+        schedule_checker_thread.start()
+        print("✓ Schedule RFID checker started (checks every 30 seconds to enable/disable RFID based on schedule)")
+    except Exception as e:
+        print(f"✗ Warning: Could not start schedule RFID checker: {e}")
     
     app.run(debug=True, host='0.0.0.0', port=5000)

@@ -85,7 +85,7 @@ DROP TABLE IF EXISTS `settings`;
 CREATE TABLE `settings` (
   `setting_id` int NOT NULL AUTO_INCREMENT,
   `setting_key` varchar(50) NOT NULL,
-  `setting_value` varchar(255) NOT NULL,
+  `setting_value` TEXT NOT NULL,
   PRIMARY KEY (`setting_id`),
   UNIQUE KEY `setting_key` (`setting_key`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;

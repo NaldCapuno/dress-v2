@@ -12,15 +12,19 @@ rfid_bp = Blueprint('rfid', __name__)
 def rfid_status():
     """Get RFID scanner status"""
     # Import here to avoid circular imports
-    from app import rfid_last_uid, rfid_present, detection_enabled, rfid_lock, rfid_last_student, rfid_enabled, camera, RFID_AVAILABLE, get_rfid_status
+    from app import rfid_last_uid, rfid_present, detection_enabled, rfid_lock, rfid_last_student, rfid_enabled, camera, RFID_AVAILABLE, get_rfid_status, test_mode, test_mode_lock
     
     try:
+        # Check if test mode is active - if so, RFID is disabled
+        with test_mode_lock:
+            test_mode_active = test_mode
+        
         with rfid_lock:
             camera_active = camera is not None and camera.isOpened()
-            print(f"DEBUG: RFID status check - rfid_enabled: {rfid_enabled}, rfid_present: {rfid_present}")
+            print(f"DEBUG: RFID status check - rfid_enabled: {rfid_enabled}, rfid_present: {rfid_present}, test_mode: {test_mode_active}")
             
-            # If RFID is disabled, return inactive status
-            if not rfid_enabled or not camera_active:
+            # If RFID is disabled or test mode is active, return inactive status
+            if not rfid_enabled or not camera_active or test_mode_active:
                 status = {
                     'available': RFID_AVAILABLE,
                     'present': False,
