@@ -4,6 +4,14 @@ import cv2
 import numpy as np
 from ultralytics import YOLO
 import os
+
+# Load environment variables from .env file
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    # python-dotenv not installed, skip loading .env file
+    pass
 import base64
 import threading
 import time

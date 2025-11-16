@@ -209,3 +209,11 @@ __marimo__/
 
 /results
 /uploads
+
+# Database credentials and certificates
+certs/
+*.pem
+*.key
+*.crt
+.env.local
+.env.production
