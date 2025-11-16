@@ -45,6 +45,7 @@ def rfid_status():
                     'student': rfid_last_student,
                     'enabled': True,
                     'camera_active': camera_active,
+                    'last_time': status.get('last_time', 0),  # Include timestamp from scanner
                 })
                 print(f"DEBUG: RFID enabled, returning status: {status}")
         return jsonify({'success': True, 'status': status})

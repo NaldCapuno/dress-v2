@@ -30,6 +30,8 @@ def dean_get_violations():
         offset = max(0, (page - 1) * page_size)
         college = request.args.get('college') or ((session.get('admin') or {}).get('college'))
         program = request.args.get('program')
+        sort_column = request.args.get('sort_column', 'timestamp')
+        sort_direction = request.args.get('sort_direction', 'desc').upper()
 
         conn = get_connection() if get_connection else None
         if conn is None:
@@ -75,12 +77,28 @@ def dean_get_violations():
             "FROM violations v LEFT JOIN students s ON v.student_id = s.student_id"
         )
 
+        # Validate and sanitize sort column
+        allowed_sort_columns = {
+            'violation_id': 'v.violation_id',
+            'timestamp': 'v.timestamp',
+            'violation_type': 'v.violation_type',
+            'status': 'v.status',
+            'name': 's.name',
+            'student_id': 'v.student_id',
+            'program': 's.program',
+            'college': 's.college'
+        }
+        sort_column_sql = allowed_sort_columns.get(sort_column, 'v.timestamp')
+        if sort_direction not in ('ASC', 'DESC'):
+            sort_direction = 'DESC'
+        order_by = f"{sort_column_sql} {sort_direction}"
+
         with conn.cursor() as cur:
             cur.execute(f"SELECT COUNT(*) AS cnt FROM violations v LEFT JOIN students s ON v.student_id = s.student_id{where_sql}", params)
             total = (cur.fetchone() or {}).get('cnt', 0)
 
             cur.execute(
-                f"{base_select}{where_sql} ORDER BY v.timestamp DESC LIMIT %s OFFSET %s",
+                f"{base_select}{where_sql} ORDER BY {order_by} LIMIT %s OFFSET %s",
                 params + [page_size, offset]
             )
             rows = cur.fetchall() or []
@@ -431,6 +449,8 @@ def osas_get_violations():
         page = int(request.args.get('page', 1))
         page_size = int(request.args.get('page_size', 50))
         offset = max(0, (page - 1) * page_size)
+        sort_column = request.args.get('sort_column', 'timestamp')
+        sort_direction = request.args.get('sort_direction', 'desc').upper()
 
         conn = get_connection() if get_connection else None
         if conn is None:
@@ -474,12 +494,28 @@ def osas_get_violations():
             "FROM violations v LEFT JOIN students s ON v.student_id = s.student_id"
         )
 
+        # Validate and sanitize sort column
+        allowed_sort_columns = {
+            'violation_id': 'v.violation_id',
+            'timestamp': 'v.timestamp',
+            'violation_type': 'v.violation_type',
+            'status': 'v.status',
+            'name': 's.name',
+            'student_id': 'v.student_id',
+            'program': 's.program',
+            'college': 's.college'
+        }
+        sort_column_sql = allowed_sort_columns.get(sort_column, 'v.timestamp')
+        if sort_direction not in ('ASC', 'DESC'):
+            sort_direction = 'DESC'
+        order_by = f"{sort_column_sql} {sort_direction}"
+
         with conn.cursor() as cur:
             cur.execute(f"SELECT COUNT(*) AS cnt FROM violations v LEFT JOIN students s ON v.student_id = s.student_id{where_sql}", params)
             total = (cur.fetchone() or {}).get('cnt', 0)
 
             cur.execute(
-                f"{base_select}{where_sql} ORDER BY v.timestamp DESC LIMIT %s OFFSET %s",
+                f"{base_select}{where_sql} ORDER BY {order_by} LIMIT %s OFFSET %s",
                 params + [page_size, offset]
             )
             rows = cur.fetchall() or []
@@ -505,6 +541,8 @@ def guidance_get_violations():
         page = int(request.args.get('page', 1))
         page_size = int(request.args.get('page_size', 50))
         offset = max(0, (page - 1) * page_size)
+        sort_column = request.args.get('sort_column', 'timestamp')
+        sort_direction = request.args.get('sort_direction', 'desc').upper()
 
         conn = get_connection() if get_connection else None
         if conn is None:
@@ -542,12 +580,28 @@ def guidance_get_violations():
             "FROM violations v LEFT JOIN students s ON v.student_id = s.student_id"
         )
 
+        # Validate and sanitize sort column
+        allowed_sort_columns = {
+            'violation_id': 'v.violation_id',
+            'timestamp': 'v.timestamp',
+            'violation_type': 'v.violation_type',
+            'status': 'v.status',
+            'name': 's.name',
+            'student_id': 'v.student_id',
+            'program': 's.program',
+            'college': 's.college'
+        }
+        sort_column_sql = allowed_sort_columns.get(sort_column, 'v.timestamp')
+        if sort_direction not in ('ASC', 'DESC'):
+            sort_direction = 'DESC'
+        order_by = f"{sort_column_sql} {sort_direction}"
+
         with conn.cursor() as cur:
             cur.execute(f"SELECT COUNT(*) AS cnt FROM violations v LEFT JOIN students s ON v.student_id = s.student_id{where_sql}", params)
             total = (cur.fetchone() or {}).get('cnt', 0)
 
             cur.execute(
-                f"{base_select}{where_sql} ORDER BY v.timestamp DESC LIMIT %s OFFSET %s",
+                f"{base_select}{where_sql} ORDER BY {order_by} LIMIT %s OFFSET %s",
                 params + [page_size, offset]
             )
             rows = cur.fetchall() or []
@@ -1711,11 +1765,10 @@ def send_followup_emails():
         
         # Find violations that are pending, 3+ days old, and haven't had follow-up sent yet
         # Excludes violations where followup_sent = 1 (already sent)
-        # Use SELECT FOR UPDATE to lock rows and prevent race conditions
         with conn.cursor() as cur:
             try:
-                # Try query with followup_sent column - use FOR UPDATE to lock rows
-                # Only selects violations where followup_sent IS NULL or 0 (excludes 1)
+                # Query with followup_sent column - only selects violations where followup_sent IS NULL or 0
+                # This excludes violations where followup_sent = 1 (already sent)
                 cur.execute(
                     """
                     SELECT v.violation_id, v.student_id, v.violation_type, v.timestamp, v.image_proof, v.status,
@@ -1725,30 +1778,44 @@ def send_followup_emails():
                     WHERE v.status = 'pending' 
                       AND v.timestamp <= NOW() - INTERVAL 3 DAY
                       AND (v.followup_sent IS NULL OR v.followup_sent = 0)
-                      -- This condition excludes violations where followup_sent = 1
                     ORDER BY v.timestamp ASC
-                    FOR UPDATE
                     """
                 )
                 violations = cur.fetchall() or []
+                print(f"DEBUG: Found {len(violations)} violations needing follow-up emails")
             except Exception as e:
-                # Fallback if column doesn't exist yet or FOR UPDATE not supported
-                print(f"Warning: followup_sent column may not exist, using fallback query: {e}")
-                cur.execute(
-                    """
-                    SELECT v.violation_id, v.student_id, v.violation_type, v.timestamp, v.image_proof, v.status,
-                           s.name, s.email, s.gender
-                    FROM violations v
-                    LEFT JOIN students s ON v.student_id = s.student_id
-                    WHERE v.status = 'pending' 
-                      AND v.timestamp <= NOW() - INTERVAL 3 DAY
-                      AND v.timestamp > NOW() - INTERVAL 4 DAY
-                    ORDER BY v.timestamp ASC
-                    """
-                )
-                violations = cur.fetchall() or []
+                # If column doesn't exist, check if it's a column error
+                error_str = str(e).lower()
+                if 'followup_sent' in error_str or 'unknown column' in error_str:
+                    # Column doesn't exist - try to add it and retry
+                    try:
+                        cur.execute("ALTER TABLE violations ADD COLUMN followup_sent TINYINT(1) DEFAULT 0")
+                        conn.commit()
+                        print("✓ Added followup_sent column to violations table")
+                        # Retry the query
+                        cur.execute(
+                            """
+                            SELECT v.violation_id, v.student_id, v.violation_type, v.timestamp, v.image_proof, v.status,
+                                   s.name, s.email, s.gender
+                            FROM violations v
+                            LEFT JOIN students s ON v.student_id = s.student_id
+                            WHERE v.status = 'pending' 
+                              AND v.timestamp <= NOW() - INTERVAL 3 DAY
+                              AND (v.followup_sent IS NULL OR v.followup_sent = 0)
+                            ORDER BY v.timestamp ASC
+                            """
+                        )
+                        violations = cur.fetchall() or []
+                    except Exception as add_err:
+                        print(f"Error adding followup_sent column: {add_err}")
+                        violations = []
+                else:
+                    # Other error - log and return empty
+                    print(f"Error querying violations for follow-up emails: {e}")
+                    violations = []
         
         if not violations:
+            print("DEBUG: No violations found that need follow-up emails (all are either resolved, less than 3 days old, or already sent)")
             return jsonify({'success': True, 'message': 'No violations require follow-up emails', 'sent': 0})
         
         sent_count = 0
@@ -1772,6 +1839,18 @@ def send_followup_emails():
                 # Use atomic UPDATE to mark it immediately
                 try:
                     with conn.cursor() as mark_cur:
+                        # First, verify the current state
+                        mark_cur.execute(
+                            "SELECT followup_sent FROM violations WHERE violation_id = %s",
+                            (violation_id,)
+                        )
+                        current_state = mark_cur.fetchone()
+                        if current_state:
+                            current_followup_sent = current_state.get('followup_sent')
+                            if current_followup_sent == 1:
+                                print(f"⚠ Violation {violation_id} already has followup_sent=1, skipping duplicate")
+                                continue
+                        
                         # Try to atomically mark as sent (only if still 0/NULL)
                         mark_cur.execute(
                             """
@@ -1787,11 +1866,16 @@ def send_followup_emails():
                         
                         # If no rows were updated, this violation was already processed by another instance
                         if rows_updated == 0:
-                            print(f"⚠ Violation {violation_id} already processed, skipping duplicate")
+                            print(f"⚠ Violation {violation_id} already processed (followup_sent was already 1), skipping duplicate")
                             continue
+                        
+                        print(f"✓ Marked violation {violation_id} as followup_sent=1 before sending email")
                 except Exception as mark_err:
                     print(f"Warning: Could not mark violation {violation_id} as processed: {mark_err}")
-                    # Continue anyway, but this might cause duplicates
+                    import traceback
+                    traceback.print_exc()
+                    # Don't continue - skip this violation to prevent duplicates
+                    continue
                 
                 # Get student info to determine strike count
                 student = find_student_by_id(student_id) if find_student_by_id else None

@@ -4,6 +4,14 @@ import cv2
 import numpy as np
 from ultralytics import YOLO
 import os
+
+# Load environment variables from .env file
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    # python-dotenv not installed, skip loading .env file
+    pass
 import base64
 import threading
 import time
@@ -256,7 +264,15 @@ def is_system_scheduled_active():
         finally:
             conn.close()
     except Exception as e:
-        print(f"Error checking schedule: {e}")
+        error_msg = str(e)
+        if "Access denied" in error_msg or "1045" in error_msg:
+            print(f"⚠️ Database authentication error: {error_msg}")
+            print("⚠️ Please check:")
+            print("   1. DB_PASSWORD environment variable is set correctly")
+            print("   2. Your IP address is whitelisted in Aiven")
+            print("   3. SSL certificate is properly configured")
+        else:
+            print(f"Error checking schedule: {e}")
         # On error, allow system to run (fail open)
         return True
 
@@ -368,14 +384,65 @@ def rfid_event_handler():
                 continue
             
             if rfid_event_queue and rfid_enabled and camera is not None and camera.isOpened():
-                event = rfid_event_queue.get(timeout=1.0)
+                try:
+                    event = rfid_event_queue.get(timeout=1.0)
+                except queue.Empty:
+                    # Timeout - no event in queue, check current RFID status
+                    current_present = _rfid_is_present()
+                    with rfid_lock:
+                        # Always check if card is not present and reset state accordingly
+                        if not current_present:
+                            # Card is not present - always reset state if we have any stale data
+                            if rfid_present or rfid_last_uid is not None or rfid_last_student is not None:
+                                # Card was present but now removed - reset all state
+                                rfid_present = False
+                                detection_enabled = False
+                                rfid_last_student = None
+                                rfid_last_uid = None  # Reset UID so next scan is treated as new
+                                rfid_current_uid_checks = 0
+                                rfid_current_uid_violated = False
+                                rfid_current_uid_compliant = False
+                                rfid_just_violated = False
+                                rfid_just_compliant = False
+                                rfid_consecutive_non_compliant = 0
+                                rfid_consecutive_compliant = 0
+                                rfid_last_compliance_status = None
+                                rfid_current_uid_snapshot_saved = False
+                                rfid_last_violation_ts = 0
+                                rfid_last_violation_uid = None
+                                # Reset tracker when RFID card is removed
+                                tracker = BotSORT()
+                                print("RFID Card removed - Detection DISABLED - Tracker reset - All state cleared")
+                        elif current_present and not rfid_present:
+                            # Card just appeared
+                            rfid_present = True
+                            print("RFID Card present - Waiting for UID event")
+                    continue  # Skip to next iteration
+                
                 if event['type'] == 'uid':
                     with rfid_lock:
                         incoming_uid = event['uid']
                         is_same_uid = (rfid_present and rfid_last_uid == incoming_uid)
                         old_uid = rfid_last_uid
+                        
+                        # Safety check: if we have a different UID or no previous UID, treat as new card
+                        if rfid_last_uid is not None and rfid_last_uid != incoming_uid:
+                            # Different card detected - reset everything first
+                            print(f"DEBUG: Different RFID card detected - Old UID: {rfid_last_uid}, New UID: {incoming_uid}")
+                            rfid_current_uid_checks = 0
+                            rfid_current_uid_violated = False
+                            rfid_current_uid_compliant = False
+                            rfid_consecutive_non_compliant = 0
+                            rfid_consecutive_compliant = 0
+                            rfid_last_compliance_status = None
+                            rfid_current_uid_snapshot_saved = False
+                            rfid_last_violation_ts = 0
+                            rfid_last_violation_uid = None
+                            tracker = BotSORT()
+                        
                         rfid_last_uid = incoming_uid
                         rfid_present = True
+                        
                         # Only reset per-scan counters on NEW UID (or after removal), not on repeated same-UID events
                         if not is_same_uid:
                             print(f"DEBUG: New RFID card detected - Old UID: {old_uid}, New UID: {incoming_uid}")
@@ -512,10 +579,12 @@ def rfid_event_handler():
                         with rfid_lock:
                             detection_enabled = False
                 else:
+                    # Event received but not a 'uid' event (shouldn't happen, but handle it)
                     with rfid_lock:
                         rfid_present = False
                         detection_enabled = False
                         rfid_last_student = None
+                        rfid_last_uid = None  # Reset UID so next scan is treated as new
                         rfid_current_uid_checks = 0
                         rfid_current_uid_violated = False
                         rfid_current_uid_compliant = False
@@ -527,56 +596,39 @@ def rfid_event_handler():
                         rfid_last_violation_uid = None  # Reset violation UID tracking when card removed
                         # Reset tracker when RFID card is removed
                         tracker = BotSORT()
-                    print("RFID Card removed - Detection DISABLED - Tracker reset")
+                    print("RFID Card removed - Detection DISABLED - Tracker reset - All state cleared")
             elif rfid_event_queue:
                 # RFID disabled or camera off, just consume events without processing
                 try:
                     rfid_event_queue.get(timeout=1.0)
-                except:
+                except queue.Empty:
                     pass
-        except:
-            # Timeout or no events, check current status
-            # Only check RFID status if RFID is enabled and camera is active
-            if rfid_enabled and camera is not None and camera.isOpened():
-                current_present = _rfid_is_present()
-                with rfid_lock:
-                    if rfid_present != current_present:
-                        rfid_present = current_present
-                        detection_enabled = current_present
-                        if not current_present:
-                            rfid_last_student = None
-                            rfid_current_uid_checks = 0
-                            rfid_current_uid_violated = False
-                            rfid_current_uid_compliant = False
-                            rfid_just_violated = False
-                            rfid_just_compliant = False
-                            rfid_consecutive_non_compliant = 0
-                            rfid_consecutive_compliant = 0
-                            rfid_last_compliance_status = None
-                            # Reset tracker when RFID card is removed
-                            tracker = BotSORT()
-                        if current_present:
-                            print("RFID Card present - Detection ENABLED")
-                        else:
-                            print("RFID Card removed - Detection DISABLED - Tracker reset")
-            else:
-                # RFID disabled or camera off, ensure RFID is inactive
-                with rfid_lock:
-                    if rfid_present:
-                        rfid_present = False
-                        detection_enabled = False
-                        rfid_last_student = None
-                        rfid_current_uid_checks = 0
-                        rfid_current_uid_violated = False
-                        rfid_current_uid_compliant = False
-                        rfid_consecutive_non_compliant = 0
-                        rfid_consecutive_compliant = 0
-                        rfid_last_compliance_status = None
-                        rfid_current_uid_snapshot_saved = False
-                        rfid_last_uid = None
-                        # Reset tracker when RFID is disabled or camera is off
-                        tracker = BotSORT()
-                        print("RFID disabled or camera off - RFID forced inactive - Tracker reset")
+        except Exception as e:
+            # Other exceptions - log and continue
+            print(f"Error in RFID event handler: {e}")
+            import traceback
+            traceback.print_exc()
+        
+        # Check if RFID is disabled or camera is off - ensure RFID is inactive
+        if not rfid_enabled or camera is None or not camera.isOpened():
+            with rfid_lock:
+                if rfid_present:
+                    rfid_present = False
+                    detection_enabled = False
+                    rfid_last_student = None
+                    rfid_last_uid = None
+                    rfid_current_uid_checks = 0
+                    rfid_current_uid_violated = False
+                    rfid_current_uid_compliant = False
+                    rfid_consecutive_non_compliant = 0
+                    rfid_consecutive_compliant = 0
+                    rfid_last_compliance_status = None
+                    rfid_current_uid_snapshot_saved = False
+                    rfid_last_violation_ts = 0
+                    rfid_last_violation_uid = None
+                    # Reset tracker when RFID is disabled or camera is off
+                    tracker = BotSORT()
+                    print("RFID disabled or camera off - RFID forced inactive - Tracker reset")
         time.sleep(0.1)
 
 # Initialize RFID on startup (camera will be initialized when user starts it)
@@ -1739,14 +1791,21 @@ def generate_frames():
     global camera, detection_enabled, current_frame, frame_lock, detection_queue
     global latest_detections, latest_detection_frame, detection_results_lock
     
+    # Use time-based frame rate control for smoother playback
+    target_fps = 30.0
+    frame_time = 1.0 / target_fps
+    
     while True:
+        frame_start_time = time.time()
+        
         if camera is not None:
             success, frame = camera.read()
             if success:
+                # Update current frame (minimize lock time)
                 with frame_lock:
                     current_frame = frame.copy()
                 
-                # Check if detection should be enabled (RFID card present OR test mode active)
+                # Get state variables quickly (minimize lock time)
                 with test_mode_lock:
                     test_mode_active = test_mode
                 
@@ -1755,9 +1814,6 @@ def generate_frames():
                     _student_set = (rfid_last_student is not None)
                     _compliant = rfid_current_uid_compliant
                     _detection_enabled = detection_enabled
-                    # Detection is enabled only if: detection flag is True, RFID is present, student is set, AND not compliant
-                    # Note: detection_enabled is already set based on has_violation_today in RFID event handler
-                    # We don't check rfid_current_uid_violated here because same card can be scanned again if no violation today
                     rfid_detection_enabled = _detection_enabled and _present and _student_set and not _compliant
                 
                 # In test mode, detection always runs regardless of RFID
@@ -1766,11 +1822,8 @@ def generate_frames():
                 # Add frame to detection queue (non-blocking, drop old frames if queue is full)
                 if detection_enabled_for_frame and detection_queue is not None:
                     try:
-                        # Try to add frame to queue, but don't block if queue is full
-                        # This ensures camera feed stays smooth even if detection is slow
                         detection_queue.put_nowait((frame.copy(), True))
                     except queue.Full:
-                        # Queue is full, skip this frame (detection will catch up)
                         pass
                 elif not detection_enabled_for_frame:
                     # Clear detection results when detection is disabled
@@ -1786,12 +1839,11 @@ def generate_frames():
                 
                 # Draw detections on current frame if available
                 if detection_enabled_for_frame and detections_to_draw is not None:
-                    # Use the current frame but draw detections from latest results
-                    # This keeps the video smooth while showing detection results
                     frame = draw_detections_frame(frame, detections_to_draw)
                 
-                # Encode frame as JPEG
-                ret, buffer = cv2.imencode('.jpg', frame)
+                # Encode frame as JPEG with optimized quality for faster encoding
+                encode_params = [cv2.IMWRITE_JPEG_QUALITY, 85]  # Slightly lower quality for faster encoding
+                ret, buffer = cv2.imencode('.jpg', frame, encode_params)
                 if ret:
                     frame_bytes = buffer.tobytes()
                     yield (b'--frame\r\n'
@@ -1809,7 +1861,11 @@ def generate_frames():
                 yield (b'--frame\r\n'
                        b'Content-Type: image/jpeg\r\n\r\n' + frame_bytes + b'\r\n')
         
-        time.sleep(0.03)  # ~30 FPS
+        # Adaptive sleep to maintain target FPS (accounts for processing time)
+        elapsed = time.time() - frame_start_time
+        sleep_time = max(0, frame_time - elapsed)
+        if sleep_time > 0:
+            time.sleep(sleep_time)
 
 def get_programs_by_college(college):
     """Return all programs for a given college based on the program-to-college mapping.
@@ -1891,6 +1947,133 @@ def schedule_rfid_checker():
         # Check every 10 seconds
         time.sleep(10)
 
+
+def auto_sync_to_aiven():
+    """Background thread that periodically syncs local database to Aiven (backup)."""
+    # Wait for app to be fully initialized
+    time.sleep(15)
+    
+    from src.config import is_aiven_available
+    
+    last_sync_time = 0
+    sync_interval = 300  # Sync every 5 minutes (300 seconds)
+    
+    while True:
+        try:
+            # Check if Aiven is available
+            if is_aiven_available(force_check=False):
+                current_time = time.time()
+                
+                # Check if enough time has passed since last sync
+                if (current_time - last_sync_time) >= sync_interval:
+                    print("🔄 Syncing local database to Aiven (backup)...")
+                    
+                    try:
+                        # Import sync functions
+                        import sys
+                        from pathlib import Path
+                        sys.path.insert(0, str(Path(__file__).parent))
+                        
+                        # Use mysql.connector for sync (different from pymysql used in app)
+                        import mysql.connector
+                        import os
+                        
+                        # Get connections
+                        local_conn = mysql.connector.connect(
+                            host=os.getenv('LOCAL_DB_HOST', 'localhost'),
+                            port=int(os.getenv('LOCAL_DB_PORT', '3306')),
+                            user=os.getenv('LOCAL_DB_USER', 'root'),
+                            password=os.getenv('LOCAL_DB_PASSWORD', 'root'),
+                            database=os.getenv('LOCAL_DB_NAME', 'dress')
+                        )
+                        
+                        aiven_host = os.getenv('DB_HOST', '')
+                        aiven_port = int(os.getenv('DB_PORT', '3306'))
+                        aiven_user = os.getenv('DB_USER', '')
+                        aiven_password = os.getenv('DB_PASSWORD', '')
+                        aiven_database = os.getenv('DB_NAME', 'dress')
+                        
+                        is_aiven = 'aivencloud.com' in aiven_host.lower()
+                        ssl_disabled = os.getenv('DB_SSL_DISABLED', 'false').lower() in {'1', 'true', 'yes', 'on'}
+                        ssl_required = os.getenv('DB_SSL_REQUIRED', 'true' if is_aiven else 'false').lower() in {'1', 'true', 'yes', 'on'}
+                        ssl_ca = os.getenv('DB_SSL_CA', 'certs/ca.pem' if is_aiven else None)
+                        
+                        aiven_params = {
+                            'host': aiven_host,
+                            'port': aiven_port,
+                            'user': aiven_user,
+                            'password': aiven_password,
+                            'database': aiven_database
+                        }
+                        
+                        if not ssl_disabled and (ssl_required or ssl_ca):
+                            if ssl_ca and os.path.exists(ssl_ca):
+                                aiven_params['ssl_ca'] = ssl_ca
+                            if not ssl_disabled:
+                                aiven_params['ssl_disabled'] = False
+                        
+                        aiven_conn = mysql.connector.connect(**aiven_params)
+                        
+                        # Simple sync: just sync data (assume schema is already synced)
+                        local_cursor = local_conn.cursor()
+                        aiven_cursor = aiven_conn.cursor()
+                        
+                        # Get all tables
+                        local_cursor.execute("SHOW TABLES")
+                        tables = [row[0] for row in local_cursor.fetchall()]
+                        
+                        # Disable foreign key checks
+                        aiven_cursor.execute("SET FOREIGN_KEY_CHECKS = 0")
+                        
+                        synced_count = 0
+                        for table in tables:
+                            try:
+                                # Get data from local
+                                local_cursor.execute(f"SELECT * FROM `{table}`")
+                                rows = local_cursor.fetchall()
+                                
+                                if not rows:
+                                    continue
+                                
+                                # Get column names
+                                local_cursor.execute(f"DESCRIBE `{table}`")
+                                columns = [col[0] for col in local_cursor.fetchall()]
+                                
+                                # Clear Aiven table
+                                aiven_cursor.execute(f"TRUNCATE TABLE `{table}`")
+                                
+                                # Insert data
+                                placeholders = ', '.join(['%s'] * len(columns))
+                                columns_str = ', '.join([f"`{col}`" for col in columns])
+                                insert_query = f"INSERT INTO `{table}` ({columns_str}) VALUES ({placeholders})"
+                                
+                                aiven_cursor.executemany(insert_query, rows)
+                                aiven_conn.commit()
+                                synced_count += 1
+                            except Exception as e:
+                                print(f"  ⚠ Error syncing table {table}: {e}")
+                        
+                        # Re-enable foreign key checks
+                        aiven_cursor.execute("SET FOREIGN_KEY_CHECKS = 1")
+                        aiven_conn.commit()
+                        
+                        local_conn.close()
+                        aiven_conn.close()
+                        
+                        last_sync_time = current_time
+                        print(f"✅ Auto-sync to Aiven (backup) completed! Synced {synced_count} tables.")
+                        
+                    except Exception as e:
+                        print(f"⚠️ Auto-sync to Aiven failed: {e}")
+                        import traceback
+                        traceback.print_exc()
+            
+        except Exception as e:
+            print(f"Error in auto-sync to Aiven checker: {e}")
+        
+        # Check every 60 seconds
+        time.sleep(60)
+
 def followup_email_scheduler():
     """Background thread that periodically checks for and sends follow-up emails for unresolved violations."""
     # Wait for app to be fully initialized
@@ -1900,6 +2083,7 @@ def followup_email_scheduler():
         try:
             # Check once per day for violations that need follow-up emails
             # This ensures we catch violations that are exactly 3 days old
+            # The followup_sent flag prevents duplicate emails even if the app restarts
             with app.app_context():
                 try:
                     # Call the follow-up email endpoint internally
@@ -1910,6 +2094,8 @@ def followup_email_scheduler():
                             data = result.get_json()
                             if data and data.get('sent', 0) > 0:
                                 print(f"✓ Follow-up email scheduler: Sent {data.get('sent')} follow-up emails")
+                            elif data:
+                                print(f"✓ Follow-up email scheduler: No emails to send (all violations already processed)")
                 except Exception as e:
                     print(f"✗ Error in follow-up email scheduler: {e}")
                     import traceback
@@ -1941,8 +2127,16 @@ if __name__ == '__main__':
     try:
         schedule_checker_thread = threading.Thread(target=schedule_rfid_checker, daemon=True)
         schedule_checker_thread.start()
-        print("✓ Schedule RFID checker started (checks every 30 seconds to enable/disable RFID based on schedule)")
+        print("✓ Schedule RFID checker started (checks every 10 seconds to enable/disable RFID based on schedule)")
     except Exception as e:
         print(f"✗ Warning: Could not start schedule RFID checker: {e}")
+    
+    # Start auto-sync checker in background (Local → Aiven backup)
+    try:
+        auto_sync_thread = threading.Thread(target=auto_sync_to_aiven, daemon=True)
+        auto_sync_thread.start()
+        print("✓ Auto-sync to Aiven (backup) started (syncs every 5 minutes when Aiven is available)")
+    except Exception as e:
+        print(f"✗ Warning: Could not start auto-sync to Aiven checker: {e}")
     
     app.run(debug=True, host='0.0.0.0', port=5000)

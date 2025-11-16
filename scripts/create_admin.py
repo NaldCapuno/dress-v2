@@ -3,6 +3,15 @@ from mysql.connector import Error
 from werkzeug.security import generate_password_hash
 import getpass
 import re
+import os
+
+# Load environment variables from .env file
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    # python-dotenv not installed, skip loading .env file
+    pass
 
 # Allowed roles and colleges from your schema
 ALLOWED_ROLES = ['security', 'osas', 'dean', 'guidance']
@@ -21,11 +30,29 @@ ALLOWED_COLLEGES = [
 def create_admin():
     print("=== Create New Admin Account ===\n")
 
-    # MySQL connection setup
-    host = input("MySQL Host (default: localhost): ") or "localhost"
-    user = input("MySQL Username (default: root): ") or "root"
-    password_db = getpass.getpass("MySQL Password (default: root): ") or "root"
-    database = input("Database name (default: dress): ") or "dress"
+    # MySQL connection setup - use local database as default (primary)
+    default_host = os.getenv('LOCAL_DB_HOST', os.getenv('DB_HOST', 'localhost'))
+    default_port = os.getenv('LOCAL_DB_PORT', os.getenv('DB_PORT', '3306'))
+    default_user = os.getenv('LOCAL_DB_USER', os.getenv('DB_USER', 'root'))
+    default_password = os.getenv('LOCAL_DB_PASSWORD', os.getenv('DB_PASSWORD', ''))
+    default_database = os.getenv('LOCAL_DB_NAME', os.getenv('DB_NAME', 'dress'))
+    
+    host = input(f"MySQL Host (default: {default_host}): ") or default_host
+    port_input = input(f"MySQL Port (default: {default_port}): ") or default_port
+    try:
+        port = int(port_input)
+    except ValueError:
+        print(f"Invalid port number, using default {default_port}")
+        port = int(default_port)
+    user = input(f"MySQL Username (default: {default_user}): ") or default_user
+    
+    # For password, show default only if it's not empty (but don't display the actual password)
+    if default_password:
+        password_prompt = "MySQL Password (default: [from .env]): "
+    else:
+        password_prompt = "MySQL Password: "
+    password_db = getpass.getpass(password_prompt) or default_password
+    database = input(f"Database name (default: {default_database}): ") or default_database
 
     # Admin details
     username = input("Enter new admin username: ").strip()
@@ -87,12 +114,34 @@ def create_admin():
 
     try:
         print("\nConnecting to database...")
-        connection = mysql.connector.connect(
-            host=host,
-            user=user,
-            password=password_db,
-            database=database
-        )
+        # Check if using Aiven (requires SSL)
+        is_aiven = 'aivencloud.com' in host.lower()
+        connection_params = {
+            'host': host,
+            'port': port,
+            'user': user,
+            'password': password_db,
+            'database': database
+        }
+        
+        # Add SSL for Aiven connections (or if configured via environment variables)
+        ssl_disabled = os.getenv('DB_SSL_DISABLED', 'false').lower() in {'1', 'true', 'yes', 'on'}
+        ssl_required = os.getenv('DB_SSL_REQUIRED', 'true' if is_aiven else 'false').lower() in {'1', 'true', 'yes', 'on'}
+        ssl_ca_env = os.getenv('DB_SSL_CA', None)
+        
+        if is_aiven or ssl_required:
+            # Try environment variable first, then default location
+            if ssl_ca_env and os.path.exists(ssl_ca_env):
+                ssl_ca = ssl_ca_env
+            else:
+                ssl_ca = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'certs', 'ca.pem')
+            
+            if not ssl_disabled and ssl_ca and os.path.exists(ssl_ca):
+                connection_params['ssl_ca'] = ssl_ca
+            if not ssl_disabled:
+                connection_params['ssl_disabled'] = False
+        
+        connection = mysql.connector.connect(**connection_params)
 
         if connection.is_connected():
             cursor = connection.cursor()

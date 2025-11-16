@@ -135,6 +135,13 @@
                 <div class="status-label">Schedule Status</div>
                 <div class="status-value" id="schedule-status">Active</div>
             </div>
+            <div class="status-divider"></div>
+            <div class="status-item">
+                <div class="status-label">Database</div>
+                <div class="status-value" id="database-status">
+                    <i class="fas fa-circle" style="font-size: 8px; margin-right: 5px;"></i>Checking...
+                </div>
+            </div>
         </div>
             
         <!-- Live Monitoring Section -->
@@ -640,22 +647,29 @@
                 uidElement.textContent = uid;
                 display.style.display = 'block';
 
-                if (uid !== currentRfidDisplay.uid) {
-                    let delayText = '-';
-                    if (typeof lastTimestamp === 'number' && !Number.isNaN(lastTimestamp) && lastTimestamp > 0) {
-                        const nowSeconds = Date.now() / 1000;
-                        const delaySeconds = Math.max(0, nowSeconds - lastTimestamp);
-                        if (delaySeconds < 1) {
-                            delayText = `${Math.round(delaySeconds * 1000)} ms`;
-                        } else if (delaySeconds < 10) {
-                            delayText = `${delaySeconds.toFixed(2)} s`;
-                        } else {
-                            delayText = `${delaySeconds.toFixed(1)} s`;
-                        }
+                // Always recalculate delay to show actual elapsed time since card scan
+                let delayText = '-';
+                if (typeof lastTimestamp === 'number' && !Number.isNaN(lastTimestamp) && lastTimestamp > 0) {
+                    const nowSeconds = Date.now() / 1000;
+                    const delaySeconds = Math.max(0, nowSeconds - lastTimestamp);
+                    if (delaySeconds < 1) {
+                        delayText = `${Math.round(delaySeconds * 1000)} ms`;
+                    } else if (delaySeconds < 10) {
+                        delayText = `${delaySeconds.toFixed(2)} s`;
+                    } else {
+                        delayText = `${delaySeconds.toFixed(1)} s`;
                     }
-                    currentRfidDisplay = { uid, delayText };
                 }
-                delayEl.textContent = currentRfidDisplay.delayText;
+                
+                // Update stored UID when it changes
+                if (uid !== currentRfidDisplay.uid) {
+                    currentRfidDisplay = { uid, delayText };
+                } else {
+                    // Same UID, just update the delay text
+                    currentRfidDisplay.delayText = delayText;
+                }
+                
+                delayEl.textContent = delayText;
 
                 if (student) {
                     nameEl.textContent = student.name || '-';
@@ -710,12 +724,17 @@
                 toggleBtn.addEventListener('click', toggleRfidTime);
             }
             
-            // Check RFID status every 5 seconds
-            setInterval(checkRfidStatus, 5000);
+            // Check RFID status every 1 second for faster updates
+            checkRfidStatus(); // Check immediately on load
+            setInterval(checkRfidStatus, 1000);
             
-            // Check schedule status every 5 seconds
-            setInterval(checkScheduleStatus, 5000);
+            // Check schedule status every 10 seconds
+            setInterval(checkScheduleStatus, 10000);
             checkScheduleStatus(); // Check immediately on load
+            
+            // Check database status every 10 seconds
+            setInterval(checkDatabaseStatus, 10000);
+            checkDatabaseStatus(); // Check immediately on load
         });
         
         // Helper function to update RFID status based on schedule
@@ -742,6 +761,38 @@
             })
             .catch(error => {
                 console.error('Error checking schedule status for RFID:', error);
+            });
+        }
+        
+        // Check database status
+        function checkDatabaseStatus() {
+            fetch('/api/database/status')
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    const dbStatusEl = document.getElementById('database-status');
+                    if (dbStatusEl) {
+                        const aivenAvailable = data.aiven_available;
+                        
+                        let statusText = 'Local';
+                        let statusColor = '#28a745'; // Green (primary database)
+                        let icon = '<i class="fas fa-server" style="font-size: 10px; margin-right: 5px;"></i>';
+                        
+                        // Add backup status indicator
+                        if (aivenAvailable) {
+                            statusText += ' (Backup: Aiven)';
+                        } else {
+                            statusText += ' (Backup: Offline)';
+                            statusColor = '#ffc107'; // Yellow/Orange when backup is offline
+                        }
+                        
+                        dbStatusEl.innerHTML = icon + statusText;
+                        dbStatusEl.style.color = statusColor;
+                    }
+                }
+            })
+            .catch(error => {
+                console.error('Error checking database status:', error);
             });
         }
         
@@ -1098,7 +1149,17 @@
                     
                     // Toggle on click anywhere in the container (both check and uncheck)
                     dayDiv.addEventListener('click', (e) => {
-                        // Prevent default behavior and stop propagation
+                        // If clicking directly on checkbox, let browser handle toggle, just update styling
+                        if (e.target === checkbox) {
+                            // Browser will toggle it, we just need to update styling
+                            // Use setTimeout to ensure browser's toggle happens first
+                            setTimeout(() => {
+                                updateDayToggleStyle(dayDiv, checkbox.checked);
+                            }, 0);
+                            return; // Let browser handle the toggle
+                        }
+                        
+                        // For clicks on label or container (not checkbox), prevent default and toggle manually
                         e.preventDefault();
                         e.stopPropagation();
                         
@@ -1113,24 +1174,12 @@
                         
                         // Manually trigger change event to ensure any other listeners are notified
                         checkbox.dispatchEvent(new Event('change', { bubbles: true }));
-                    }, true); // Use capture phase to handle before checkbox's default behavior
-                    
-                    // Prevent checkbox from handling its own click (we handle it in container)
-                    checkbox.addEventListener('click', (e) => {
-                        e.preventDefault();
-                        e.stopPropagation();
-                    }, true);
+                    });
                     
                     // Update styling when checkbox changes (handles programmatic changes)
                     checkbox.addEventListener('change', () => {
                         updateDayToggleStyle(dayDiv, checkbox.checked);
                     });
-                    
-                    // Prevent label from triggering default checkbox behavior
-                    label.addEventListener('click', (e) => {
-                        e.preventDefault();
-                        e.stopPropagation();
-                    }, true);
                     
                     daysContainer.appendChild(dayDiv);
                 });
@@ -1304,10 +1353,12 @@
                 });
             }
             
-            // Cancel button (reload schedule)
+            // Cancel button (close settings modal)
             if (cancelScheduleBtn) {
-                cancelScheduleBtn.addEventListener('click', async () => {
-                    await loadSchedule();
+                cancelScheduleBtn.addEventListener('click', () => {
+                    if (settingsModal) {
+                        settingsModal.style.display = 'none';
+                    }
                 });
             }
         });

@@ -29,7 +29,6 @@ CREATE TABLE `admins` (
   `role` enum('security','osas','dean','guidance') NOT NULL,
   `college` enum('College of Sciences','College of Engineering','College of Architecture and Design','College of Arts and Humanities','College of Business and Accountancy','College of Criminal Justice Education','College of Hospitality Management and Tourism','College of Nursing and Health Sciences','College of Teacher Education') DEFAULT NULL,
   `email` varchar(45) NOT NULL,
-  `app_password` varchar(16) DEFAULT NULL,
   `created_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (`admin_id`),
   UNIQUE KEY `username_UNIQUE` (`username`)
