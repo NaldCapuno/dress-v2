@@ -256,7 +256,15 @@ def is_system_scheduled_active():
         finally:
             conn.close()
     except Exception as e:
-        print(f"Error checking schedule: {e}")
+        error_msg = str(e)
+        if "Access denied" in error_msg or "1045" in error_msg:
+            print(f"⚠️ Database authentication error: {error_msg}")
+            print("⚠️ Please check:")
+            print("   1. DB_PASSWORD environment variable is set correctly")
+            print("   2. Your IP address is whitelisted in Aiven")
+            print("   3. SSL certificate is properly configured")
+        else:
+            print(f"Error checking schedule: {e}")
         # On error, allow system to run (fail open)
         return True
 

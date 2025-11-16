@@ -23,6 +23,12 @@ def create_admin():
 
     # MySQL connection setup
     host = input("MySQL Host (default: localhost): ") or "localhost"
+    port = input("MySQL Port (default: 3306): ") or "3306"
+    try:
+        port = int(port)
+    except ValueError:
+        print("Invalid port number, using default 3306")
+        port = 3306
     user = input("MySQL Username (default: root): ") or "root"
     password_db = getpass.getpass("MySQL Password (default: root): ") or "root"
     database = input("Database name (default: dress): ") or "dress"
@@ -87,12 +93,25 @@ def create_admin():
 
     try:
         print("\nConnecting to database...")
-        connection = mysql.connector.connect(
-            host=host,
-            user=user,
-            password=password_db,
-            database=database
-        )
+        # Check if using Aiven (requires SSL)
+        is_aiven = 'aivencloud.com' in host.lower()
+        connection_params = {
+            'host': host,
+            'port': port,
+            'user': user,
+            'password': password_db,
+            'database': database
+        }
+        
+        # Add SSL for Aiven connections
+        if is_aiven:
+            import os
+            ssl_ca = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'certs', 'ca.pem')
+            if os.path.exists(ssl_ca):
+                connection_params['ssl_ca'] = ssl_ca
+            connection_params['ssl_disabled'] = False
+        
+        connection = mysql.connector.connect(**connection_params)
 
         if connection.is_connected():
             cursor = connection.cursor()
