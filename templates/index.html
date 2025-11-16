@@ -135,6 +135,13 @@
                 <div class="status-label">Schedule Status</div>
                 <div class="status-value" id="schedule-status">Active</div>
             </div>
+            <div class="status-divider"></div>
+            <div class="status-item">
+                <div class="status-label">Database</div>
+                <div class="status-value" id="database-status">
+                    <i class="fas fa-circle" style="font-size: 8px; margin-right: 5px;"></i>Checking...
+                </div>
+            </div>
         </div>
             
         <!-- Live Monitoring Section -->
@@ -710,12 +717,16 @@
                 toggleBtn.addEventListener('click', toggleRfidTime);
             }
             
-            // Check RFID status every 5 seconds
-            setInterval(checkRfidStatus, 5000);
+            // Check RFID status every 10 seconds
+            setInterval(checkRfidStatus, 10000);
             
-            // Check schedule status every 5 seconds
-            setInterval(checkScheduleStatus, 5000);
+            // Check schedule status every 10 seconds
+            setInterval(checkScheduleStatus, 10000);
             checkScheduleStatus(); // Check immediately on load
+            
+            // Check database status every 10 seconds
+            setInterval(checkDatabaseStatus, 10000);
+            checkDatabaseStatus(); // Check immediately on load
         });
         
         // Helper function to update RFID status based on schedule
@@ -742,6 +753,50 @@
             })
             .catch(error => {
                 console.error('Error checking schedule status for RFID:', error);
+            });
+        }
+        
+        // Check database status
+        function checkDatabaseStatus() {
+            fetch('/api/database/status')
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    const dbStatusEl = document.getElementById('database-status');
+                    if (dbStatusEl) {
+                        const currentDb = data.current_db || 'unknown';
+                        const pendingSync = data.pending_sync;
+                        
+                        let statusText = '';
+                        let statusColor = '';
+                        let icon = '';
+                        
+                        if (currentDb === 'aiven') {
+                            statusText = 'Aiven';
+                            statusColor = '#28a745'; // Green
+                            icon = '<i class="fas fa-cloud" style="font-size: 10px; margin-right: 5px;"></i>';
+                        } else if (currentDb === 'local') {
+                            statusText = 'Local';
+                            statusColor = '#ffc107'; // Yellow/Orange
+                            icon = '<i class="fas fa-server" style="font-size: 10px; margin-right: 5px;"></i>';
+                        } else {
+                            statusText = 'Unknown';
+                            statusColor = '#6c757d'; // Gray
+                            icon = '<i class="fas fa-question-circle" style="font-size: 10px; margin-right: 5px;"></i>';
+                        }
+                        
+                        // Add sync indicator if pending
+                        if (pendingSync && currentDb === 'local') {
+                            statusText += ' (Syncing...)';
+                        }
+                        
+                        dbStatusEl.innerHTML = icon + statusText;
+                        dbStatusEl.style.color = statusColor;
+                    }
+                }
+            })
+            .catch(error => {
+                console.error('Error checking database status:', error);
             });
         }
         

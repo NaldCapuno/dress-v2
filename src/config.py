@@ -6,52 +6,240 @@ Uses PyMySQL and environment variables with sensible defaults:
 
 This module only establishes a connection and exposes get_connection().
 It does not execute any queries.
+
+Supports automatic fallback: tries Aiven first, falls back to local if unreachable.
 """
 
 import os
 import pymysql
-from typing import Any
+import threading
+import time
+from typing import Any, Optional
+
+# Load environment variables from .env file
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    # python-dotenv not installed, skip loading .env file
+    pass
+
+# Global state for database connection management
+_db_state = {
+    'current_db': None,  # 'aiven' or 'local'
+    'aiven_available': None,  # True/False/None (unknown)
+    'last_aiven_check': 0,
+    'sync_pending': False,  # True if we need to sync when Aiven comes back
+    'lock': threading.Lock()
+}
+
+# Cache for connection parameters
+_aiven_params = None
+_local_params = None
 
 
-def get_connection() -> Any:
-    """Open and return a new PyMySQL connection to the 'dress' database."""
-    host = os.getenv('DB_HOST', 'dress-dress-b72e.k.aivencloud.com')
-    port = int(os.getenv('DB_PORT', '22870'))
-    user = os.getenv('DB_USER', 'avnadmin')
-    password = os.getenv('DB_PASSWORD', '')  # Don't use default password - must be set via env var
-    database = os.getenv('DB_NAME', 'dress')
-    
-    if not password:
-        raise ValueError("DB_PASSWORD environment variable is not set. Please set it with your Aiven database password.")
-    
-    # SSL configuration for Aiven (or other cloud databases)
-    # Aiven requires SSL connections, so enable by default if using Aiven host
-    is_aiven = 'aivencloud.com' in host.lower()
-    ssl_disabled = os.getenv('DB_SSL_DISABLED', 'false').lower() in {'1', 'true', 'yes', 'on'}
-    ssl_required = os.getenv('DB_SSL_REQUIRED', 'true' if is_aiven else 'false').lower() in {'1', 'true', 'yes', 'on'}
-    ssl_ca = os.getenv('DB_SSL_CA', 'certs/ca.pem' if is_aiven else None)
-    
+def _get_aiven_params():
+    """Get Aiven database connection parameters."""
+    global _aiven_params
+    if _aiven_params is None:
+        host = os.getenv('DB_HOST', '')
+        if 'aivencloud.com' not in host.lower() and host:
+            # If DB_HOST is set but not Aiven, use it as Aiven anyway
+            pass
+        
+        _aiven_params = {
+            'host': os.getenv('DB_HOST', ''),
+            'port': int(os.getenv('DB_PORT', '3306')),
+            'user': os.getenv('DB_USER', ''),
+            'password': os.getenv('DB_PASSWORD', ''),
+            'database': os.getenv('DB_NAME', 'dress'),
+            'is_aiven': True
+        }
+    return _aiven_params
+
+
+def _get_local_params():
+    """Get local database connection parameters."""
+    global _local_params
+    if _local_params is None:
+        _local_params = {
+            'host': os.getenv('LOCAL_DB_HOST', 'localhost'),
+            'port': int(os.getenv('LOCAL_DB_PORT', '3306')),
+            'user': os.getenv('LOCAL_DB_USER', 'root'),
+            'password': os.getenv('LOCAL_DB_PASSWORD', 'root'),
+            'database': os.getenv('LOCAL_DB_NAME', 'dress'),
+            'is_aiven': False
+        }
+    return _local_params
+
+
+def _test_connection(params, timeout=3):
+    """Test if a database connection can be established."""
+    try:
+        connection_params = {
+            'host': params['host'],
+            'port': params['port'],
+            'user': params['user'],
+            'password': params['password'],
+            'database': params['database'],
+            'cursorclass': pymysql.cursors.DictCursor,
+            'connect_timeout': timeout,
+        }
+        
+        # Add SSL for Aiven
+        if params.get('is_aiven'):
+            is_aiven = 'aivencloud.com' in params['host'].lower()
+            ssl_disabled = os.getenv('DB_SSL_DISABLED', 'false').lower() in {'1', 'true', 'yes', 'on'}
+            ssl_required = os.getenv('DB_SSL_REQUIRED', 'true' if is_aiven else 'false').lower() in {'1', 'true', 'yes', 'on'}
+            ssl_ca = os.getenv('DB_SSL_CA', 'certs/ca.pem' if is_aiven else None)
+            
+            if not ssl_disabled and (ssl_required or ssl_ca):
+                if ssl_ca and os.path.exists(ssl_ca):
+                    connection_params['ssl'] = {'ca': ssl_ca}
+                elif is_aiven:
+                    import ssl
+                    connection_params['ssl'] = {'ssl_disabled': False}
+        
+        conn = pymysql.connect(**connection_params)
+        conn.close()
+        return True
+    except Exception:
+        return False
+
+
+def _create_connection(params):
+    """Create a database connection with the given parameters."""
     connection_params = {
-        'host': host,
-        'port': port,
-        'user': user,
-        'password': password,
-        'database': database,
+        'host': params['host'],
+        'port': params['port'],
+        'user': params['user'],
+        'password': params['password'],
+        'database': params['database'],
         'cursorclass': pymysql.cursors.DictCursor,
         'autocommit': True,
     }
     
-    # Add SSL configuration if required (Aiven typically requires SSL)
-    if not ssl_disabled and (ssl_required or ssl_ca):
-        if ssl_ca and os.path.exists(ssl_ca):
-            # Use custom CA certificate
-            connection_params['ssl'] = {'ca': ssl_ca}
-        elif is_aiven:
-            # For Aiven, try default SSL context if CA file not found
-            import ssl
-            connection_params['ssl'] = {'ssl_disabled': False}
-
+    # Add SSL for Aiven
+    if params.get('is_aiven'):
+        is_aiven = 'aivencloud.com' in params['host'].lower()
+        ssl_disabled = os.getenv('DB_SSL_DISABLED', 'false').lower() in {'1', 'true', 'yes', 'on'}
+        ssl_required = os.getenv('DB_SSL_REQUIRED', 'true' if is_aiven else 'false').lower() in {'1', 'true', 'yes', 'on'}
+        ssl_ca = os.getenv('DB_SSL_CA', 'certs/ca.pem' if is_aiven else None)
+        
+        if not ssl_disabled and (ssl_required or ssl_ca):
+            if ssl_ca and os.path.exists(ssl_ca):
+                connection_params['ssl'] = {'ca': ssl_ca}
+            elif is_aiven:
+                import ssl
+                connection_params['ssl'] = {'ssl_disabled': False}
+    
     return pymysql.connect(**connection_params)
+
+
+def get_connection(force_local=False) -> Any:
+    """
+    Open and return a new PyMySQL connection with automatic fallback.
+    
+    Tries Aiven first, falls back to local if Aiven is unreachable.
+    Tracks connection state and can trigger sync when Aiven comes back online.
+    
+    Args:
+        force_local: If True, force connection to local database (bypasses fallback)
+    
+    Returns:
+        PyMySQL connection object
+    """
+    global _db_state
+    
+    with _db_state['lock']:
+        # If forcing local, use local directly
+        if force_local:
+            local_params = _get_local_params()
+            _db_state['current_db'] = 'local'
+            return _create_connection(local_params)
+        
+        # Check if we should try Aiven
+        aiven_params = _get_aiven_params()
+        local_params = _get_local_params()
+        
+        # If Aiven params are not configured, use local
+        if not aiven_params['host'] or not aiven_params['user'] or not aiven_params['password']:
+            _db_state['current_db'] = 'local'
+            return _create_connection(local_params)
+        
+        # Check Aiven availability (cache for 30 seconds)
+        current_time = time.time()
+        check_aiven = (
+            _db_state['aiven_available'] is None or
+            (current_time - _db_state['last_aiven_check']) > 30
+        )
+        
+        if check_aiven:
+            _db_state['aiven_available'] = _test_connection(aiven_params, timeout=3)
+            _db_state['last_aiven_check'] = current_time
+        
+        # Try Aiven if available
+        if _db_state['aiven_available']:
+            try:
+                previous_db = _db_state['current_db']
+                _db_state['current_db'] = 'aiven'
+                # If we were using local before, mark sync as pending
+                if previous_db == 'local':
+                    _db_state['sync_pending'] = True
+                return _create_connection(aiven_params)
+            except Exception as e:
+                # Aiven connection failed, mark as unavailable
+                _db_state['aiven_available'] = False
+                print(f"⚠️ Aiven connection failed: {e}")
+                print("⚠️ Falling back to local database...")
+        
+        # Fall back to local
+        previous_db = _db_state['current_db']
+        _db_state['current_db'] = 'local'
+        # If we were using Aiven before and it's now unavailable, mark sync as pending
+        if previous_db == 'aiven' and _db_state['aiven_available'] is False:
+            _db_state['sync_pending'] = True
+        return _create_connection(local_params)
+
+
+def get_current_database():
+    """Get the currently active database ('aiven' or 'local')."""
+    with _db_state['lock']:
+        return _db_state['current_db']
+
+
+def is_aiven_available(force_check=False):
+    """Check if Aiven database is currently available.
+    
+    Args:
+        force_check: If True, force a fresh check even if cached value exists
+    """
+    with _db_state['lock']:
+        current_time = time.time()
+        # Force check if requested, or if no cached value, or if cache is stale
+        should_check = (
+            force_check or
+            _db_state['aiven_available'] is None or
+            (current_time - _db_state['last_aiven_check']) > 30
+        )
+        
+        if should_check:
+            aiven_params = _get_aiven_params()
+            _db_state['aiven_available'] = _test_connection(aiven_params, timeout=3)
+            _db_state['last_aiven_check'] = time.time()
+        return _db_state['aiven_available']
+
+
+def has_pending_sync():
+    """Check if there's a pending sync when Aiven comes back online."""
+    with _db_state['lock']:
+        return _db_state['sync_pending']
+
+
+def clear_pending_sync():
+    """Clear the pending sync flag."""
+    with _db_state['lock']:
+        _db_state['sync_pending'] = False
 
 
 # ------------------ Database helpers (reusable across the app) ------------------

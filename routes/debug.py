@@ -10,6 +10,26 @@ import time
 debug_bp = Blueprint('debug', __name__)
 
 
+@debug_bp.route('/api/database/status', methods=['GET'])
+def database_status():
+    """Get current database connection status"""
+    try:
+        from src.config import get_current_database, is_aiven_available, has_pending_sync
+        
+        current_db = get_current_database()
+        aiven_available = is_aiven_available()
+        pending_sync = has_pending_sync()
+        
+        return jsonify({
+            'success': True,
+            'current_db': current_db or 'unknown',
+            'aiven_available': aiven_available,
+            'pending_sync': pending_sync
+        })
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
 @debug_bp.route('/debug_rfid')
 def debug_rfid():
     """Debug endpoint to check RFID status"""

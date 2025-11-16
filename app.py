@@ -1907,6 +1907,253 @@ def schedule_rfid_checker():
         # Check every 10 seconds
         time.sleep(10)
 
+
+def auto_sync_to_aiven():
+    """Background thread that automatically syncs local database to Aiven when Aiven comes back online."""
+    # Wait for app to be fully initialized
+    time.sleep(15)
+    
+    from src.config import is_aiven_available, has_pending_sync, clear_pending_sync, get_current_database
+    
+    while True:
+        try:
+            # Check if we have pending sync first
+            if has_pending_sync():
+                # Force a fresh check for Aiven availability (don't use cached value)
+                # This helps detect when Aiven comes back online faster
+                if is_aiven_available(force_check=True):
+                    print("🔄 Aiven is back online. Syncing local database to Aiven...")
+                
+                try:
+                    # Import sync functions
+                    import sys
+                    from pathlib import Path
+                    sys.path.insert(0, str(Path(__file__).parent))
+                    
+                    # Use mysql.connector for sync (different from pymysql used in app)
+                    import mysql.connector
+                    import os
+                    
+                    # Get connections
+                    local_conn = mysql.connector.connect(
+                        host=os.getenv('LOCAL_DB_HOST', 'localhost'),
+                        port=int(os.getenv('LOCAL_DB_PORT', '3306')),
+                        user=os.getenv('LOCAL_DB_USER', 'root'),
+                        password=os.getenv('LOCAL_DB_PASSWORD', 'root'),
+                        database=os.getenv('LOCAL_DB_NAME', 'dress')
+                    )
+                    
+                    aiven_host = os.getenv('DB_HOST', '')
+                    aiven_port = int(os.getenv('DB_PORT', '3306'))
+                    aiven_user = os.getenv('DB_USER', '')
+                    aiven_password = os.getenv('DB_PASSWORD', '')
+                    aiven_database = os.getenv('DB_NAME', 'dress')
+                    
+                    is_aiven = 'aivencloud.com' in aiven_host.lower()
+                    ssl_disabled = os.getenv('DB_SSL_DISABLED', 'false').lower() in {'1', 'true', 'yes', 'on'}
+                    ssl_required = os.getenv('DB_SSL_REQUIRED', 'true' if is_aiven else 'false').lower() in {'1', 'true', 'yes', 'on'}
+                    ssl_ca = os.getenv('DB_SSL_CA', 'certs/ca.pem' if is_aiven else None)
+                    
+                    aiven_params = {
+                        'host': aiven_host,
+                        'port': aiven_port,
+                        'user': aiven_user,
+                        'password': aiven_password,
+                        'database': aiven_database
+                    }
+                    
+                    if not ssl_disabled and (ssl_required or ssl_ca):
+                        if ssl_ca and os.path.exists(ssl_ca):
+                            aiven_params['ssl_ca'] = ssl_ca
+                        if not ssl_disabled:
+                            aiven_params['ssl_disabled'] = False
+                    
+                    aiven_conn = mysql.connector.connect(**aiven_params)
+                    
+                    # Simple sync: just sync data (assume schema is already synced)
+                    local_cursor = local_conn.cursor()
+                    aiven_cursor = aiven_conn.cursor()
+                    
+                    # Get all tables
+                    local_cursor.execute("SHOW TABLES")
+                    tables = [row[0] for row in local_cursor.fetchall()]
+                    
+                    # Disable foreign key checks
+                    aiven_cursor.execute("SET FOREIGN_KEY_CHECKS = 0")
+                    
+                    synced_count = 0
+                    for table in tables:
+                        try:
+                            # Get data from local
+                            local_cursor.execute(f"SELECT * FROM `{table}`")
+                            rows = local_cursor.fetchall()
+                            
+                            if not rows:
+                                continue
+                            
+                            # Get column names
+                            local_cursor.execute(f"DESCRIBE `{table}`")
+                            columns = [col[0] for col in local_cursor.fetchall()]
+                            
+                            # Clear Aiven table
+                            aiven_cursor.execute(f"TRUNCATE TABLE `{table}`")
+                            
+                            # Insert data
+                            placeholders = ', '.join(['%s'] * len(columns))
+                            columns_str = ', '.join([f"`{col}`" for col in columns])
+                            insert_query = f"INSERT INTO `{table}` ({columns_str}) VALUES ({placeholders})"
+                            
+                            aiven_cursor.executemany(insert_query, rows)
+                            aiven_conn.commit()
+                            synced_count += 1
+                        except Exception as e:
+                            print(f"  ⚠ Error syncing table {table}: {e}")
+                    
+                    # Re-enable foreign key checks
+                    aiven_cursor.execute("SET FOREIGN_KEY_CHECKS = 1")
+                    aiven_conn.commit()
+                    
+                    local_conn.close()
+                    aiven_conn.close()
+                    
+                    clear_pending_sync()
+                    print(f"✅ Auto-sync completed! Synced {synced_count} tables to Aiven.")
+                    
+                except Exception as e:
+                    print(f"⚠️ Auto-sync failed: {e}")
+                    import traceback
+                    traceback.print_exc()
+            
+        except Exception as e:
+            print(f"Error in auto-sync checker: {e}")
+        
+        # Check every 60 seconds
+        time.sleep(60)
+
+
+def auto_sync_to_local():
+    """Background thread that automatically syncs Aiven database to local when using Aiven."""
+    # Wait for app to be fully initialized
+    time.sleep(20)
+    
+    from src.config import is_aiven_available, get_current_database
+    
+    last_sync_time = 0
+    sync_interval = 300  # Sync every 5 minutes (300 seconds) when using Aiven
+    
+    while True:
+        try:
+            # Check if we're currently using Aiven
+            current_db = get_current_database()
+            if current_db == 'aiven' and is_aiven_available():
+                current_time = time.time()
+                
+                # Check if enough time has passed since last sync
+                if (current_time - last_sync_time) >= sync_interval:
+                    print("🔄 Syncing Aiven database to local...")
+                    
+                    try:
+                        # Use mysql.connector for sync
+                        import mysql.connector
+                        import os
+                        
+                        # Get Aiven connection
+                        aiven_host = os.getenv('DB_HOST', '')
+                        aiven_port = int(os.getenv('DB_PORT', '3306'))
+                        aiven_user = os.getenv('DB_USER', '')
+                        aiven_password = os.getenv('DB_PASSWORD', '')
+                        aiven_database = os.getenv('DB_NAME', 'dress')
+                        
+                        is_aiven = 'aivencloud.com' in aiven_host.lower()
+                        ssl_disabled = os.getenv('DB_SSL_DISABLED', 'false').lower() in {'1', 'true', 'yes', 'on'}
+                        ssl_required = os.getenv('DB_SSL_REQUIRED', 'true' if is_aiven else 'false').lower() in {'1', 'true', 'yes', 'on'}
+                        ssl_ca = os.getenv('DB_SSL_CA', 'certs/ca.pem' if is_aiven else None)
+                        
+                        aiven_params = {
+                            'host': aiven_host,
+                            'port': aiven_port,
+                            'user': aiven_user,
+                            'password': aiven_password,
+                            'database': aiven_database
+                        }
+                        
+                        if not ssl_disabled and (ssl_required or ssl_ca):
+                            if ssl_ca and os.path.exists(ssl_ca):
+                                aiven_params['ssl_ca'] = ssl_ca
+                            if not ssl_disabled:
+                                aiven_params['ssl_disabled'] = False
+                        
+                        aiven_conn = mysql.connector.connect(**aiven_params)
+                        
+                        # Get local connection
+                        local_conn = mysql.connector.connect(
+                            host=os.getenv('LOCAL_DB_HOST', 'localhost'),
+                            port=int(os.getenv('LOCAL_DB_PORT', '3306')),
+                            user=os.getenv('LOCAL_DB_USER', 'root'),
+                            password=os.getenv('LOCAL_DB_PASSWORD', 'root'),
+                            database=os.getenv('LOCAL_DB_NAME', 'dress')
+                        )
+                        
+                        # Sync data from Aiven to Local
+                        aiven_cursor = aiven_conn.cursor()
+                        local_cursor = local_conn.cursor()
+                        
+                        # Get all tables from Aiven
+                        aiven_cursor.execute("SHOW TABLES")
+                        tables = [row[0] for row in aiven_cursor.fetchall()]
+                        
+                        # Disable foreign key checks
+                        local_cursor.execute("SET FOREIGN_KEY_CHECKS = 0")
+                        
+                        synced_count = 0
+                        for table in tables:
+                            try:
+                                # Get data from Aiven
+                                aiven_cursor.execute(f"SELECT * FROM `{table}`")
+                                rows = aiven_cursor.fetchall()
+                                
+                                if not rows:
+                                    continue
+                                
+                                # Get column names
+                                aiven_cursor.execute(f"DESCRIBE `{table}`")
+                                columns = [col[0] for col in aiven_cursor.fetchall()]
+                                
+                                # Clear local table
+                                local_cursor.execute(f"TRUNCATE TABLE `{table}`")
+                                
+                                # Insert data
+                                placeholders = ', '.join(['%s'] * len(columns))
+                                columns_str = ', '.join([f"`{col}`" for col in columns])
+                                insert_query = f"INSERT INTO `{table}` ({columns_str}) VALUES ({placeholders})"
+                                
+                                local_cursor.executemany(insert_query, rows)
+                                local_conn.commit()
+                                synced_count += 1
+                            except Exception as e:
+                                print(f"  ⚠ Error syncing table {table}: {e}")
+                        
+                        # Re-enable foreign key checks
+                        local_cursor.execute("SET FOREIGN_KEY_CHECKS = 1")
+                        local_conn.commit()
+                        
+                        aiven_conn.close()
+                        local_conn.close()
+                        
+                        last_sync_time = current_time
+                        print(f"✅ Auto-sync Aiven→Local completed! Synced {synced_count} tables.")
+                        
+                    except Exception as e:
+                        print(f"⚠️ Auto-sync Aiven→Local failed: {e}")
+                        import traceback
+                        traceback.print_exc()
+            
+        except Exception as e:
+            print(f"Error in auto-sync Aiven→Local checker: {e}")
+        
+        # Check every 60 seconds
+        time.sleep(60)
+
 def followup_email_scheduler():
     """Background thread that periodically checks for and sends follow-up emails for unresolved violations."""
     # Wait for app to be fully initialized
@@ -1957,8 +2204,24 @@ if __name__ == '__main__':
     try:
         schedule_checker_thread = threading.Thread(target=schedule_rfid_checker, daemon=True)
         schedule_checker_thread.start()
-        print("✓ Schedule RFID checker started (checks every 30 seconds to enable/disable RFID based on schedule)")
+        print("✓ Schedule RFID checker started (checks every 10 seconds to enable/disable RFID based on schedule)")
     except Exception as e:
         print(f"✗ Warning: Could not start schedule RFID checker: {e}")
+    
+    # Start auto-sync checker in background (Local → Aiven)
+    try:
+        auto_sync_thread = threading.Thread(target=auto_sync_to_aiven, daemon=True)
+        auto_sync_thread.start()
+        print("✓ Auto-sync checker started (checks every 60 seconds and syncs local→Aiven when Aiven comes back online)")
+    except Exception as e:
+        print(f"✗ Warning: Could not start auto-sync checker: {e}")
+    
+    # Start auto-sync checker in background (Aiven → Local)
+    try:
+        auto_sync_local_thread = threading.Thread(target=auto_sync_to_local, daemon=True)
+        auto_sync_local_thread.start()
+        print("✓ Auto-sync Aiven→Local started (syncs every 5 minutes when using Aiven)")
+    except Exception as e:
+        print(f"✗ Warning: Could not start auto-sync Aiven→Local checker: {e}")
     
     app.run(debug=True, host='0.0.0.0', port=5000)
