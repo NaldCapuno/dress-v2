@@ -79,6 +79,26 @@
                         </div>
                         
                     </div>
+                    
+                    <!-- Auto-Sync Control -->
+                    <div style="margin-top: 40px; padding-top: 30px; border-top: 1px solid #e0e0e0;">
+                        <h3 style="margin-top: 0; margin-bottom: 15px; color: #333; font-size: 18px;">
+                            <i class="fas fa-sync-alt"></i> Database Auto-Sync
+                        </h3>
+                        <p style="color: #666; font-size: 14px; margin-bottom: 20px;">
+                            Control automatic backup sync to Aiven database. When disabled, sync will not occur automatically.
+                        </p>
+                        
+                        <div style="display: flex; align-items: center; gap: 15px; padding: 15px; background-color: #f8f9fa; border-radius: 8px; border: 1px solid #e0e0e0;">
+                            <div style="flex: 1;">
+                                <div style="font-weight: 600; color: #333; margin-bottom: 5px;">Auto-Sync Status</div>
+                                <div id="auto-sync-status-text" style="font-size: 13px; color: #666;">Checking...</div>
+                            </div>
+                            <button id="toggle-auto-sync-btn" class="btn" style="padding: 10px 20px; font-size: 14px; min-width: 120px;">
+                                <i class="fas fa-sync-alt"></i> <span id="auto-sync-btn-text">Loading...</span>
+                            </button>
+                        </div>
+                    </div>
                 </div>
             </div>
         </div>
@@ -1204,7 +1224,79 @@
                     settingsModal.style.display = 'flex';
                     createDayToggles();
                     await loadSchedule();
+                    await loadAutoSyncStatus();
                 });
+                
+                // Auto-sync control
+                const toggleAutoSyncBtn = document.getElementById('toggle-auto-sync-btn');
+                const autoSyncStatusText = document.getElementById('auto-sync-status-text');
+                const autoSyncBtnText = document.getElementById('auto-sync-btn-text');
+                
+                async function loadAutoSyncStatus() {
+                    try {
+                        const response = await fetch('/api/settings/auto-sync');
+                        const data = await response.json();
+                        
+                        if (data.success) {
+                            const enabled = data.enabled;
+                            updateAutoSyncUI(enabled);
+                        }
+                    } catch (error) {
+                        console.error('Error loading auto-sync status:', error);
+                        if (autoSyncStatusText) {
+                            autoSyncStatusText.textContent = 'Error loading status';
+                        }
+                    }
+                }
+                
+                function updateAutoSyncUI(enabled) {
+                    if (!autoSyncStatusText || !autoSyncBtnText || !toggleAutoSyncBtn) return;
+                    
+                    if (enabled) {
+                        autoSyncStatusText.textContent = 'Auto-sync is enabled. Local database will sync to Aiven every 5 minutes.';
+                        autoSyncStatusText.style.color = '#28a745';
+                        autoSyncBtnText.textContent = 'Disable';
+                        toggleAutoSyncBtn.className = 'btn btn-danger';
+                    } else {
+                        autoSyncStatusText.textContent = 'Auto-sync is disabled. No automatic sync will occur.';
+                        autoSyncStatusText.style.color = '#dc3545';
+                        autoSyncBtnText.textContent = 'Enable';
+                        toggleAutoSyncBtn.className = 'btn btn-success';
+                    }
+                }
+                
+                if (toggleAutoSyncBtn) {
+                    toggleAutoSyncBtn.addEventListener('click', async () => {
+                        try {
+                            const response = await fetch('/api/settings/auto-sync');
+                            const currentData = await response.json();
+                            
+                            if (currentData.success) {
+                                const newEnabled = !currentData.enabled;
+                                
+                                const toggleResponse = await fetch('/api/settings/auto-sync', {
+                                    method: 'POST',
+                                    headers: {
+                                        'Content-Type': 'application/json'
+                                    },
+                                    body: JSON.stringify({ enabled: newEnabled })
+                                });
+                                
+                                const toggleData = await toggleResponse.json();
+                                
+                                if (toggleData.success) {
+                                    updateAutoSyncUI(newEnabled);
+                                    showToast(toggleData.message, 'success');
+                                } else {
+                                    showToast('Failed to toggle auto-sync: ' + (toggleData.message || 'Unknown error'), 'error');
+                                }
+                            }
+                        } catch (error) {
+                            console.error('Error toggling auto-sync:', error);
+                            showToast('Error toggling auto-sync', 'error');
+                        }
+                    });
+                }
                 
                 // Close settings modal
                 if (closeSettingsBtn) {

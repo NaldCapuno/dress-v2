@@ -33,7 +33,25 @@
         }
         function formatTimestamp(ts) {
             if (!ts) return '';
-            const date = new Date(ts);
+            // Handle ISO format strings (YYYY-MM-DDTHH:MM:SS) - interpret as local time
+            // MySQL datetime fields don't have timezone, so we interpret them as-is
+            let date;
+            if (typeof ts === 'string') {
+                // If it's an ISO string without timezone (YYYY-MM-DDTHH:MM:SS), 
+                // parse it as local time to match database time
+                if (ts.includes('T') && !ts.includes('Z') && !ts.includes('+') && !ts.includes('-', 10)) {
+                    // ISO format without timezone - parse as local time
+                    const [datePart, timePart] = ts.split('T');
+                    const [year, month, day] = datePart.split('-').map(Number);
+                    const [hours, minutes, seconds] = (timePart || '00:00:00').split(':').map(Number);
+                    date = new Date(year, month - 1, day, hours, minutes, seconds || 0);
+                } else {
+                    // Has timezone info or other format - use standard Date parsing
+                    date = new Date(ts);
+                }
+            } else {
+                date = new Date(ts);
+            }
             if (Number.isNaN(date.getTime())) {
                 return ts.replace('GMT', '').trim();
             }

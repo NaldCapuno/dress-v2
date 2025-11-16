@@ -352,7 +352,25 @@
         }
         function formatTimestamp(ts) {
             if (!ts) return '';
-            const date = new Date(ts);
+            // Handle ISO format strings (YYYY-MM-DDTHH:MM:SS) - interpret as local time
+            // MySQL datetime fields don't have timezone, so we interpret them as-is
+            let date;
+            if (typeof ts === 'string') {
+                // If it's an ISO string without timezone (YYYY-MM-DDTHH:MM:SS), 
+                // parse it as local time to match database time
+                if (ts.includes('T') && !ts.includes('Z') && !ts.includes('+') && !ts.includes('-', 10)) {
+                    // ISO format without timezone - parse as local time
+                    const [datePart, timePart] = ts.split('T');
+                    const [year, month, day] = datePart.split('-').map(Number);
+                    const [hours, minutes, seconds] = (timePart || '00:00:00').split(':').map(Number);
+                    date = new Date(year, month - 1, day, hours, minutes, seconds || 0);
+                } else {
+                    // Has timezone info or other format - use standard Date parsing
+                    date = new Date(ts);
+                }
+            } else {
+                date = new Date(ts);
+            }
             if (Number.isNaN(date.getTime())) {
                 return ts.replace('GMT', '').trim();
             }
@@ -450,12 +468,10 @@
                 filteredData = filteredData.filter(v => {
                     const name = (v.name || '').toLowerCase();
                     const studentId = (v.student_id || '').toLowerCase();
-                    const college = (v.college || '').toLowerCase();
                     const program = (v.program || '').toLowerCase();
                     const violationType = (v.violation_type || '').toLowerCase();
                     return name.includes(term) || 
                            studentId.includes(term) || 
-                           college.includes(term) || 
                            program.includes(term) ||
                            violationType.includes(term);
                 });
@@ -477,7 +493,6 @@
                     <td>${formatTimestamp(v.timestamp)}</td>
                     <td>${v.student_id || ''}</td>
                     <td>${v.name || ''}</td>
-                    <td>${v.college || ''}</td>
                     <td>${v.program || ''}</td>
                     <td>${gender}</td>
                     <td>${v.violation_type || ''}</td>
@@ -492,7 +507,6 @@
                 'timestamp': 'timestamp',
                 'student_id': 'student_id',
                 'name': 'name',
-                'college': 'college',
                 'program': 'program',
                 'gender': 'gender',
                 'violation_type': 'violation_type',
@@ -997,7 +1011,7 @@
                 </div>
                 <div class="card-body">
                     <div class="dashboard-filters">
-                        <input type="text" id="search" placeholder="Search by name, student ID, college, program, or violation type..." class="form-control" style="grid-column: 1 / -1;">
+                        <input type="text" id="search" placeholder="Search by name, student ID, program, or violation type..." class="form-control" style="grid-column: 1 / -1;">
                         <div class="filter-field">
                             <label for="start">From</label>
                             <input type="date" id="start" class="form-control">
@@ -1052,7 +1066,6 @@
                                     <th data-sort="timestamp" onclick="sortViolations('timestamp')" style="cursor: pointer; user-select: none;">Date <span class="sort-indicator"></span></th>
                                     <th data-sort="student_id" onclick="sortViolations('student_id')" style="cursor: pointer; user-select: none;">Student ID <span class="sort-indicator"></span></th>
                                     <th data-sort="name" onclick="sortViolations('name')" style="cursor: pointer; user-select: none;">Name <span class="sort-indicator"></span></th>
-                                    <th data-sort="college" onclick="sortViolations('college')" style="cursor: pointer; user-select: none;">College <span class="sort-indicator"></span></th>
                                     <th data-sort="program" onclick="sortViolations('program')" style="cursor: pointer; user-select: none;">Program <span class="sort-indicator"></span></th>
                                     <th data-sort="gender" onclick="sortViolations('gender')" style="cursor: pointer; user-select: none;">Gender <span class="sort-indicator"></span></th>
                                     <th data-sort="violation_type" onclick="sortViolations('violation_type')" style="cursor: pointer; user-select: none;">Type <span class="sort-indicator"></span></th>
