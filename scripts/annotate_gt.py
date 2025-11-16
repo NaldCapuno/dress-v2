@@ -31,11 +31,18 @@ class AnnotationTool:
         self.height = int(self.cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
         self.total_frames = int(self.cap.get(cv2.CAP_PROP_FRAME_COUNT))
         
-        # Load MOT annotations
-        self.annotations = self.load_mot_file(mot_file)
+        # Load MOT annotations - check if saved progress exists first
+        if os.path.exists(output_file):
+            print(f"✓ Found saved progress: {output_file}")
+            print("Loading saved annotations...")
+            self.annotations = self.load_mot_file(output_file)
+            print(f"Resuming from saved progress ({len(self.annotations)} frames annotated)")
+        else:
+            print(f"Starting fresh from: {mot_file}")
+            self.annotations = self.load_mot_file(mot_file)
         
-        # Current frame
-        self.current_frame_id = 1
+        # Current frame - resume from last position if saved
+        self.current_frame_id = self.get_last_frame_id() if os.path.exists(output_file) else 1
         self.frame = None
         
         # Drawing state
@@ -47,6 +54,7 @@ class AnnotationTool:
         self.colors = {}
         
         print(f"Loaded {len(self.annotations)} annotations across {self.total_frames} frames")
+        print(f"Starting at frame: {self.current_frame_id}")
         print("\nControls:")
         print("  N/Right Arrow: Next frame")
         print("  P/Left Arrow: Previous frame")
@@ -54,8 +62,8 @@ class AnnotationTool:
         print("  I: Change ID of selected box")
         print("  D: Delete selected box")
         print("  A: Add new box (draw rectangle)")
-        print("  S: Save corrected annotations")
-        print("  Q: Quit")
+        print("  S: Save progress (can continue later)")
+        print("  Q: Quit (auto-saves)")
     
     def load_mot_file(self, mot_file):
         """Load MOT format annotations into dictionary"""
@@ -209,8 +217,8 @@ class AnnotationTool:
         cv2.namedWindow(window_name)
         cv2.setMouseCallback(window_name, self.mouse_callback)
         
-        if not self.load_frame(1):
-            print("Error: Could not load first frame")
+        if not self.load_frame(self.current_frame_id):
+            print("Error: Could not load frame")
             return
         
         while True:
@@ -220,6 +228,9 @@ class AnnotationTool:
             key = cv2.waitKey(1) & 0xFF
             
             if key == ord('q') or key == 27:  # Q or ESC
+                # Auto-save on quit
+                print("\nAuto-saving before quit...")
+                self.save_annotations()
                 break
             elif key == ord('n') or key == 83:  # N or Right Arrow
                 if self.current_frame_id < self.total_frames:
@@ -251,7 +262,7 @@ class AnnotationTool:
                 print("Click and drag to draw a box")
             elif key == ord('s'):  # Save
                 self.save_annotations()
-                print("Annotations saved!")
+                print("✓ Progress saved! You can quit and continue later.")
         
         cv2.destroyAllWindows()
         self.cap.release()
@@ -264,7 +275,44 @@ class AnnotationTool:
                     x, y, w, h = box_data['bbox']
                     f.write(f"{frame_id},{box_data['object_id']},{x:.2f},{y:.2f},{w:.2f},{h:.2f},"
                            f"1.0,-1,-1,-1\n")
+        
+        # Save current frame position to a separate file
+        state_file = self.output_file.replace('.txt', '_state.txt')
+        with open(state_file, 'w') as f:
+            f.write(f"last_frame={self.current_frame_id}\n")
+        
         print(f"Saved corrected annotations to: {self.output_file}")
+    
+    def get_last_frame_id(self):
+        """Get the last frame position from saved state"""
+        state_file = self.output_file.replace('.txt', '_state.txt')
+        if os.path.exists(state_file):
+            try:
+                with open(state_file, 'r') as f:
+                    for line in f:
+                        if line.startswith('last_frame='):
+                            return int(line.split('=')[1].strip())
+            except:
+                pass
+        
+        # Fallback: find max frame in annotations
+        if not os.path.exists(self.output_file):
+            return 1
+        
+        max_frame = 0
+        with open(self.output_file, 'r') as f:
+            for line in f:
+                line = line.strip()
+                if line:
+                    parts = line.split(',')
+                    if len(parts) >= 1:
+                        try:
+                            frame_id = int(float(parts[0]))
+                            max_frame = max(max_frame, frame_id)
+                        except:
+                            pass
+        
+        return max(1, max_frame)
 
 
 if __name__ == "__main__":
