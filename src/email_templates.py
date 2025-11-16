@@ -364,3 +364,107 @@ def generate_followup_email_body(student_name, first_notice_date, violation_date
         proof_image_section=proof_image_section,
         image_attachment_text=image_attachment_text
     )
+
+
+def generate_password_reset_email_body(username, reset_code):
+    """
+    Generate HTML email body for password reset code notification.
+    Mobile-responsive design with inline CSS matching web app color scheme.
+    
+    Args:
+        username (str): Username of the admin requesting password reset
+        reset_code (str): 6-digit reset code
+    
+    Returns:
+        str: HTML formatted email body
+    """
+    html_template = """
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Password Reset Code</title>
+</head>
+<body style="margin: 0; padding: 0; font-family: 'Inter', 'Segoe UI', system-ui, -apple-system, sans-serif; background-color: #f8fafc;">
+    <table role="presentation" style="width: 100%; border-collapse: collapse; background-color: #f8fafc; padding: 20px 0;">
+        <tr>
+            <td align="center" style="padding: 20px 10px;">
+                <table role="presentation" style="max-width: 600px; width: 100%; border-collapse: collapse; background-color: #ffffff; border-radius: 8px; box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px 0 rgba(0, 0, 0, 0.06);">
+                    <!-- Header -->
+                    <tr>
+                        <td style="background: linear-gradient(135deg, #2ca9e1 0%, #1e7bb8 100%); padding: 30px 20px; text-align: center; border-radius: 8px 8px 0 0;">
+                            <h1 style="margin: 0; color: #ffffff; font-size: 24px; font-weight: 600; letter-spacing: 0.5px;">
+                                PASSWORD RESET REQUEST
+                            </h1>
+                            <p style="margin: 10px 0 0 0; color: #ffffff; font-size: 14px; opacity: 0.95;">
+                                Dress-code Recognition Surveillance System
+                            </p>
+                        </td>
+                    </tr>
+                    
+                    <!-- Content -->
+                    <tr>
+                        <td style="padding: 30px 20px;">
+                            <p style="margin: 0 0 15px 0; color: #374151; font-size: 16px; line-height: 1.6;">
+                                Hello <strong style="color: #2ca9e1;">{username}</strong>,
+                            </p>
+                            <p style="margin: 0 0 20px 0; color: #4b5563; font-size: 15px; line-height: 1.6;">
+                                We received a request to reset your password for your DRESS admin account. Use the code below to reset your password:
+                            </p>
+                            
+                            <!-- Reset Code Box -->
+                            <div style="background-color: #f8fafc; border: 2px solid #2ca9e1; padding: 30px; margin: 25px 0; border-radius: 8px; text-align: center;">
+                                <p style="margin: 0 0 10px 0; color: #6b7280; font-size: 14px; font-weight: 500;">
+                                    Your Password Reset Code:
+                                </p>
+                                <p style="margin: 0; color: #2ca9e1; font-size: 36px; font-weight: 700; letter-spacing: 8px; font-family: 'Courier New', monospace;">
+                                    {reset_code}
+                                </p>
+                            </div>
+                            
+                            <p style="margin: 20px 0 0 0; color: #4b5563; font-size: 15px; line-height: 1.6;">
+                                This code will expire in <strong style="color: #ef4444;">15 minutes</strong>. If you did not request this password reset, please ignore this email or contact the system administrator.
+                            </p>
+                            
+                            <!-- Security Notice -->
+                            <div style="background-color: #fef2f2; border-left: 4px solid #ef4444; padding: 15px 20px; margin: 25px 0; border-radius: 4px;">
+                                <p style="margin: 0; color: #991b1b; font-size: 14px; font-weight: 600;">
+                                    🔒 Security Notice
+                                </p>
+                                <p style="margin: 10px 0 0 0; color: #7f1d1d; font-size: 13px; line-height: 1.6;">
+                                    Never share this code with anyone. DRESS staff will never ask for your password reset code.
+                                </p>
+                            </div>
+                        </td>
+                    </tr>
+                    
+                    <!-- Footer -->
+                    <tr>
+                        <td style="background-color: #f8fafc; padding: 25px 20px; text-align: center; border-radius: 0 0 8px 8px; border-top: 1px solid #e5e7eb;">
+                            <p style="margin: 0 0 10px 0; color: #374151; font-size: 15px; font-weight: 500;">
+                                Respectfully,
+                            </p>
+                            <p style="margin: 0 0 5px 0; color: #2ca9e1; font-size: 14px; font-weight: 600;">
+                                DRESS System
+                            </p>
+                            <p style="margin: 0; color: #6b7280; font-size: 13px;">
+                                Palawan State University
+                            </p>
+                            <p style="margin: 20px 0 0 0; color: #9ca3af; font-size: 12px; font-style: italic;">
+                                This is an automated notification. Please do not reply to this email.
+                            </p>
+                        </td>
+                    </tr>
+                </table>
+            </td>
+        </tr>
+    </table>
+</body>
+</html>
+"""
+    
+    return html_template.format(
+        username=username,
+        reset_code=reset_code
+    )

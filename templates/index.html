@@ -17,6 +17,11 @@
                 <i class="fas fa-cog"></i>
             </button>
             
+            <!-- User Settings Button -->
+            <button class="btn btn-primary" id="security-settings-btn" style="width: 60px; height: 60px; border-radius: 50%; box-shadow: 0 4px 12px rgba(0,0,0,0.2); display: none; align-items: center; justify-content: center; font-size: 24px; border: none; cursor: pointer; opacity: 0; transform: translateY(20px); transition: all 0.3s ease; background-color: #28a745;">
+                <i class="fas fa-user"></i>
+            </button>
+            
             <!-- Logout Button -->
             <button class="btn btn-secondary" id="logout-btn" style="width: 60px; height: 60px; border-radius: 50%; box-shadow: 0 4px 12px rgba(0,0,0,0.2); display: none; align-items: center; justify-content: center; font-size: 24px; border: none; cursor: pointer; opacity: 0; transform: translateY(20px); transition: all 0.3s ease;">
                 <i class="fas fa-sign-out-alt"></i>
@@ -98,6 +103,87 @@
                                 <i class="fas fa-sync-alt"></i> <span id="auto-sync-btn-text">Loading...</span>
                             </button>
                         </div>
+                    </div>
+                    
+                </div>
+            </div>
+        </div>
+        
+        <!-- User Settings Modal -->
+        <div id="security-settings-modal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background-color: rgba(0, 0, 0, 0.5); z-index: 2000; align-items: center; justify-content: center;">
+            <div style="background-color: white; border-radius: 12px; max-width: 600px; width: 90%; max-height: 80vh; box-shadow: 0 8px 32px rgba(0,0,0,0.3); position: relative; margin: auto; display: flex; flex-direction: column; overflow: hidden;">
+                <div style="padding: 30px 30px 20px 30px; border-bottom: 1px solid #e0e0e0; flex-shrink: 0;">
+                    <button id="close-security-settings-btn" style="position: absolute; top: 15px; right: 15px; background: none; border: none; font-size: 28px; cursor: pointer; color: #666; padding: 5px 10px; line-height: 1;">
+                        <i class="fas fa-times"></i>
+                    </button>
+                    <h2 style="margin-top: 0; margin-bottom: 0; color: #333;">
+                        <i class="fas fa-user"></i> User Settings
+                    </h2>
+                </div>
+                <div id="security-settings-content" style="padding: 30px; padding-bottom: 30px; overflow-y: auto; flex: 1; min-height: 0;">
+                    <p style="color: #666; font-size: 14px; margin-bottom: 20px;">
+                        Manage your account settings including username, password, and email.
+                    </p>
+                    
+                    <!-- Username Update -->
+                    <div style="margin-bottom: 25px; padding: 20px; background-color: #f8f9fa; border-radius: 8px; border: 1px solid #e0e0e0;">
+                        <h4 style="margin-top: 0; margin-bottom: 15px; color: #333; font-size: 16px;">
+                            <i class="fas fa-user"></i> Change Username
+                        </h4>
+                        <div style="margin-bottom: 15px;">
+                            <label style="display: block; margin-bottom: 8px; font-weight: 600; color: #333; font-size: 14px;">Current Username:</label>
+                            <div id="current-username-display" style="padding: 10px; background-color: white; border: 1px solid #ddd; border-radius: 6px; font-size: 14px; color: #666;">Loading...</div>
+                        </div>
+                        <div style="margin-bottom: 15px;">
+                            <label style="display: block; margin-bottom: 8px; font-weight: 600; color: #333; font-size: 14px;">New Username:</label>
+                            <input type="text" id="new-username-input" placeholder="Enter new username" style="width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 6px; font-size: 14px; box-sizing: border-box;">
+                        </div>
+                        <div id="username-message" style="margin-bottom: 10px; font-size: 13px;"></div>
+                        <button id="update-username-btn" class="btn btn-primary" style="width: 100%; padding: 10px; font-size: 14px;">
+                            <i class="fas fa-save"></i> Update Username
+                        </button>
+                    </div>
+                    
+                    <!-- Password Update -->
+                    <div style="margin-bottom: 25px; padding: 20px; background-color: #f8f9fa; border-radius: 8px; border: 1px solid #e0e0e0;">
+                        <h4 style="margin-top: 0; margin-bottom: 15px; color: #333; font-size: 16px;">
+                            <i class="fas fa-lock"></i> Change Password
+                        </h4>
+                        <div style="margin-bottom: 15px;">
+                            <label style="display: block; margin-bottom: 8px; font-weight: 600; color: #333; font-size: 14px;">Current Password:</label>
+                            <input type="password" id="current-password-input" placeholder="Enter current password" style="width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 6px; font-size: 14px; box-sizing: border-box;">
+                        </div>
+                        <div style="margin-bottom: 15px;">
+                            <label style="display: block; margin-bottom: 8px; font-weight: 600; color: #333; font-size: 14px;">New Password:</label>
+                            <input type="password" id="new-password-input" placeholder="Enter new password (min. 6 characters)" style="width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 6px; font-size: 14px; box-sizing: border-box;">
+                        </div>
+                        <div style="margin-bottom: 15px;">
+                            <label style="display: block; margin-bottom: 8px; font-weight: 600; color: #333; font-size: 14px;">Confirm New Password:</label>
+                            <input type="password" id="confirm-password-input" placeholder="Confirm new password" style="width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 6px; font-size: 14px; box-sizing: border-box;">
+                        </div>
+                        <div id="password-message" style="margin-bottom: 10px; font-size: 13px;"></div>
+                        <button id="update-password-btn" class="btn btn-primary" style="width: 100%; padding: 10px; font-size: 14px;">
+                            <i class="fas fa-save"></i> Update Password
+                        </button>
+                    </div>
+                    
+                    <!-- Email Update -->
+                    <div style="margin-bottom: 25px; padding: 20px; background-color: #f8f9fa; border-radius: 8px; border: 1px solid #e0e0e0;">
+                        <h4 style="margin-top: 0; margin-bottom: 15px; color: #333; font-size: 16px;">
+                            <i class="fas fa-envelope"></i> Change Email
+                        </h4>
+                        <div style="margin-bottom: 15px;">
+                            <label style="display: block; margin-bottom: 8px; font-weight: 600; color: #333; font-size: 14px;">Current Email:</label>
+                            <div id="current-email-display" style="padding: 10px; background-color: white; border: 1px solid #ddd; border-radius: 6px; font-size: 14px; color: #666;">Loading...</div>
+                        </div>
+                        <div style="margin-bottom: 15px;">
+                            <label style="display: block; margin-bottom: 8px; font-weight: 600; color: #333; font-size: 14px;">New Email:</label>
+                            <input type="email" id="new-email-input" placeholder="Enter new email address" style="width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 6px; font-size: 14px; box-sizing: border-box;">
+                        </div>
+                        <div id="email-message" style="margin-bottom: 10px; font-size: 13px;"></div>
+                        <button id="update-email-btn" class="btn btn-primary" style="width: 100%; padding: 10px; font-size: 14px;">
+                            <i class="fas fa-save"></i> Update Email
+                        </button>
                     </div>
                 </div>
             </div>
@@ -945,13 +1031,18 @@
             const floatingMenu = document.getElementById('floating-menu');
             const menuToggleBtn = document.getElementById('menu-toggle-btn');
             const settingsBtn = document.getElementById('settings-btn');
+            const securitySettingsBtn = document.getElementById('security-settings-btn');
             const logoutBtn = document.getElementById('logout-btn');
             const settingsModal = document.getElementById('settings-modal');
+            const securitySettingsModal = document.getElementById('security-settings-modal');
             const closeSettingsBtn = document.getElementById('close-settings-btn');
+            const closeSecuritySettingsBtn = document.getElementById('close-security-settings-btn');
             
             // Store timeout IDs to clear them if needed
             let settingsShowTimeout = null;
             let settingsHideTimeout = null;
+            let securitySettingsShowTimeout = null;
+            let securitySettingsHideTimeout = null;
             let logoutShowTimeout = null;
             let logoutHideTimeout = null;
             
@@ -961,6 +1052,10 @@
                 if (settingsHideTimeout) {
                     clearTimeout(settingsHideTimeout);
                     settingsHideTimeout = null;
+                }
+                if (securitySettingsHideTimeout) {
+                    clearTimeout(securitySettingsHideTimeout);
+                    securitySettingsHideTimeout = null;
                 }
                 if (logoutHideTimeout) {
                     clearTimeout(logoutHideTimeout);
@@ -981,6 +1076,22 @@
                         settingsBtn.style.transform = 'translateY(0)';
                         settingsShowTimeout = null;
                     }, 10);
+                }
+                
+                // Show user settings button
+                if (securitySettingsBtn) {
+                    // Clear any pending show timeout
+                    if (securitySettingsShowTimeout) {
+                        clearTimeout(securitySettingsShowTimeout);
+                    }
+                    securitySettingsBtn.style.display = 'flex';
+                    // Force reflow to ensure display change is applied
+                    securitySettingsBtn.offsetHeight;
+                    securitySettingsShowTimeout = setTimeout(() => {
+                        securitySettingsBtn.style.opacity = '1';
+                        securitySettingsBtn.style.transform = 'translateY(0)';
+                        securitySettingsShowTimeout = null;
+                    }, 30);
                 }
                 
                 // Show logout button
@@ -1007,6 +1118,10 @@
                     clearTimeout(settingsShowTimeout);
                     settingsShowTimeout = null;
                 }
+                if (securitySettingsShowTimeout) {
+                    clearTimeout(securitySettingsShowTimeout);
+                    securitySettingsShowTimeout = null;
+                }
                 if (logoutShowTimeout) {
                     clearTimeout(logoutShowTimeout);
                     logoutShowTimeout = null;
@@ -1025,6 +1140,22 @@
                             settingsBtn.style.display = 'none';
                         }
                         settingsHideTimeout = null;
+                    }, 300);
+                }
+                
+                // Hide user settings button
+                if (securitySettingsBtn) {
+                    // Clear any pending hide timeout
+                    if (securitySettingsHideTimeout) {
+                        clearTimeout(securitySettingsHideTimeout);
+                    }
+                    securitySettingsBtn.style.opacity = '0';
+                    securitySettingsBtn.style.transform = 'translateY(20px)';
+                    securitySettingsHideTimeout = setTimeout(() => {
+                        if (securitySettingsBtn.style.opacity === '0') {
+                            securitySettingsBtn.style.display = 'none';
+                        }
+                        securitySettingsHideTimeout = null;
                     }, 300);
                 }
                 
@@ -1298,6 +1429,181 @@
                     });
                 }
                 
+                // Update Username
+                const updateUsernameBtn = document.getElementById('update-username-btn');
+                const newUsernameInput = document.getElementById('new-username-input');
+                const usernameMessage = document.getElementById('username-message');
+                
+                if (updateUsernameBtn) {
+                    updateUsernameBtn.addEventListener('click', async () => {
+                        const newUsername = (newUsernameInput.value || '').trim();
+                        
+                        if (!newUsername) {
+                            usernameMessage.innerHTML = '<span style="color: #dc3545;">Please enter a new username</span>';
+                            return;
+                        }
+                        
+                        if (newUsername.length < 3) {
+                            usernameMessage.innerHTML = '<span style="color: #dc3545;">Username must be at least 3 characters long</span>';
+                            return;
+                        }
+                        
+                        updateUsernameBtn.disabled = true;
+                        updateUsernameBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Updating...';
+                        usernameMessage.innerHTML = '';
+                        
+                        try {
+                            const response = await fetch('/api/settings/update-username', {
+                                method: 'POST',
+                                headers: {
+                                    'Content-Type': 'application/json'
+                                },
+                                body: JSON.stringify({ username: newUsername })
+                            });
+                            
+                            const data = await response.json();
+                            
+                            if (data.success) {
+                                usernameMessage.innerHTML = '<span style="color: #28a745;">Username updated successfully!</span>';
+                                newUsernameInput.value = '';
+                                await loadProfile();
+                                showToast(data.message, 'success');
+                            } else {
+                                usernameMessage.innerHTML = `<span style="color: #dc3545;">${data.message || 'Failed to update username'}</span>`;
+                                showToast(data.message || 'Failed to update username', 'error');
+                            }
+                        } catch (error) {
+                            console.error('Error updating username:', error);
+                            usernameMessage.innerHTML = '<span style="color: #dc3545;">Network error. Please try again.</span>';
+                            showToast('Error updating username', 'error');
+                        } finally {
+                            updateUsernameBtn.disabled = false;
+                            updateUsernameBtn.innerHTML = '<i class="fas fa-save"></i> Update Username';
+                        }
+                    });
+                }
+                
+                // Update Password
+                const updatePasswordBtn = document.getElementById('update-password-btn');
+                const currentPasswordInput = document.getElementById('current-password-input');
+                const newPasswordInput = document.getElementById('new-password-input');
+                const confirmPasswordInput = document.getElementById('confirm-password-input');
+                const passwordMessage = document.getElementById('password-message');
+                
+                if (updatePasswordBtn) {
+                    updatePasswordBtn.addEventListener('click', async () => {
+                        const currentPassword = currentPasswordInput.value || '';
+                        const newPassword = newPasswordInput.value || '';
+                        const confirmPassword = confirmPasswordInput.value || '';
+                        
+                        if (!currentPassword || !newPassword || !confirmPassword) {
+                            passwordMessage.innerHTML = '<span style="color: #dc3545;">All fields are required</span>';
+                            return;
+                        }
+                        
+                        if (newPassword.length < 6) {
+                            passwordMessage.innerHTML = '<span style="color: #dc3545;">New password must be at least 6 characters long</span>';
+                            return;
+                        }
+                        
+                        if (newPassword !== confirmPassword) {
+                            passwordMessage.innerHTML = '<span style="color: #dc3545;">New passwords do not match</span>';
+                            return;
+                        }
+                        
+                        updatePasswordBtn.disabled = true;
+                        updatePasswordBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Updating...';
+                        passwordMessage.innerHTML = '';
+                        
+                        try {
+                            const response = await fetch('/api/settings/update-password', {
+                                method: 'POST',
+                                headers: {
+                                    'Content-Type': 'application/json'
+                                },
+                                body: JSON.stringify({
+                                    current_password: currentPassword,
+                                    new_password: newPassword
+                                })
+                            });
+                            
+                            const data = await response.json();
+                            
+                            if (data.success) {
+                                passwordMessage.innerHTML = '<span style="color: #28a745;">Password updated successfully!</span>';
+                                currentPasswordInput.value = '';
+                                newPasswordInput.value = '';
+                                confirmPasswordInput.value = '';
+                                showToast(data.message, 'success');
+                            } else {
+                                passwordMessage.innerHTML = `<span style="color: #dc3545;">${data.message || 'Failed to update password'}</span>`;
+                                showToast(data.message || 'Failed to update password', 'error');
+                            }
+                        } catch (error) {
+                            console.error('Error updating password:', error);
+                            passwordMessage.innerHTML = '<span style="color: #dc3545;">Network error. Please try again.</span>';
+                            showToast('Error updating password', 'error');
+                        } finally {
+                            updatePasswordBtn.disabled = false;
+                            updatePasswordBtn.innerHTML = '<i class="fas fa-save"></i> Update Password';
+                        }
+                    });
+                }
+                
+                // Update Email
+                const updateEmailBtn = document.getElementById('update-email-btn');
+                const newEmailInput = document.getElementById('new-email-input');
+                const emailMessage = document.getElementById('email-message');
+                
+                if (updateEmailBtn) {
+                    updateEmailBtn.addEventListener('click', async () => {
+                        const newEmail = (newEmailInput.value || '').trim();
+                        
+                        if (!newEmail) {
+                            emailMessage.innerHTML = '<span style="color: #dc3545;">Please enter a new email address</span>';
+                            return;
+                        }
+                        
+                        if (!newEmail.includes('@') || !newEmail.includes('.')) {
+                            emailMessage.innerHTML = '<span style="color: #dc3545;">Please enter a valid email address</span>';
+                            return;
+                        }
+                        
+                        updateEmailBtn.disabled = true;
+                        updateEmailBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Updating...';
+                        emailMessage.innerHTML = '';
+                        
+                        try {
+                            const response = await fetch('/api/settings/update-email', {
+                                method: 'POST',
+                                headers: {
+                                    'Content-Type': 'application/json'
+                                },
+                                body: JSON.stringify({ email: newEmail })
+                            });
+                            
+                            const data = await response.json();
+                            
+                            if (data.success) {
+                                emailMessage.innerHTML = '<span style="color: #28a745;">Email updated successfully!</span>';
+                                newEmailInput.value = '';
+                                await loadProfile();
+                                showToast(data.message, 'success');
+                            } else {
+                                emailMessage.innerHTML = `<span style="color: #dc3545;">${data.message || 'Failed to update email'}</span>`;
+                                showToast(data.message || 'Failed to update email', 'error');
+                            }
+                        } catch (error) {
+                            console.error('Error updating email:', error);
+                            emailMessage.innerHTML = '<span style="color: #dc3545;">Network error. Please try again.</span>';
+                            showToast('Error updating email', 'error');
+                        } finally {
+                            updateEmailBtn.disabled = false;
+                            updateEmailBtn.innerHTML = '<i class="fas fa-save"></i> Update Email';
+                        }
+                    });
+                }
+                
                 // Close settings modal
                 if (closeSettingsBtn) {
                     closeSettingsBtn.addEventListener('click', () => {
@@ -1314,8 +1620,61 @@
                 
                 // Close modal with Escape key
                 document.addEventListener('keydown', (e) => {
-                    if (e.key === 'Escape' && settingsModal.style.display === 'flex') {
-                        settingsModal.style.display = 'none';
+                    if (e.key === 'Escape') {
+                        if (settingsModal.style.display === 'flex') {
+                            settingsModal.style.display = 'none';
+                        }
+                        if (securitySettingsModal && securitySettingsModal.style.display === 'flex') {
+                            securitySettingsModal.style.display = 'none';
+                        }
+                    }
+                });
+                
+            }
+            
+            // User Settings functionality (shared between modals)
+            async function loadProfile() {
+                try {
+                    const response = await fetch('/api/settings/profile');
+                    const data = await response.json();
+                    
+                    if (data.success) {
+                        const usernameDisplay = document.getElementById('current-username-display');
+                        const emailDisplay = document.getElementById('current-email-display');
+                        
+                        if (usernameDisplay) {
+                            usernameDisplay.textContent = data.username || 'N/A';
+                        }
+                        if (emailDisplay) {
+                            emailDisplay.textContent = data.email || 'N/A';
+                        }
+                    } else {
+                        console.error('Error loading profile:', data.message);
+                    }
+                } catch (error) {
+                    console.error('Error loading profile:', error);
+                }
+            }
+            
+            // User Settings Modal functionality
+            if (securitySettingsBtn && securitySettingsModal) {
+                // Open user settings modal and load profile
+                securitySettingsBtn.addEventListener('click', async () => {
+                    securitySettingsModal.style.display = 'flex';
+                    await loadProfile();
+                });
+                
+                // Close user settings modal
+                if (closeSecuritySettingsBtn) {
+                    closeSecuritySettingsBtn.addEventListener('click', () => {
+                        securitySettingsModal.style.display = 'none';
+                    });
+                }
+                
+                // Close modal when clicking outside of it
+                securitySettingsModal.addEventListener('click', (e) => {
+                    if (e.target === securitySettingsModal) {
+                        securitySettingsModal.style.display = 'none';
                     }
                 });
             }

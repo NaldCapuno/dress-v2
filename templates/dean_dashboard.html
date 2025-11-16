@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Dean Dashboard</title>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/table-styles.css') }}">
     <style>
@@ -847,6 +848,9 @@
     </script>
 </head>
 <body>
+    <!-- Toast Notification Container -->
+    <div id="toast-container" style="position: fixed; top: 20px; right: 20px; z-index: 3000; display: flex; flex-direction: column; gap: 10px; align-items: flex-end; pointer-events: none;"></div>
+    
     <div class="dashboard-shell">
         <aside class="sidebar">
             <div class="sidebar-header">
@@ -867,6 +871,7 @@
                     Notifications
                     <span id="notification-dot" class="notification-dot" style="display: none;">•</span>
                 </button>
+                <button class="nav-item" data-target="settings-section">Settings</button>
             </nav>
             <div class="sidebar-footer">
                 <button class="nav-item muted" id="logout-btn-side">Logout</button>
@@ -1336,6 +1341,80 @@
                 </div>
             </div>
         </div>
+        
+        <div id="settings-section" style="display:none;">
+            <div class="card">
+                <div class="card-header">
+                    <h3><i class="fas fa-user"></i> Settings</h3>
+                </div>
+                <div class="card-body">
+                    <p style="color: #666; font-size: 14px; margin-bottom: 20px;">
+                        Manage your account settings including username, password, and email.
+                    </p>
+                    
+                    <!-- Username Update -->
+                    <div style="margin-bottom: 25px; padding: 20px; background-color: #f8f9fa; border-radius: 8px; border: 1px solid #e0e0e0;">
+                        <h4 style="margin-top: 0; margin-bottom: 15px; color: #333; font-size: 16px;">
+                            <i class="fas fa-user"></i> Change Username
+                        </h4>
+                        <div style="margin-bottom: 15px;">
+                            <label style="display: block; margin-bottom: 8px; font-weight: 600; color: #333; font-size: 14px;">Current Username:</label>
+                            <div id="current-username-display" style="padding: 10px; background-color: white; border: 1px solid #ddd; border-radius: 6px; font-size: 14px; color: #666;">Loading...</div>
+                        </div>
+                        <div style="margin-bottom: 15px;">
+                            <label style="display: block; margin-bottom: 8px; font-weight: 600; color: #333; font-size: 14px;">New Username:</label>
+                            <input type="text" id="new-username-input" placeholder="Enter new username" class="form-control" style="max-width: 400px;">
+                        </div>
+                        <div id="username-message" style="margin-bottom: 10px; font-size: 13px;"></div>
+                        <button id="update-username-btn" class="btn btn-primary">
+                            <i class="fas fa-save"></i> Update Username
+                        </button>
+                    </div>
+                    
+                    <!-- Password Update -->
+                    <div style="margin-bottom: 25px; padding: 20px; background-color: #f8f9fa; border-radius: 8px; border: 1px solid #e0e0e0;">
+                        <h4 style="margin-top: 0; margin-bottom: 15px; color: #333; font-size: 16px;">
+                            <i class="fas fa-lock"></i> Change Password
+                        </h4>
+                        <div style="margin-bottom: 15px;">
+                            <label style="display: block; margin-bottom: 8px; font-weight: 600; color: #333; font-size: 14px;">Current Password:</label>
+                            <input type="password" id="current-password-input" placeholder="Enter current password" class="form-control" style="max-width: 400px;">
+                        </div>
+                        <div style="margin-bottom: 15px;">
+                            <label style="display: block; margin-bottom: 8px; font-weight: 600; color: #333; font-size: 14px;">New Password:</label>
+                            <input type="password" id="new-password-input" placeholder="Enter new password (min. 6 characters)" class="form-control" style="max-width: 400px;">
+                        </div>
+                        <div style="margin-bottom: 15px;">
+                            <label style="display: block; margin-bottom: 8px; font-weight: 600; color: #333; font-size: 14px;">Confirm New Password:</label>
+                            <input type="password" id="confirm-password-input" placeholder="Confirm new password" class="form-control" style="max-width: 400px;">
+                        </div>
+                        <div id="password-message" style="margin-bottom: 10px; font-size: 13px;"></div>
+                        <button id="update-password-btn" class="btn btn-primary">
+                            <i class="fas fa-save"></i> Update Password
+                        </button>
+                    </div>
+                    
+                    <!-- Email Update -->
+                    <div style="margin-bottom: 25px; padding: 20px; background-color: #f8f9fa; border-radius: 8px; border: 1px solid #e0e0e0;">
+                        <h4 style="margin-top: 0; margin-bottom: 15px; color: #333; font-size: 16px;">
+                            <i class="fas fa-envelope"></i> Change Email
+                        </h4>
+                        <div style="margin-bottom: 15px;">
+                            <label style="display: block; margin-bottom: 8px; font-weight: 600; color: #333; font-size: 14px;">Current Email:</label>
+                            <div id="current-email-display" style="padding: 10px; background-color: white; border: 1px solid #ddd; border-radius: 6px; font-size: 14px; color: #666;">Loading...</div>
+                        </div>
+                        <div style="margin-bottom: 15px;">
+                            <label style="display: block; margin-bottom: 8px; font-weight: 600; color: #333; font-size: 14px;">New Email:</label>
+                            <input type="email" id="new-email-input" placeholder="Enter new email address" class="form-control" style="max-width: 400px;">
+                        </div>
+                        <div id="email-message" style="margin-bottom: 10px; font-size: 13px;"></div>
+                        <button id="update-email-btn" class="btn btn-primary">
+                            <i class="fas fa-save"></i> Update Email
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
         </div>
         </main>
         </div>
@@ -1351,6 +1430,7 @@
                 document.getElementById('violations-section').style.display = target === 'violations-section' ? '' : 'none';
                 document.getElementById('add-students-section').style.display = target === 'add-students-section' ? '' : 'none';
                 document.getElementById('notifications-section').style.display = target === 'notifications-section' ? '' : 'none';
+                document.getElementById('settings-section').style.display = target === 'settings-section' ? '' : 'none';
                 if (target === 'overview-section') { renderOverview(); }
                 if (target === 'statistics-section') { loadAnalytics(); }
                 if (target === 'add-students-section') { 
@@ -1367,6 +1447,9 @@
                     if (notificationDot) {
                         notificationDot.style.display = 'none';
                     }
+                }
+                if (target === 'settings-section') {
+                    loadProfile();
                 }
             }
             sideButtons.forEach(btn => {
@@ -2100,6 +2183,308 @@
                 console.error('alerts fetch failed', e);
             }
         }
+        
+        // User Settings functionality
+        document.addEventListener('DOMContentLoaded', () => {
+            // User Settings functionality
+            async function loadProfile() {
+                try {
+                    const response = await fetch('/api/settings/profile');
+                    const data = await response.json();
+                    
+                    if (data.success) {
+                        const usernameDisplay = document.getElementById('current-username-display');
+                        const emailDisplay = document.getElementById('current-email-display');
+                        
+                        if (usernameDisplay) {
+                            usernameDisplay.textContent = data.username || 'N/A';
+                        }
+                        if (emailDisplay) {
+                            emailDisplay.textContent = data.email || 'N/A';
+                        }
+                    } else {
+                        console.error('Error loading profile:', data.message);
+                    }
+                } catch (error) {
+                    console.error('Error loading profile:', error);
+                }
+            }
+            
+            // Make loadProfile available globally for showSection
+            window.loadProfile = loadProfile;
+            
+            // Global toast notification function
+            window.showToast = function(message, type = 'info') {
+                const toastContainer = document.getElementById('toast-container');
+                if (!toastContainer) return;
+                
+                // Create unique ID for this toast
+                const toastId = 'toast-' + Date.now() + '-' + Math.random().toString(36).substr(2, 9);
+                
+                // Create toast element
+                const toast = document.createElement('div');
+                toast.id = toastId;
+                toast.style.cssText = 'padding: 15px 20px; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.15); min-width: 250px; max-width: 400px; animation: slideInRight 0.3s ease-out; pointer-events: auto; display: flex; align-items: center; gap: 10px;';
+                
+                // Create icon
+                const icon = document.createElement('i');
+                icon.style.cssText = 'font-size: 20px; flex-shrink: 0;';
+                
+                // Create message
+                const messageSpan = document.createElement('span');
+                messageSpan.textContent = message;
+                messageSpan.style.cssText = 'flex: 1; font-size: 14px; font-weight: 500;';
+                
+                // Set colors and icon based on type
+                if (type === 'success') {
+                    toast.style.backgroundColor = '#d4edda';
+                    toast.style.color = '#155724';
+                    toast.style.border = '1px solid #c3e6cb';
+                    icon.className = 'fas fa-check-circle';
+                    icon.style.color = '#155724';
+                } else if (type === 'error') {
+                    toast.style.backgroundColor = '#f8d7da';
+                    toast.style.color = '#721c24';
+                    toast.style.border = '1px solid #f5c6cb';
+                    icon.className = 'fas fa-exclamation-circle';
+                    icon.style.color = '#721c24';
+                } else {
+                    toast.style.backgroundColor = '#d1ecf1';
+                    toast.style.color = '#0c5460';
+                    toast.style.border = '1px solid #bee5eb';
+                    icon.className = 'fas fa-info-circle';
+                    icon.style.color = '#0c5460';
+                }
+                
+                toast.appendChild(icon);
+                toast.appendChild(messageSpan);
+                
+                // Add toast to container
+                toastContainer.appendChild(toast);
+                
+                // Function to remove toast
+                function removeToast() {
+                    const toastElement = document.getElementById(toastId);
+                    if (!toastElement) return;
+                    
+                    // Animate out
+                    toastElement.style.animation = 'slideOutRight 0.3s ease-out';
+                    setTimeout(() => {
+                        if (toastElement && toastElement.parentNode) {
+                            toastElement.parentNode.removeChild(toastElement);
+                        }
+                    }, 300);
+                }
+                
+                // Auto-remove after 3 seconds
+                setTimeout(removeToast, 3000);
+            };
+            
+            // Add CSS animations for toast
+            if (!document.getElementById('toast-animations')) {
+                const style = document.createElement('style');
+                style.id = 'toast-animations';
+                style.textContent = `
+                    @keyframes slideInRight {
+                        from {
+                            transform: translateX(100%);
+                            opacity: 0;
+                        }
+                        to {
+                            transform: translateX(0);
+                            opacity: 1;
+                        }
+                    }
+                    @keyframes slideOutRight {
+                        from {
+                            transform: translateX(0);
+                            opacity: 1;
+                        }
+                        to {
+                            transform: translateX(100%);
+                            opacity: 0;
+                        }
+                    }
+                `;
+                document.head.appendChild(style);
+            }
+            
+            
+            // Update Username
+            const updateUsernameBtn = document.getElementById('update-username-btn');
+            const newUsernameInput = document.getElementById('new-username-input');
+            const usernameMessage = document.getElementById('username-message');
+            
+            if (updateUsernameBtn) {
+                updateUsernameBtn.addEventListener('click', async () => {
+                    const newUsername = (newUsernameInput.value || '').trim();
+                    
+                    if (!newUsername) {
+                        usernameMessage.innerHTML = '<span style="color: #dc3545;">Please enter a new username</span>';
+                        return;
+                    }
+                    
+                    if (newUsername.length < 3) {
+                        usernameMessage.innerHTML = '<span style="color: #dc3545;">Username must be at least 3 characters long</span>';
+                        return;
+                    }
+                    
+                    updateUsernameBtn.disabled = true;
+                    updateUsernameBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Updating...';
+                    usernameMessage.innerHTML = '';
+                    
+                    try {
+                        const response = await fetch('/api/settings/update-username', {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json'
+                            },
+                            body: JSON.stringify({ username: newUsername })
+                        });
+                        
+                        const data = await response.json();
+                        
+                        if (data.success) {
+                            usernameMessage.innerHTML = '<span style="color: #28a745;">Username updated successfully!</span>';
+                            newUsernameInput.value = '';
+                            await loadProfile();
+                            showToast(data.message, 'success');
+                        } else {
+                            usernameMessage.innerHTML = `<span style="color: #dc3545;">${data.message || 'Failed to update username'}</span>`;
+                            showToast(data.message || 'Failed to update username', 'error');
+                        }
+                    } catch (error) {
+                        console.error('Error updating username:', error);
+                        usernameMessage.innerHTML = '<span style="color: #dc3545;">Network error. Please try again.</span>';
+                        showToast('Error updating username', 'error');
+                    } finally {
+                        updateUsernameBtn.disabled = false;
+                        updateUsernameBtn.innerHTML = '<i class="fas fa-save"></i> Update Username';
+                    }
+                });
+            }
+            
+            // Update Password
+            const updatePasswordBtn = document.getElementById('update-password-btn');
+            const currentPasswordInput = document.getElementById('current-password-input');
+            const newPasswordInput = document.getElementById('new-password-input');
+            const confirmPasswordInput = document.getElementById('confirm-password-input');
+            const passwordMessage = document.getElementById('password-message');
+            
+            if (updatePasswordBtn) {
+                updatePasswordBtn.addEventListener('click', async () => {
+                    const currentPassword = currentPasswordInput.value || '';
+                    const newPassword = newPasswordInput.value || '';
+                    const confirmPassword = confirmPasswordInput.value || '';
+                    
+                    if (!currentPassword || !newPassword || !confirmPassword) {
+                        passwordMessage.innerHTML = '<span style="color: #dc3545;">All fields are required</span>';
+                        return;
+                    }
+                    
+                    if (newPassword.length < 6) {
+                        passwordMessage.innerHTML = '<span style="color: #dc3545;">New password must be at least 6 characters long</span>';
+                        return;
+                    }
+                    
+                    if (newPassword !== confirmPassword) {
+                        passwordMessage.innerHTML = '<span style="color: #dc3545;">New passwords do not match</span>';
+                        return;
+                    }
+                    
+                    updatePasswordBtn.disabled = true;
+                    updatePasswordBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Updating...';
+                    passwordMessage.innerHTML = '';
+                    
+                    try {
+                        const response = await fetch('/api/settings/update-password', {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json'
+                            },
+                            body: JSON.stringify({
+                                current_password: currentPassword,
+                                new_password: newPassword
+                            })
+                        });
+                        
+                        const data = await response.json();
+                        
+                        if (data.success) {
+                            passwordMessage.innerHTML = '<span style="color: #28a745;">Password updated successfully!</span>';
+                            currentPasswordInput.value = '';
+                            newPasswordInput.value = '';
+                            confirmPasswordInput.value = '';
+                            showToast(data.message, 'success');
+                        } else {
+                            passwordMessage.innerHTML = `<span style="color: #dc3545;">${data.message || 'Failed to update password'}</span>`;
+                            showToast(data.message || 'Failed to update password', 'error');
+                        }
+                    } catch (error) {
+                        console.error('Error updating password:', error);
+                        passwordMessage.innerHTML = '<span style="color: #dc3545;">Network error. Please try again.</span>';
+                        showToast('Error updating password', 'error');
+                    } finally {
+                        updatePasswordBtn.disabled = false;
+                        updatePasswordBtn.innerHTML = '<i class="fas fa-save"></i> Update Password';
+                    }
+                });
+            }
+            
+            // Update Email
+            const updateEmailBtn = document.getElementById('update-email-btn');
+            const newEmailInput = document.getElementById('new-email-input');
+            const emailMessage = document.getElementById('email-message');
+            
+            if (updateEmailBtn) {
+                updateEmailBtn.addEventListener('click', async () => {
+                    const newEmail = (newEmailInput.value || '').trim();
+                    
+                    if (!newEmail) {
+                        emailMessage.innerHTML = '<span style="color: #dc3545;">Please enter a new email address</span>';
+                        return;
+                    }
+                    
+                    if (!newEmail.includes('@') || !newEmail.includes('.')) {
+                        emailMessage.innerHTML = '<span style="color: #dc3545;">Please enter a valid email address</span>';
+                        return;
+                    }
+                    
+                    updateEmailBtn.disabled = true;
+                    updateEmailBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Updating...';
+                    emailMessage.innerHTML = '';
+                    
+                    try {
+                        const response = await fetch('/api/settings/update-email', {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json'
+                            },
+                            body: JSON.stringify({ email: newEmail })
+                        });
+                        
+                        const data = await response.json();
+                        
+                        if (data.success) {
+                            emailMessage.innerHTML = '<span style="color: #28a745;">Email updated successfully!</span>';
+                            newEmailInput.value = '';
+                            await loadProfile();
+                            showToast(data.message, 'success');
+                        } else {
+                            emailMessage.innerHTML = `<span style="color: #dc3545;">${data.message || 'Failed to update email'}</span>`;
+                            showToast(data.message || 'Failed to update email', 'error');
+                        }
+                    } catch (error) {
+                        console.error('Error updating email:', error);
+                        emailMessage.innerHTML = '<span style="color: #dc3545;">Network error. Please try again.</span>';
+                        showToast('Error updating email', 'error');
+                    } finally {
+                        updateEmailBtn.disabled = false;
+                        updateEmailBtn.innerHTML = '<i class="fas fa-save"></i> Update Email';
+                    }
+                });
+            }
+        });
     </script>
 </body>
 </html>

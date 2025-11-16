@@ -77,22 +77,50 @@ def get_programs_by_college(college):
 
 @dashboards_bp.route('/')
 def index():
-    """Main dashboard - only allow SECURITY role to access"""
+    """Main dashboard - redirect logged-in users to their appropriate dashboard"""
     admin = session.get('admin') or {}
     role = str(admin.get('role') or '').lower()
-    if role != 'security':
+    
+    # If not logged in, redirect to login
+    if not admin or not role:
         return redirect(url_for('auth.login'))
-    return render_template('index.html')
+    
+    # Redirect logged-in users to their appropriate dashboard
+    if role == 'security':
+        return render_template('index.html')
+    elif role == 'osas':
+        return redirect(url_for('dashboards.osas_dashboard'))
+    elif role == 'guidance':
+        return redirect(url_for('dashboards.guidance_dashboard'))
+    elif role == 'dean':
+        return redirect(url_for('dashboards.dean_dashboard'))
+    else:
+        # Unknown role, redirect to login
+        return redirect(url_for('auth.login'))
 
 
 @dashboards_bp.route('/dashboard')
 def dashboard():
-    """Alias for the main dashboard; restricted to security role."""
+    """Alias for the main dashboard; redirect logged-in users to their appropriate dashboard."""
     admin = session.get('admin') or {}
     role = str(admin.get('role') or '').lower()
-    if role != 'security':
+    
+    # If not logged in, redirect to login
+    if not admin or not role:
         return redirect(url_for('auth.login'))
-    return render_template('index.html')
+    
+    # Redirect logged-in users to their appropriate dashboard
+    if role == 'security':
+        return render_template('index.html')
+    elif role == 'osas':
+        return redirect(url_for('dashboards.osas_dashboard'))
+    elif role == 'guidance':
+        return redirect(url_for('dashboards.guidance_dashboard'))
+    elif role == 'dean':
+        return redirect(url_for('dashboards.dean_dashboard'))
+    else:
+        # Unknown role, redirect to login
+        return redirect(url_for('auth.login'))
 
 
 @dashboards_bp.route('/osas', methods=['GET'])
@@ -100,8 +128,22 @@ def osas_dashboard():
     """OSAS dashboard - only accessible to admins with role 'osas'."""
     admin = session.get('admin') or {}
     role = str(admin.get('role') or '').lower()
-    if role != 'osas':
+    
+    # If not logged in, redirect to login
+    if not admin or not role:
         return redirect(url_for('auth.login'))
+    
+    # If wrong role, redirect to their appropriate dashboard
+    if role != 'osas':
+        if role == 'security':
+            return redirect(url_for('dashboards.index'))
+        elif role == 'guidance':
+            return redirect(url_for('dashboards.guidance_dashboard'))
+        elif role == 'dean':
+            return redirect(url_for('dashboards.dean_dashboard'))
+        else:
+            return redirect(url_for('auth.login'))
+    
     return render_template('osas_dashboard.html')
 
 
@@ -180,8 +222,22 @@ def guidance_dashboard():
     """Guidance dashboard - only accessible to admins with role 'guidance'."""
     admin = session.get('admin') or {}
     role = str(admin.get('role') or '').lower()
-    if role != 'guidance':
+    
+    # If not logged in, redirect to login
+    if not admin or not role:
         return redirect(url_for('auth.login'))
+    
+    # If wrong role, redirect to their appropriate dashboard
+    if role != 'guidance':
+        if role == 'security':
+            return redirect(url_for('dashboards.index'))
+        elif role == 'osas':
+            return redirect(url_for('dashboards.osas_dashboard'))
+        elif role == 'dean':
+            return redirect(url_for('dashboards.dean_dashboard'))
+        else:
+            return redirect(url_for('auth.login'))
+    
     return render_template('guidance_dashboard.html')
 
 
@@ -190,8 +246,22 @@ def guidance_alias():
     """Alias path for guidance (handles common misspelling)."""
     admin = session.get('admin') or {}
     role = str(admin.get('role') or '').lower()
-    if role != 'guidance':
+    
+    # If not logged in, redirect to login
+    if not admin or not role:
         return redirect(url_for('auth.login'))
+    
+    # If wrong role, redirect to their appropriate dashboard
+    if role != 'guidance':
+        if role == 'security':
+            return redirect(url_for('dashboards.index'))
+        elif role == 'osas':
+            return redirect(url_for('dashboards.osas_dashboard'))
+        elif role == 'dean':
+            return redirect(url_for('dashboards.dean_dashboard'))
+        else:
+            return redirect(url_for('auth.login'))
+    
     return redirect(url_for('dashboards.guidance_dashboard'))
 
 
@@ -200,8 +270,22 @@ def dean_dashboard():
     """Dean dashboard - only accessible to admins with role 'dean'."""
     admin = session.get('admin') or {}
     role = str(admin.get('role') or '').lower()
-    if role != 'dean':
+    
+    # If not logged in, redirect to login
+    if not admin or not role:
         return redirect(url_for('auth.login'))
+    
+    # If wrong role, redirect to their appropriate dashboard
+    if role != 'dean':
+        if role == 'security':
+            return redirect(url_for('dashboards.index'))
+        elif role == 'osas':
+            return redirect(url_for('dashboards.osas_dashboard'))
+        elif role == 'guidance':
+            return redirect(url_for('dashboards.guidance_dashboard'))
+        else:
+            return redirect(url_for('auth.login'))
+    
     return render_template('dean_dashboard.html', college=admin.get('college'))
 
 

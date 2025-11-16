@@ -4,6 +4,7 @@ Handles system settings including schedule configuration.
 """
 
 from flask import Blueprint, request, jsonify, session
+from werkzeug.security import check_password_hash, generate_password_hash
 import json
 from datetime import datetime
 
@@ -280,5 +281,228 @@ def toggle_auto_sync():
         print(f"Error toggling auto-sync: {e}")
         import traceback
         traceback.print_exc()
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+
+@settings_bp.route('/api/settings/profile', methods=['GET'])
+def get_profile():
+    """Get current user profile information"""
+    from app import get_connection
+    
+    try:
+        # Check if user is authenticated
+        admin = session.get('admin') or {}
+        admin_id = admin.get('admin_id')
+        username = admin.get('username')
+        
+        if not admin_id or not username:
+            return jsonify({'success': False, 'message': 'Not authenticated'}), 401
+        
+        conn = get_connection() if get_connection else None
+        if conn is None:
+            return jsonify({'success': False, 'message': 'Database not configured'}), 500
+        
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT username, email
+                FROM admins
+                WHERE admin_id = %s
+                LIMIT 1
+                """,
+                (admin_id,)
+            )
+            result = cur.fetchone()
+            
+            if result:
+                return jsonify({
+                    'success': True,
+                    'username': result.get('username'),
+                    'email': result.get('email')
+                })
+            else:
+                return jsonify({'success': False, 'message': 'User not found'}), 404
+                
+    except Exception as e:
+        print(f"Error getting profile: {e}")
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+
+@settings_bp.route('/api/settings/update-username', methods=['POST'])
+def update_username():
+    """Update username"""
+    from app import get_connection
+    
+    try:
+        # Check if user is authenticated
+        admin = session.get('admin') or {}
+        admin_id = admin.get('admin_id')
+        
+        if not admin_id:
+            return jsonify({'success': False, 'message': 'Not authenticated'}), 401
+        
+        data = request.get_json()
+        new_username = (data.get('username') or '').strip()
+        
+        if not new_username:
+            return jsonify({'success': False, 'message': 'Username is required'}), 400
+        
+        if len(new_username) < 3:
+            return jsonify({'success': False, 'message': 'Username must be at least 3 characters long'}), 400
+        
+        conn = get_connection() if get_connection else None
+        if conn is None:
+            return jsonify({'success': False, 'message': 'Database not configured'}), 500
+        
+        with conn.cursor() as cur:
+            # Check if username already exists
+            cur.execute(
+                """
+                SELECT admin_id FROM admins WHERE username = %s AND admin_id != %s
+                LIMIT 1
+                """,
+                (new_username, admin_id)
+            )
+            if cur.fetchone():
+                return jsonify({'success': False, 'message': 'Username already exists'}), 400
+            
+            # Update username
+            cur.execute(
+                """
+                UPDATE admins
+                SET username = %s
+                WHERE admin_id = %s
+                """,
+                (new_username, admin_id)
+            )
+            conn.commit()
+            
+            # Update session
+            session['admin']['username'] = new_username
+        
+        return jsonify({'success': True, 'message': 'Username updated successfully', 'username': new_username})
+        
+    except Exception as e:
+        print(f"Error updating username: {e}")
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+
+@settings_bp.route('/api/settings/update-password', methods=['POST'])
+def update_password():
+    """Update password"""
+    from app import get_connection
+    
+    try:
+        # Check if user is authenticated
+        admin = session.get('admin') or {}
+        admin_id = admin.get('admin_id')
+        
+        if not admin_id:
+            return jsonify({'success': False, 'message': 'Not authenticated'}), 401
+        
+        data = request.get_json()
+        current_password = data.get('current_password') or ''
+        new_password = data.get('new_password') or ''
+        
+        if not current_password or not new_password:
+            return jsonify({'success': False, 'message': 'Current password and new password are required'}), 400
+        
+        if len(new_password) < 6:
+            return jsonify({'success': False, 'message': 'New password must be at least 6 characters long'}), 400
+        
+        conn = get_connection() if get_connection else None
+        if conn is None:
+            return jsonify({'success': False, 'message': 'Database not configured'}), 500
+        
+        with conn.cursor() as cur:
+            # Verify current password
+            cur.execute(
+                """
+                SELECT password_hash FROM admins WHERE admin_id = %s
+                LIMIT 1
+                """,
+                (admin_id,)
+            )
+            result = cur.fetchone()
+            
+            if not result:
+                return jsonify({'success': False, 'message': 'User not found'}), 404
+            
+            if not check_password_hash(result.get('password_hash', ''), current_password):
+                return jsonify({'success': False, 'message': 'Current password is incorrect'}), 400
+            
+            # Update password
+            password_hash = generate_password_hash(new_password)
+            cur.execute(
+                """
+                UPDATE admins
+                SET password_hash = %s
+                WHERE admin_id = %s
+                """,
+                (password_hash, admin_id)
+            )
+            conn.commit()
+        
+        return jsonify({'success': True, 'message': 'Password updated successfully'})
+        
+    except Exception as e:
+        print(f"Error updating password: {e}")
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+
+@settings_bp.route('/api/settings/update-email', methods=['POST'])
+def update_email():
+    """Update email"""
+    from app import get_connection
+    
+    try:
+        # Check if user is authenticated
+        admin = session.get('admin') or {}
+        admin_id = admin.get('admin_id')
+        
+        if not admin_id:
+            return jsonify({'success': False, 'message': 'Not authenticated'}), 401
+        
+        data = request.get_json()
+        new_email = (data.get('email') or '').strip()
+        
+        if not new_email:
+            return jsonify({'success': False, 'message': 'Email is required'}), 400
+        
+        # Basic email validation
+        if '@' not in new_email or '.' not in new_email:
+            return jsonify({'success': False, 'message': 'Invalid email format'}), 400
+        
+        conn = get_connection() if get_connection else None
+        if conn is None:
+            return jsonify({'success': False, 'message': 'Database not configured'}), 500
+        
+        with conn.cursor() as cur:
+            # Check if email already exists
+            cur.execute(
+                """
+                SELECT admin_id FROM admins WHERE email = %s AND admin_id != %s
+                LIMIT 1
+                """,
+                (new_email, admin_id)
+            )
+            if cur.fetchone():
+                return jsonify({'success': False, 'message': 'Email already exists'}), 400
+            
+            # Update email
+            cur.execute(
+                """
+                UPDATE admins
+                SET email = %s
+                WHERE admin_id = %s
+                """,
+                (new_email, admin_id)
+            )
+            conn.commit()
+        
+        return jsonify({'success': True, 'message': 'Email updated successfully', 'email': new_email})
+        
+    except Exception as e:
+        print(f"Error updating email: {e}")
         return jsonify({'success': False, 'message': str(e)}), 500
 
