@@ -30,12 +30,12 @@ ALLOWED_COLLEGES = [
 def create_admin():
     print("=== Create New Admin Account ===\n")
 
-    # MySQL connection setup - use environment variables as defaults
-    default_host = os.getenv('DB_HOST', 'localhost')
-    default_port = os.getenv('DB_PORT', '3306')
-    default_user = os.getenv('DB_USER', 'root')
-    default_password = os.getenv('DB_PASSWORD', '')
-    default_database = os.getenv('DB_NAME', 'dress')
+    # MySQL connection setup - use local database as default (primary)
+    default_host = os.getenv('LOCAL_DB_HOST', os.getenv('DB_HOST', 'localhost'))
+    default_port = os.getenv('LOCAL_DB_PORT', os.getenv('DB_PORT', '3306'))
+    default_user = os.getenv('LOCAL_DB_USER', os.getenv('DB_USER', 'root'))
+    default_password = os.getenv('LOCAL_DB_PASSWORD', os.getenv('DB_PASSWORD', ''))
+    default_database = os.getenv('LOCAL_DB_NAME', os.getenv('DB_NAME', 'dress'))
     
     host = input(f"MySQL Host (default: {default_host}): ") or default_host
     port_input = input(f"MySQL Port (default: {default_port}): ") or default_port

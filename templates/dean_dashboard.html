@@ -412,6 +412,11 @@
             const params = new URLSearchParams(getFilterParams());
             params.set('page', page);
             params.set('page_size', pageSize);
+            // Add sort parameters for server-side sorting
+            if (sortColumn) {
+                params.set('sort_column', sortColumn);
+                params.set('sort_direction', sortDirection);
+            }
             const data = await fetchJSON(`/dean/violations?${params.toString()}`);
             if (!data.success) return;
             violationsData = data.rows || [];
@@ -427,7 +432,8 @@
                 sortColumn = column;
                 sortDirection = 'asc';
             }
-            renderViolationsTable();
+            page = 1; // Reset to first page when sorting changes
+            loadViolations(); // Reload data from server with new sort
             updateSortIndicators();
         }
         
@@ -435,9 +441,10 @@
             const tbody = document.getElementById('violations-body');
             tbody.innerHTML = '';
             
+            // Data is already sorted server-side, just apply search filter if needed
             let filteredData = [...violationsData];
             
-            // Apply search filter
+            // Apply search filter (client-side filtering for search is still useful)
             if (searchTerm.trim()) {
                 const term = searchTerm.toLowerCase().trim();
                 filteredData = filteredData.filter(v => {
@@ -454,44 +461,15 @@
                 });
             }
             
-            // Apply sorting
-            let sortedData = filteredData;
-            if (sortColumn) {
-                sortedData.sort((a, b) => {
-                    let aVal = getCellValue(a, sortColumn);
-                    let bVal = getCellValue(b, sortColumn);
-                    
-                    // Handle numeric values
-                    if (sortColumn === 'violation_id') {
-                        aVal = parseInt(aVal) || 0;
-                        bVal = parseInt(bVal) || 0;
-                    }
-                    
-                    // Handle date values
-                    if (sortColumn === 'timestamp') {
-                        aVal = new Date(aVal || 0).getTime();
-                        bVal = new Date(bVal || 0).getTime();
-                    }
-                    
-                    // Handle string comparison
-                    if (typeof aVal === 'string') aVal = aVal.toLowerCase();
-                    if (typeof bVal === 'string') bVal = bVal.toLowerCase();
-                    
-                    if (aVal < bVal) return sortDirection === 'asc' ? -1 : 1;
-                    if (aVal > bVal) return sortDirection === 'asc' ? 1 : -1;
-                    return 0;
-                });
-            }
-            
             // Calculate and display range
-            const displayedCount = sortedData.length;
+            const displayedCount = filteredData.length;
             const startIndex = (page - 1) * pageSize;
             const endIndex = startIndex + displayedCount;
             const totalCount = violationsTotal; // Use server total
             const countDisplay = formatCountDisplay(startIndex, endIndex, totalCount);
             document.getElementById('violations-count-display').textContent = countDisplay;
             
-            sortedData.forEach(v => {
+            filteredData.forEach(v => {
                 const tr = document.createElement('tr');
                 // Format gender - capitalize first letter
                 const gender = v.gender ? v.gender.charAt(0).toUpperCase() + v.gender.slice(1).toLowerCase() : '';

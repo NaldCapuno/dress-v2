@@ -2,12 +2,12 @@
 Database connection configuration aligned with the provided DRESS database module.
 
 Uses PyMySQL and environment variables with sensible defaults:
-- DB_HOST=localhost, DB_PORT=3306, DB_USER=root, DB_PASSWORD=root, DB_NAME=dress
+- LOCAL_DB_HOST=localhost, LOCAL_DB_PORT=3306, LOCAL_DB_USER=root, LOCAL_DB_PASSWORD=root, LOCAL_DB_NAME=dress
 
 This module only establishes a connection and exposes get_connection().
 It does not execute any queries.
 
-Supports automatic fallback: tries Aiven first, falls back to local if unreachable.
+Uses local database as primary. Aiven database is used only as backup (synced periodically).
 """
 
 import os
@@ -136,15 +136,15 @@ def _create_connection(params):
     return pymysql.connect(**connection_params)
 
 
-def get_connection(force_local=False) -> Any:
+def get_connection(force_aiven=False) -> Any:
     """
-    Open and return a new PyMySQL connection with automatic fallback.
+    Open and return a new PyMySQL connection to the local database (primary).
     
-    Tries Aiven first, falls back to local if Aiven is unreachable.
-    Tracks connection state and can trigger sync when Aiven comes back online.
+    Local database is used as primary for all operations.
+    Aiven database is used only as backup (synced periodically in background).
     
     Args:
-        force_local: If True, force connection to local database (bypasses fallback)
+        force_aiven: If True, force connection to Aiven database (for backup operations only)
     
     Returns:
         PyMySQL connection object
@@ -152,60 +152,25 @@ def get_connection(force_local=False) -> Any:
     global _db_state
     
     with _db_state['lock']:
-        # If forcing local, use local directly
-        if force_local:
-            local_params = _get_local_params()
-            _db_state['current_db'] = 'local'
-            return _create_connection(local_params)
+        # If forcing Aiven (for backup operations), use Aiven
+        if force_aiven:
+            aiven_params = _get_aiven_params()
+            if not aiven_params['host'] or not aiven_params['user'] or not aiven_params['password']:
+                raise ValueError("Aiven database not configured. Set DB_HOST, DB_USER, DB_PASSWORD in .env")
+            _db_state['current_db'] = 'aiven'
+            return _create_connection(aiven_params)
         
-        # Check if we should try Aiven
-        aiven_params = _get_aiven_params()
+        # Always use local as primary
         local_params = _get_local_params()
-        
-        # If Aiven params are not configured, use local
-        if not aiven_params['host'] or not aiven_params['user'] or not aiven_params['password']:
-            _db_state['current_db'] = 'local'
-            return _create_connection(local_params)
-        
-        # Check Aiven availability (cache for 30 seconds)
-        current_time = time.time()
-        check_aiven = (
-            _db_state['aiven_available'] is None or
-            (current_time - _db_state['last_aiven_check']) > 30
-        )
-        
-        if check_aiven:
-            _db_state['aiven_available'] = _test_connection(aiven_params, timeout=3)
-            _db_state['last_aiven_check'] = current_time
-        
-        # Try Aiven if available
-        if _db_state['aiven_available']:
-            try:
-                previous_db = _db_state['current_db']
-                _db_state['current_db'] = 'aiven'
-                # If we were using local before, mark sync as pending
-                if previous_db == 'local':
-                    _db_state['sync_pending'] = True
-                return _create_connection(aiven_params)
-            except Exception as e:
-                # Aiven connection failed, mark as unavailable
-                _db_state['aiven_available'] = False
-                print(f"⚠️ Aiven connection failed: {e}")
-                print("⚠️ Falling back to local database...")
-        
-        # Fall back to local
-        previous_db = _db_state['current_db']
         _db_state['current_db'] = 'local'
-        # If we were using Aiven before and it's now unavailable, mark sync as pending
-        if previous_db == 'aiven' and _db_state['aiven_available'] is False:
-            _db_state['sync_pending'] = True
         return _create_connection(local_params)
 
 
 def get_current_database():
-    """Get the currently active database ('aiven' or 'local')."""
+    """Get the currently active database. Always returns 'local' (primary)."""
     with _db_state['lock']:
-        return _db_state['current_db']
+        # Always return 'local' since it's the primary database
+        return 'local'
 
 
 def is_aiven_available(force_check=False):
