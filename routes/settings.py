@@ -170,3 +170,115 @@ def check_schedule():
         # On error, allow system to run (fail open)
         return jsonify({'success': True, 'active': True, 'reason': f'Error checking schedule: {str(e)}'})
 
+
+@settings_bp.route('/api/settings/auto-sync', methods=['GET'])
+def get_auto_sync_status():
+    """Get the auto-sync enabled status from database"""
+    # Import here to avoid circular imports
+    from app import get_connection
+    import app
+    
+    try:
+        # Check if user is authenticated and has security role
+        admin = session.get('admin') or {}
+        role = str(admin.get('role') or '').lower()
+        if role != 'security':
+            return jsonify({'success': False, 'message': 'Unauthorized'}), 403
+        
+        conn = get_connection() if get_connection else None
+        if conn is None:
+            # If DB not configured, return default (enabled)
+            return jsonify({'success': True, 'enabled': True})
+        
+        # Try to get from database first
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT setting_value FROM settings WHERE setting_key = 'auto_sync_enabled'"
+            )
+            result = cur.fetchone()
+            
+            if result and result.get('setting_value'):
+                # Parse the stored value
+                enabled = result['setting_value'].lower() in ('1', 'true', 'yes', 'on')
+            else:
+                # Default to enabled if not set
+                enabled = True
+                # Save default to database
+                cur.execute(
+                    """
+                    INSERT INTO settings (setting_key, setting_value)
+                    VALUES ('auto_sync_enabled', '1')
+                    ON DUPLICATE KEY UPDATE setting_value = '1'
+                    """,
+                )
+                conn.commit()
+        
+        # Update global variable to match database
+        with app.auto_sync_lock:
+            app.auto_sync_enabled = enabled
+        
+        return jsonify({'success': True, 'enabled': enabled})
+        
+    except Exception as e:
+        print(f"Error getting auto-sync status: {e}")
+        import traceback
+        traceback.print_exc()
+        # Return default on error
+        return jsonify({'success': True, 'enabled': True})
+
+
+@settings_bp.route('/api/settings/auto-sync', methods=['POST'])
+def toggle_auto_sync():
+    """Toggle auto-sync enabled/disabled and save to database"""
+    # Import here to avoid circular imports
+    from app import get_connection
+    import app
+    
+    try:
+        # Check if user is authenticated and has security role
+        admin = session.get('admin') or {}
+        role = str(admin.get('role') or '').lower()
+        if role != 'security':
+            return jsonify({'success': False, 'message': 'Unauthorized'}), 403
+        
+        data = request.get_json()
+        enabled = data.get('enabled', True)
+        
+        # Save to database
+        conn = get_connection() if get_connection else None
+        if conn is None:
+            return jsonify({'success': False, 'message': 'Database not configured'}), 500
+        
+        # Store as '1' for enabled, '0' for disabled
+        setting_value = '1' if enabled else '0'
+        
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO settings (setting_key, setting_value)
+                VALUES ('auto_sync_enabled', %s)
+                ON DUPLICATE KEY UPDATE setting_value = %s
+                """,
+                (setting_value, setting_value)
+            )
+            conn.commit()
+        
+        # Update global variable
+        with app.auto_sync_lock:
+            app.auto_sync_enabled = enabled
+        
+        status = "enabled" if enabled else "disabled"
+        print(f"Auto-sync {status} by user {admin.get('username', 'unknown')} (saved to database)")
+        
+        return jsonify({
+            'success': True, 
+            'enabled': enabled,
+            'message': f'Auto-sync {status}'
+        })
+        
+    except Exception as e:
+        print(f"Error toggling auto-sync: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({'success': False, 'message': str(e)}), 500
+

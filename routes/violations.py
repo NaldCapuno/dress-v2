@@ -5,11 +5,38 @@ Handles all violation-related endpoints for dean, osas, and guidance roles.
 
 from flask import Blueprint, request, jsonify, session, Response
 from io import BytesIO
-from datetime import datetime
+from datetime import datetime, timezone
 import time
 import re
 
 violations_bp = Blueprint('violations', __name__)
+
+
+def convert_timestamp_to_iso(timestamp):
+    """Convert datetime object to ISO format string.
+    MySQL datetime fields are naive (no timezone), so we format them as-is.
+    The frontend will interpret them correctly if we ensure consistent format.
+    """
+    if not timestamp:
+        return None
+    if isinstance(timestamp, str):
+        # If already a string, ensure it's in the right format
+        # MySQL format: 'YYYY-MM-DD HH:MM:SS' -> convert to ISO: 'YYYY-MM-DDTHH:MM:SS'
+        if 'T' not in timestamp and ' ' in timestamp:
+            return timestamp.replace(' ', 'T')
+        return timestamp
+    if isinstance(timestamp, datetime):
+        # Format as ISO string (YYYY-MM-DDTHH:MM:SS)
+        # This preserves the exact time from the database without timezone conversion
+        return timestamp.strftime('%Y-%m-%dT%H:%M:%S')
+    return str(timestamp)
+
+
+def convert_row_timestamps(row):
+    """Convert timestamp fields in a row to ISO format strings."""
+    if isinstance(row, dict) and 'timestamp' in row and row['timestamp']:
+        row['timestamp'] = convert_timestamp_to_iso(row['timestamp'])
+    return row
 
 
 @violations_bp.route('/dean/violations', methods=['GET'])
@@ -102,6 +129,8 @@ def dean_get_violations():
                 params + [page_size, offset]
             )
             rows = cur.fetchall() or []
+            # Convert timestamps to ISO format strings for consistent display
+            rows = [convert_row_timestamps(row) for row in rows]
         conn.close()
         return jsonify({'success': True, 'rows': rows, 'total': total})
     except Exception as e:
@@ -519,6 +548,8 @@ def osas_get_violations():
                 params + [page_size, offset]
             )
             rows = cur.fetchall() or []
+            # Convert timestamps to ISO format strings for consistent display
+            rows = [convert_row_timestamps(row) for row in rows]
         conn.close()
         return jsonify({'success': True, 'rows': rows, 'total': total})
     except Exception as e:
@@ -605,6 +636,8 @@ def guidance_get_violations():
                 params + [page_size, offset]
             )
             rows = cur.fetchall() or []
+            # Convert timestamps to ISO format strings for consistent display
+            rows = [convert_row_timestamps(row) for row in rows]
         conn.close()
         return jsonify({'success': True, 'rows': rows, 'total': total})
     except Exception as e:
