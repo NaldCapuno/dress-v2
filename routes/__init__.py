@@ -11,6 +11,7 @@ from routes.camera import camera_bp
 from routes.rfid import rfid_bp
 from routes.debug import debug_bp
 from routes.students import students_bp
+from routes.settings import settings_bp
 
 __all__ = [
     'auth_bp',
@@ -21,4 +22,5 @@ __all__ = [
     'rfid_bp',
     'debug_bp',
     'students_bp',
+    'settings_bp',
 ]

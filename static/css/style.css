@@ -632,8 +632,8 @@ select.form-control {
 
 /* Status Bar */
 .status-bar {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    display: flex;
+    flex-direction: row;
     gap: var(--space-4);
     background-color: var(--bg-primary);
     border: 1px solid var(--border-light);
@@ -642,6 +642,11 @@ select.form-control {
     padding: var(--space-6);
     margin-bottom: var(--space-6);
     box-shadow: var(--shadow-sm);
+}
+
+.status-bar > .status-item {
+    flex: 1;
+    min-width: 0;
 }
 
 .status-item {
@@ -669,7 +674,8 @@ select.form-control {
 }
 
 .status-divider {
-    display: none;
+    display: none !important;
+    grid-column: none;
 }
 
 /* Dashboard Shell */
@@ -1170,6 +1176,8 @@ select.form-control {
     right: var(--space-4);
     z-index: 100;
     pointer-events: none;
+    /* Prevent scaling with container transforms */
+    transform-origin: top right;
 }
 
 .camera-off-indicator {
@@ -1180,13 +1188,20 @@ select.form-control {
     display: flex;
     align-items: center;
     gap: var(--space-2);
-    font-weight: var(--font-bold);
-    font-size: var(--text-xs);
+    font-weight: 700; /* Use numeric value instead of var for consistency */
+    font-size: 12px; /* Fixed pixel size to prevent zoom scaling */
     box-shadow: var(--shadow-lg);
     border: 2px solid var(--bg-primary);
-    animation: pulse-red 1.5s infinite;
+    animation: pulse-red 1.5s infinite; /* Same animation as initializing */
     text-transform: uppercase;
     letter-spacing: 0.05em;
+    /* Prevent font size from scaling with container */
+    will-change: auto;
+    backface-visibility: hidden;
+    /* Consistent font rendering across zoom levels */
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: geometricPrecision; /* Better for consistent rendering at different zoom levels */
 }
 
 .camera-initializing-sign {
@@ -1195,6 +1210,8 @@ select.form-control {
     right: var(--space-4);
     z-index: 100;
     pointer-events: none;
+    /* Prevent scaling with container transforms */
+    transform-origin: top right;
 }
 
 .camera-initializing-indicator {
@@ -1204,18 +1221,32 @@ select.form-control {
     border-radius: var(--radius-full);
     display: flex;
     align-items: center;
+    justify-content: center;
     gap: var(--space-2);
-    font-weight: var(--font-bold);
-    font-size: var(--text-xs);
+    font-weight: 700; /* Use numeric value instead of var for consistency */
+    font-size: 12px; /* Fixed pixel size to prevent zoom scaling */
     box-shadow: var(--shadow-lg);
     border: 2px solid var(--bg-primary);
     animation: pulse-blue 1.5s infinite;
     text-transform: uppercase;
     letter-spacing: 0.05em;
+    /* Prevent font size from scaling with container */
+    will-change: auto;
+    backface-visibility: hidden;
+    /* Consistent font rendering across zoom levels */
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: geometricPrecision; /* Better for consistent rendering at different zoom levels */
 }
 
 .camera-spinner {
     animation: spin 1s linear infinite;
+    display: inline-block;
+    width: 1em;
+    height: 1em;
+    line-height: 1;
+    text-align: center;
+    vertical-align: middle;
 }
 
 @keyframes spin {
@@ -1226,17 +1257,17 @@ select.form-control {
 @keyframes pulse-blue {
     0% { 
         background: var(--primary);
-        transform: scale(1);
+        opacity: 1;
         box-shadow: var(--shadow-lg);
     }
     50% { 
         background: var(--primary-dark);
-        transform: scale(1.05);
-        box-shadow: var(--shadow-xl);
+        opacity: 0.85;
+        box-shadow: var(--shadow-md);
     }
     100% { 
         background: var(--primary);
-        transform: scale(1);
+        opacity: 1;
         box-shadow: var(--shadow-lg);
     }
 }
@@ -1244,17 +1275,17 @@ select.form-control {
 @keyframes pulse-red {
     0% { 
         background: var(--error);
-        transform: scale(1);
+        opacity: 1;
         box-shadow: var(--shadow-lg);
     }
     50% { 
-        background: #dc2626;
-        transform: scale(1.05);
-        box-shadow: var(--shadow-xl);
+        background: #b20000;
+        opacity: 0.85;
+        box-shadow: var(--shadow-md);
     }
     100% { 
         background: var(--error);
-        transform: scale(1);
+        opacity: 1;
         box-shadow: var(--shadow-lg);
     }
 }
@@ -1276,7 +1307,7 @@ select.form-control {
     }
     
     .status-bar {
-        grid-template-columns: repeat(4, 1fr);
+        flex-wrap: nowrap;
     }
     
     .webcam-controls {
@@ -1392,8 +1423,8 @@ select.form-control {
 }
 
 .status-bar {
-        grid-template-columns: repeat(2, 1fr);
-        gap: var(--space-3);
+        flex-wrap: nowrap;
+        gap: var(--space-2);
         padding: var(--space-4);
 }
 
@@ -1460,7 +1491,8 @@ select.form-control {
     }
     
     .status-bar {
-        grid-template-columns: 1fr;
+        flex-wrap: nowrap;
+        gap: var(--space-2);
     }
     
     .login-container {
