@@ -1153,7 +1153,17 @@
                     
                     // Toggle on click anywhere in the container (both check and uncheck)
                     dayDiv.addEventListener('click', (e) => {
-                        // Prevent default behavior and stop propagation
+                        // If clicking directly on checkbox, let browser handle toggle, just update styling
+                        if (e.target === checkbox) {
+                            // Browser will toggle it, we just need to update styling
+                            // Use setTimeout to ensure browser's toggle happens first
+                            setTimeout(() => {
+                                updateDayToggleStyle(dayDiv, checkbox.checked);
+                            }, 0);
+                            return; // Let browser handle the toggle
+                        }
+                        
+                        // For clicks on label or container (not checkbox), prevent default and toggle manually
                         e.preventDefault();
                         e.stopPropagation();
                         
@@ -1168,24 +1178,12 @@
                         
                         // Manually trigger change event to ensure any other listeners are notified
                         checkbox.dispatchEvent(new Event('change', { bubbles: true }));
-                    }, true); // Use capture phase to handle before checkbox's default behavior
-                    
-                    // Prevent checkbox from handling its own click (we handle it in container)
-                    checkbox.addEventListener('click', (e) => {
-                        e.preventDefault();
-                        e.stopPropagation();
-                    }, true);
+                    });
                     
                     // Update styling when checkbox changes (handles programmatic changes)
                     checkbox.addEventListener('change', () => {
                         updateDayToggleStyle(dayDiv, checkbox.checked);
                     });
-                    
-                    // Prevent label from triggering default checkbox behavior
-                    label.addEventListener('click', (e) => {
-                        e.preventDefault();
-                        e.stopPropagation();
-                    }, true);
                     
                     daysContainer.appendChild(dayDiv);
                 });
@@ -1359,10 +1357,12 @@
                 });
             }
             
-            // Cancel button (reload schedule)
+            // Cancel button (close settings modal)
             if (cancelScheduleBtn) {
-                cancelScheduleBtn.addEventListener('click', async () => {
-                    await loadSchedule();
+                cancelScheduleBtn.addEventListener('click', () => {
+                    if (settingsModal) {
+                        settingsModal.style.display = 'none';
+                    }
                 });
             }
         });
