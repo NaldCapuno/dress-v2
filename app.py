@@ -131,13 +131,18 @@ app = Flask(__name__)
 # Secret key for session management (can be overridden via environment variable)
 app.secret_key = os.getenv('FLASK_SECRET_KEY', 'change-this-in-production')
 # Flask-Mail configuration
+# All email settings must be configured in .env file
 app.config['MAIL_SERVER'] = os.getenv('MAIL_SERVER', 'smtp.gmail.com')
 app.config['MAIL_PORT'] = int(os.getenv('MAIL_PORT', '587'))
 app.config['MAIL_USE_TLS'] = os.getenv('MAIL_USE_TLS', 'true').lower() in {'1','true','yes','on'}
 app.config['MAIL_USE_SSL'] = os.getenv('MAIL_USE_SSL', 'false').lower() in {'1','true','yes','on'}
-app.config['MAIL_USERNAME'] = os.getenv('MAIL_USERNAME', 'dress.psu@gmail.com')
-app.config['MAIL_PASSWORD'] = os.getenv('MAIL_PASSWORD', 'ckyvhuudtqhleqkw')
-app.config['MAIL_DEFAULT_SENDER'] = os.getenv('MAIL_DEFAULT_SENDER', app.config['MAIL_USERNAME'])
+app.config['MAIL_USERNAME'] = os.getenv('MAIL_USERNAME')
+app.config['MAIL_PASSWORD'] = os.getenv('MAIL_PASSWORD')
+app.config['MAIL_DEFAULT_SENDER'] = os.getenv('MAIL_DEFAULT_SENDER', os.getenv('MAIL_USERNAME'))
+
+# Validate required email settings
+if not app.config['MAIL_USERNAME'] or not app.config['MAIL_PASSWORD']:
+    print("⚠ WARNING: MAIL_USERNAME and/or MAIL_PASSWORD not set in .env file. Email notifications will not work.")
 
 mail = Mail(app)
 

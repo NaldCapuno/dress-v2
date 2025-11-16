@@ -30,12 +30,19 @@ ALLOWED_COLLEGES = [
 def create_admin():
     print("=== Create New Admin Account ===\n")
 
-    # MySQL connection setup - use local database as default (primary)
-    default_host = os.getenv('LOCAL_DB_HOST', os.getenv('DB_HOST', 'localhost'))
-    default_port = os.getenv('LOCAL_DB_PORT', os.getenv('DB_PORT', '3306'))
-    default_user = os.getenv('LOCAL_DB_USER', os.getenv('DB_USER', 'root'))
-    default_password = os.getenv('LOCAL_DB_PASSWORD', os.getenv('DB_PASSWORD', ''))
-    default_database = os.getenv('LOCAL_DB_NAME', os.getenv('DB_NAME', 'dress'))
+    # MySQL connection setup - use local database from .env file (primary)
+    # All local database settings should be configured in .env file
+    default_host = os.getenv('LOCAL_DB_HOST', 'localhost')
+    default_port = os.getenv('LOCAL_DB_PORT', '3306')
+    default_user = os.getenv('LOCAL_DB_USER')
+    default_password = os.getenv('LOCAL_DB_PASSWORD')
+    default_database = os.getenv('LOCAL_DB_NAME', 'dress')
+    
+    # Validate required settings
+    if not default_user or not default_password:
+        print("⚠ ERROR: LOCAL_DB_USER and LOCAL_DB_PASSWORD must be set in .env file.")
+        print("Please configure your local database credentials in .env file first.")
+        return
     
     host = input(f"MySQL Host (default: {default_host}): ") or default_host
     port_input = input(f"MySQL Port (default: {default_port}): ") or default_port

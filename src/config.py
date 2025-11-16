@@ -1,13 +1,15 @@
 """
 Database connection configuration aligned with the provided DRESS database module.
 
-Uses PyMySQL and environment variables with sensible defaults:
-- LOCAL_DB_HOST=localhost, LOCAL_DB_PORT=3306, LOCAL_DB_USER=root, LOCAL_DB_PASSWORD=root, LOCAL_DB_NAME=dress
+Uses PyMySQL and environment variables from .env file:
+- LOCAL_DB_HOST, LOCAL_DB_PORT, LOCAL_DB_USER, LOCAL_DB_PASSWORD, LOCAL_DB_NAME (required)
+- DB_HOST, DB_PORT, DB_USER, DB_PASSWORD, DB_NAME (optional, for Aiven backup)
 
 This module only establishes a connection and exposes get_connection().
 It does not execute any queries.
 
 Uses local database as primary. Aiven database is used only as backup (synced periodically).
+All database credentials must be configured in .env file.
 """
 
 import os
@@ -59,15 +61,29 @@ def _get_aiven_params():
 
 
 def _get_local_params():
-    """Get local database connection parameters."""
+    """Get local database connection parameters from environment variables."""
     global _local_params
     if _local_params is None:
+        # All local database settings must be configured in .env file
+        host = os.getenv('LOCAL_DB_HOST', 'localhost')
+        port = int(os.getenv('LOCAL_DB_PORT', '3306'))
+        user = os.getenv('LOCAL_DB_USER')
+        password = os.getenv('LOCAL_DB_PASSWORD')
+        database = os.getenv('LOCAL_DB_NAME', 'dress')
+        
+        # Validate required settings
+        if not user or not password:
+            raise ValueError(
+                "LOCAL_DB_USER and LOCAL_DB_PASSWORD must be set in .env file. "
+                "Please configure your local database credentials."
+            )
+        
         _local_params = {
-            'host': os.getenv('LOCAL_DB_HOST', 'localhost'),
-            'port': int(os.getenv('LOCAL_DB_PORT', '3306')),
-            'user': os.getenv('LOCAL_DB_USER', 'root'),
-            'password': os.getenv('LOCAL_DB_PASSWORD', 'root'),
-            'database': os.getenv('LOCAL_DB_NAME', 'dress'),
+            'host': host,
+            'port': port,
+            'user': user,
+            'password': password,
+            'database': database,
             'is_aiven': False
         }
     return _local_params
