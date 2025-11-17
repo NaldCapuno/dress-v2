@@ -139,6 +139,9 @@ app.config['MAIL_USE_SSL'] = os.getenv('MAIL_USE_SSL', 'false').lower() in {'1',
 app.config['MAIL_USERNAME'] = os.getenv('MAIL_USERNAME')
 app.config['MAIL_PASSWORD'] = os.getenv('MAIL_PASSWORD')
 app.config['MAIL_DEFAULT_SENDER'] = os.getenv('MAIL_DEFAULT_SENDER', os.getenv('MAIL_USERNAME'))
+# Email timeout settings to prevent hanging
+app.config['MAIL_TIMEOUT'] = int(os.getenv('MAIL_TIMEOUT', '10'))  # 10 seconds timeout
+app.config['MAIL_CONNECT_TIMEOUT'] = int(os.getenv('MAIL_CONNECT_TIMEOUT', '5'))  # 5 seconds connection timeout
 
 # Validate required email settings
 if not app.config['MAIL_USERNAME'] or not app.config['MAIL_PASSWORD']:

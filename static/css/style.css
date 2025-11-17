@@ -520,8 +520,16 @@ a:hover {
     box-shadow: 0 0 0 3px rgba(242, 90, 4, 0.1);
 }
 
+/* Placeholder styling - ensure all placeholders are grey */
+input::placeholder,
+textarea::placeholder {
+    color: #9ca3af;
+    opacity: 1;
+}
+
 .form-control::placeholder {
-    color: var(--text-muted);
+    color: #9ca3af;
+    opacity: 1;
 }
 
 .form-control:disabled {
@@ -1693,6 +1701,7 @@ select.form-control {
     width: 100%;
     border-collapse: collapse;
     background-color: var(--bg-primary);
+    table-layout: fixed;
 }
 
 .table th,
@@ -1701,6 +1710,23 @@ select.form-control {
     padding: var(--space-4);
     text-align: left;
     font-size: var(--text-sm);
+}
+
+/* Violations table cells - handle text overflow */
+#violations-section .table th,
+#violations-section .table td {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    word-wrap: break-word;
+}
+
+/* Students table - allow email wrapping */
+#add-students-section .table th:nth-child(3),
+#add-students-section .table td:nth-child(3) {
+    word-wrap: break-word;
+    word-break: break-word;
+    white-space: normal;
+    max-width: 200px;
 }
 
 .table th {
@@ -1990,11 +2016,13 @@ select.form-control {
 .table-responsive {
     overflow-x: auto;
     -webkit-overflow-scrolling: touch;
+    width: 100%;
 }
 
 .table-responsive .table {
     min-width: 600px;
 }
+
 
 /* Chart containers */
 .chart-container {
@@ -2006,6 +2034,27 @@ select.form-control {
 .chart-container canvas {
     max-height: 100%;
     max-width: 100%;
+}
+
+/* Trend toggle for violations over time chart */
+.trend-toggle {
+    display: flex;
+    justify-content: flex-end;
+    margin-bottom: 0.5rem;
+    gap: 0.5rem;
+    align-items: center;
+}
+
+.trend-toggle-label {
+    font-size: 0.85rem;
+    color: #4b5563;
+    white-space: nowrap;
+}
+
+#trend-range {
+    width: auto;
+    min-width: 100px;
+    max-width: 120px;
 }
 
 /* Enhanced form controls for dashboards */
@@ -2499,3 +2548,528 @@ select.form-control {
 /* ===== FINAL CLEANUP ===== */
 
 /* Remove any remaining old styles and ensure clean structure */
+
+/* ===== EXTRACTED INLINE STYLES ===== */
+
+/* Login/Password Reset Page Links */
+.login-link-container {
+    text-align: center;
+    margin-top: 15px;
+}
+
+.login-link {
+    color: #2ca9e1;
+    text-decoration: none;
+    font-size: 14px;
+}
+
+.login-link:hover {
+    text-decoration: underline;
+}
+
+.login-link-separator {
+    color: #9ca3af;
+    margin: 0 10px;
+}
+
+/* Toggle buttons for forgot password */
+.toggle-btn {
+    padding: 0.5rem 1.5rem;
+    border: 2px solid #e5e7eb;
+    background-color: #ffffff;
+    color: #6b7280;
+    border-radius: 0.375rem;
+    cursor: pointer;
+    font-size: 0.875rem;
+    font-weight: 500;
+    transition: all 0.2s;
+}
+
+.toggle-btn:hover {
+    border-color: #f25a04;
+    color: #f25a04;
+}
+
+.toggle-btn.active {
+    background-color: #f25a04;
+    border-color: #f25a04;
+    color: #ffffff;
+}
+
+/* Form Help Text */
+.form-help-text {
+    color: #6b7280;
+    font-size: 12px;
+    display: block;
+    margin-top: 5px;
+}
+
+/* Floating Menu */
+.floating-menu {
+    position: fixed;
+    bottom: 30px;
+    right: 30px;
+    z-index: 1000;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 15px;
+}
+
+.floating-menu-btn {
+    width: 60px;
+    height: 60px;
+    border-radius: 50%;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+    display: none;
+    align-items: center;
+    justify-content: center;
+    font-size: 24px;
+    border: none;
+    cursor: pointer;
+    opacity: 0;
+    transform: translateY(20px);
+    transition: all 0.3s ease;
+}
+
+.floating-menu-btn.show {
+    display: flex;
+    opacity: 1;
+    transform: translateY(0);
+}
+
+.floating-menu-btn.menu-toggle {
+    display: flex;
+    opacity: 1;
+    transform: translateY(0);
+    background-color: #007bff;
+}
+
+.floating-menu-btn.security-settings {
+    background-color: #28a745;
+}
+
+/* Modal Styles */
+.modal-overlay {
+    display: none;
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background-color: rgba(0, 0, 0, 0.5);
+    z-index: 2000;
+    align-items: center;
+    justify-content: center;
+}
+
+.modal-overlay.show {
+    display: flex;
+}
+
+.modal-content {
+    background-color: white;
+    border-radius: 12px;
+    max-width: 600px;
+    width: 90%;
+    max-height: 80vh;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.3);
+    position: relative;
+    margin: auto;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+.modal-header {
+    padding: 30px 30px 20px 30px;
+    border-bottom: 1px solid #e0e0e0;
+    flex-shrink: 0;
+}
+
+.modal-close-btn {
+    position: absolute;
+    top: 15px;
+    right: 15px;
+    background: none;
+    border: none;
+    font-size: 28px;
+    cursor: pointer;
+    color: #666;
+    padding: 5px 10px;
+    line-height: 1;
+}
+
+.modal-close-btn:hover {
+    color: #333;
+}
+
+.modal-title {
+    margin-top: 0;
+    margin-bottom: 0;
+    color: #333;
+}
+
+.modal-body {
+    padding: 30px;
+    padding-bottom: 30px;
+    overflow-y: auto;
+    flex: 1;
+    min-height: 0;
+}
+
+/* Settings Section */
+.settings-section {
+    margin-bottom: 0;
+}
+
+.settings-section-title {
+    margin-top: 0;
+    margin-bottom: 15px;
+    color: #333;
+    font-size: 18px;
+}
+
+.settings-section-description {
+    color: #666;
+    font-size: 14px;
+    margin-bottom: 20px;
+}
+
+.settings-form-group {
+    margin-bottom: 20px;
+}
+
+.settings-label {
+    display: block;
+    margin-bottom: 10px;
+    font-weight: 600;
+    color: #333;
+    font-size: 14px;
+}
+
+.settings-input-group {
+    display: flex;
+    gap: 10px;
+    align-items: center;
+    flex-wrap: wrap;
+}
+
+.settings-time-input {
+    flex: 1;
+    min-width: 150px;
+    padding: 10px;
+    border: 1px solid #ddd;
+    border-radius: 6px;
+    font-size: 14px;
+}
+
+.settings-time-separator {
+    font-size: 14px;
+    color: #666;
+    font-weight: 500;
+}
+
+.settings-button-group {
+    display: flex;
+    gap: 10px;
+    margin-top: 20px;
+}
+
+.settings-button {
+    flex: 1;
+    padding: 10px;
+    font-size: 14px;
+}
+
+.settings-divider {
+    margin-top: 40px;
+    padding-top: 30px;
+    border-top: 1px solid #e0e0e0;
+}
+
+.settings-status-box {
+    display: flex;
+    align-items: center;
+    gap: 15px;
+    padding: 15px;
+    background-color: #f8f9fa;
+    border-radius: 8px;
+    border: 1px solid #e0e0e0;
+}
+
+.settings-status-info {
+    flex: 1;
+}
+
+.settings-status-title {
+    font-weight: 600;
+    color: #333;
+    margin-bottom: 5px;
+}
+
+.settings-status-text {
+    font-size: 13px;
+    color: #666;
+}
+
+.settings-toggle-btn {
+    padding: 10px 20px;
+    font-size: 14px;
+    min-width: 120px;
+}
+
+/* User Settings Form */
+.user-settings-section {
+    margin-bottom: 25px;
+    padding: 20px;
+    background-color: #f8f9fa;
+    border-radius: 8px;
+    border: 1px solid #e0e0e0;
+}
+
+.user-settings-title {
+    margin-top: 0;
+    margin-bottom: 15px;
+    color: #333;
+    font-size: 16px;
+}
+
+.user-settings-field {
+    margin-bottom: 15px;
+}
+
+.user-settings-field-label {
+    display: block;
+    margin-bottom: 8px;
+    font-weight: 600;
+    color: #333;
+    font-size: 14px;
+}
+
+.user-settings-display {
+    padding: 10px;
+    background-color: white;
+    border: 1px solid #ddd;
+    border-radius: 6px;
+    font-size: 14px;
+    color: #666;
+}
+
+.user-settings-input {
+    width: 100%;
+    padding: 10px;
+    border: 1px solid #ddd;
+    border-radius: 6px;
+    font-size: 14px;
+    box-sizing: border-box;
+}
+
+.user-settings-message {
+    margin-bottom: 10px;
+    font-size: 13px;
+}
+
+.user-settings-submit {
+    width: 100%;
+    padding: 10px;
+    font-size: 14px;
+}
+
+/* Toast Container */
+.toast-container {
+    position: fixed;
+    top: 20px;
+    right: 20px;
+    z-index: 3000;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    align-items: flex-end;
+    pointer-events: none;
+}
+
+/* Days Container */
+.days-container {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+    gap: 10px;
+    margin-bottom: 20px;
+}
+
+/* Animations */
+@keyframes slideInRight {
+    from {
+        transform: translateX(100%);
+        opacity: 0;
+    }
+    to {
+        transform: translateX(0);
+        opacity: 1;
+    }
+}
+
+@keyframes slideOutRight {
+    from {
+        transform: translateX(0);
+        opacity: 1;
+    }
+    to {
+        transform: translateX(100%);
+        opacity: 0;
+    }
+}
+
+/* Dashboard-specific styles */
+.card-margin-bottom {
+    margin-bottom: 1.25rem;
+}
+
+.card-margin-top {
+    margin-top: 1.5rem;
+}
+
+.form-control-max-width {
+    max-width: 160px;
+}
+
+.section-hidden {
+    display: none;
+}
+
+.table-header-sortable {
+    cursor: pointer;
+    user-select: none;
+}
+
+.card-header-accent {
+    background-color: #f25a04;
+    color: white;
+    padding: 1rem;
+}
+
+.card-header-flex {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+}
+
+.card-header-title {
+    margin: 0;
+    color: white;
+    font-size: 1.125rem;
+}
+
+.text-muted-small {
+    margin-top: 6px;
+    font-size: 0.9rem;
+    color: #666;
+}
+
+.search-input-full-width {
+    grid-column: 1 / -1;
+}
+
+.search-container {
+    margin-bottom: 1rem;
+}
+
+/* Fixed column widths for violations tables to prevent resizing during pagination */
+/* All violations tables use fixed layout to prevent column resizing */
+#violations-section .table {
+    table-layout: fixed;
+}
+
+/* Common columns for all dashboards - first 3 columns */
+#violations-section .table th:nth-child(1),
+#violations-section .table td:nth-child(1) {
+    width: 11%; /* Date */
+}
+
+#violations-section .table th:nth-child(2),
+#violations-section .table td:nth-child(2) {
+    width: 9%; /* Student ID */
+}
+
+#violations-section .table th:nth-child(3),
+#violations-section .table td:nth-child(3) {
+    width: 15%; /* Name */
+}
+
+/* Dean dashboard: 7 columns (Date, Student ID, Name, Program, Gender, Type, Status) */
+#violations-section .table.table-7-cols th:nth-child(4),
+#violations-section .table.table-7-cols td:nth-child(4) {
+    width: 24%; /* Program */
+}
+
+#violations-section .table.table-7-cols th:nth-child(5),
+#violations-section .table.table-7-cols td:nth-child(5) {
+    width: 10%; /* Gender */
+}
+
+#violations-section .table.table-7-cols th:nth-child(6),
+#violations-section .table.table-7-cols td:nth-child(6) {
+    width: 16%; /* Type */
+}
+
+#violations-section .table.table-7-cols th:nth-child(7),
+#violations-section .table.table-7-cols td:nth-child(7) {
+    width: 15%; /* Status */
+}
+
+/* OSAS dashboard: 8 columns (Date, Student ID, Name, College, Program, Gender, Type, Status) */
+#violations-section .table.table-8-cols th:nth-child(4),
+#violations-section .table.table-8-cols td:nth-child(4) {
+    width: 14%; /* College */
+}
+
+#violations-section .table.table-8-cols th:nth-child(5),
+#violations-section .table.table-8-cols td:nth-child(5) {
+    width: 15%; /* Program */
+}
+
+#violations-section .table.table-8-cols th:nth-child(6),
+#violations-section .table.table-8-cols td:nth-child(6) {
+    width: 9%; /* Gender */
+}
+
+#violations-section .table.table-8-cols th:nth-child(7),
+#violations-section .table.table-8-cols td:nth-child(7) {
+    width: 12%; /* Type */
+}
+
+#violations-section .table.table-8-cols th:nth-child(8),
+#violations-section .table.table-8-cols td:nth-child(8) {
+    width: 11%; /* Status */
+}
+
+/* Guidance dashboard: 9 columns (Date, Student ID, Name, College, Program, Gender, Type, Status, Action) */
+#violations-section .table.table-9-cols th:nth-child(4),
+#violations-section .table.table-9-cols td:nth-child(4) {
+    width: 12%; /* College */
+}
+
+#violations-section .table.table-9-cols th:nth-child(5),
+#violations-section .table.table-9-cols td:nth-child(5) {
+    width: 12%; /* Program */
+}
+
+#violations-section .table.table-9-cols th:nth-child(6),
+#violations-section .table.table-9-cols td:nth-child(6) {
+    width: 10%; /* Gender */
+}
+
+#violations-section .table.table-9-cols th:nth-child(7),
+#violations-section .table.table-9-cols td:nth-child(7) {
+    width: 11%; /* Type */
+}
+
+#violations-section .table.table-9-cols th:nth-child(8),
+#violations-section .table.table-9-cols td:nth-child(8) {
+    width: 12%; /* Status */
+}
+
+#violations-section .table.table-9-cols th:nth-child(9),
+#violations-section .table.table-9-cols td:nth-child(9) {
+    width: 9%; /* Action */
+}

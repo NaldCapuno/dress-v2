@@ -9,6 +9,7 @@
     <link rel="stylesheet" href="{{ url_for('static', filename='css/table-styles.css') }}">
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="{{ url_for('static', filename='js/table-pagination.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/toast.js') }}"></script>
     <script>
         async function fetchJSON(url) {
             const res = await fetch(url);
@@ -134,31 +135,15 @@
             const tbody = document.getElementById('violations-body');
             tbody.innerHTML = '';
             
-            let filteredData = [...violationsData];
+            // Data is already filtered and sorted server-side
+            const displayedCount = violationsData.length;
+            const startIndex = (page - 1) * pageSize;
+            const endIndex = Math.min(startIndex + displayedCount, violationsTotal);
+            const totalCount = violationsTotal; // Use server total
+            const countDisplay = formatCountDisplay(startIndex, endIndex, totalCount);
+            document.getElementById('violations-count-display').textContent = countDisplay;
             
-            // Apply search filter
-            if (searchTerm.trim()) {
-                const term = searchTerm.toLowerCase().trim();
-                filteredData = filteredData.filter(v => {
-                    const name = (v.name || '').toLowerCase();
-                    const studentId = (v.student_id || '').toLowerCase();
-                    const college = (v.college || '').toLowerCase();
-                    const program = (v.program || '').toLowerCase();
-                    const violationType = (v.violation_type || '').toLowerCase();
-                    return name.includes(term) || 
-                           studentId.includes(term) || 
-                           college.includes(term) || 
-                           program.includes(term) ||
-                           violationType.includes(term);
-                });
-            }
-            
-            // Data is already sorted server-side, no need to sort again
-            
-            // Update total count to reflect filtered results
-            document.getElementById('total-count').textContent = filteredData.length;
-            
-            filteredData.forEach(v => {
+            violationsData.forEach(v => {
                 const tr = document.createElement('tr');
                 const status = (v.status || '').toLowerCase();
                 const actionButton = status === 'resolved' ? '' : `
@@ -232,14 +217,14 @@
                         setTimeout(() => {
                             dropdownContainer.classList.remove('error-animation');
                         }, 600);
-                        alert(res.error || 'Failed to update');
+                        showToast(res.error || 'Failed to update', 'error');
                     }
                 } else {
                     if (res.success) {
                         loadViolations();
                         loadAnalytics();
                     } else {
-                        alert(res.error || 'Failed to update');
+                        showToast(res.error || 'Failed to update', 'error');
                     }
                 }
             } catch (error) {
@@ -250,33 +235,121 @@
                         dropdownContainer.classList.remove('error-animation');
                     }, 600);
                 }
-                alert('Network error: ' + error.message);
+                showToast('Network error: ' + error.message, 'error');
             }
         }
         function getFilterParams() {
-            return {
+            const params = {
                 start: document.getElementById('start').value,
                 end: document.getElementById('end').value,
             };
+            const college = document.getElementById('college')?.value?.trim() || '';
+            const program = document.getElementById('program')?.value?.trim() || '';
+            const search = document.getElementById('search')?.value?.trim() || '';
+            if (college) params.college = college;
+            if (program) params.program = program;
+            if (search) params.search = search;
+            return params;
         }
         function applyFilters() { page = 1; loadViolations(); loadAnalytics(); }
         function attachAutoFilterListeners() {
             const config = [
                 { id: 'start', event: 'change' },
                 { id: 'end', event: 'change' },
+                { id: 'program', event: 'change' },
             ];
             config.forEach(({ id, event }) => {
                 const el = document.getElementById(id);
                 if (!el) return;
                 el.addEventListener(event, () => applyFilters());
             });
-            // Search input uses 'input' event for real-time filtering
+            // Search input uses 'input' event with debounce for server-side filtering
             const searchInput = document.getElementById('search');
             if (searchInput) {
+                let searchTimeout;
                 searchInput.addEventListener('input', (e) => {
                     searchTerm = e.target.value;
-                    renderViolationsTable();
+                    clearTimeout(searchTimeout);
+                    searchTimeout = setTimeout(() => {
+                        applyFilters();
+                    }, 300); // Debounce 300ms
                 });
+            }
+        }
+        
+        // Load colleges and programs for filters
+        async function loadFilterOptions() {
+            try {
+                // Load colleges
+                const collegesRes = await fetch('/guidance/colleges');
+                const collegesData = await collegesRes.json();
+                if (collegesData.success) {
+                    const collegeSel = document.getElementById('college');
+                    if (collegeSel) {
+                        (collegesData.colleges || []).forEach(c => {
+                            const opt = document.createElement('option');
+                            opt.value = c;
+                            opt.textContent = c;
+                            collegeSel.appendChild(opt);
+                        });
+                    }
+                }
+                
+                // When college changes, show/hide program filter and reload programs
+                const collegeSel = document.getElementById('college');
+                const programSel = document.getElementById('program');
+                if (collegeSel && programSel) {
+                    collegeSel.addEventListener('change', async () => {
+                        const selectedCollege = collegeSel.value?.trim() || '';
+                        if (selectedCollege) {
+                            // Show program filter when college is selected
+                            programSel.classList.remove('section-hidden');
+                            await loadPrograms();
+                            // Reset program selection when college changes
+                            programSel.value = '';
+                        } else {
+                            // Hide program filter when no college is selected
+                            programSel.classList.add('section-hidden');
+                            programSel.value = '';
+                        }
+                        applyFilters();
+                    });
+                    
+                    // Initialize program filter visibility on load
+                    const initialCollege = collegeSel.value?.trim() || '';
+                    if (initialCollege) {
+                        programSel.classList.remove('section-hidden');
+                        await loadPrograms();
+                    } else {
+                        programSel.classList.add('section-hidden');
+                    }
+                }
+            } catch (e) {
+                console.error('Error loading filter options:', e);
+            }
+        }
+        
+        async function loadPrograms() {
+            try {
+                const college = document.getElementById('college')?.value?.trim() || '';
+                const url = college ? `/guidance/programs?college=${encodeURIComponent(college)}` : '/guidance/programs';
+                const programsRes = await fetch(url);
+                const programsData = await programsRes.json();
+                if (programsData.success) {
+                    const programSel = document.getElementById('program');
+                    if (programSel) {
+                        // Clear existing options except "All Programs"
+                        programSel.innerHTML = '<option value="">All Programs</option>';
+                        (programsData.programs || []).forEach(p => {
+                            const opt = document.createElement('option');
+                            opt.value = p;
+                            opt.textContent = p;
+                            programSel.appendChild(opt);
+                        });
+                    }
+                }
+            } catch (e) {
+                console.error('Error loading programs:', e);
             }
         }
         function changePageSize() {
@@ -610,6 +683,7 @@
 
         window.addEventListener('DOMContentLoaded', () => { 
             attachAutoFilterListeners(); 
+            loadFilterOptions();
             renderOverview(); 
             loadViolations(); 
             loadAnalytics(); 
@@ -809,6 +883,7 @@
         .trend-toggle-label {
             font-size: 0.85rem;
             color: #4b5563;
+            white-space: nowrap;
         }
         @media (max-width: 768px) {
             #violations-section .dashboard-filters {
@@ -872,14 +947,14 @@
                 </div>
     </div>
 
-            <div class="card" style="margin-bottom:1.25rem;">
+            <div class="card" class="card-margin-bottom">
                     <div class="card-header">
                         <h3>Violations Over Time</h3>
                     </div>
                     <div class="card-body">
                     <div class="trend-toggle">
                         <label for="trend-range" class="trend-toggle-label">View by</label>
-                        <select id="trend-range" class="form-control" style="max-width:160px;">
+                        <select id="trend-range" class="form-control" class="form-control-max-width">
                             <option value="day">Daily</option>
                             <option value="week" selected>Weekly</option>
                             <option value="month">Monthly</option>
@@ -934,7 +1009,7 @@
         </div>
     </div>
 
-        <div id="statistics-section" style="display:none;">
+        <div id="statistics-section" class="section-hidden">
             <div class="metrics-grid">
                 <div class="card">
                     <div class="card-header">
@@ -983,14 +1058,16 @@
             </div>
         </div>
     
-        <div id="violations-section" style="display:none;">
+        <div id="violations-section" class="section-hidden">
             <div class="card">
                 <div class="card-header">
                     <h3>Filters</h3>
                 </div>
                 <div class="card-body">
+                    <div class="search-container">
+                        <input type="text" id="search" placeholder="Search by name, student ID, college, program, or violation type..." class="form-control search-input-full-width">
+                    </div>
                     <div class="dashboard-filters">
-                        <input type="text" id="search" placeholder="Search by name, student ID, college, program, or violation type..." class="form-control" style="grid-column: 1 / -1;">
                         <div class="filter-field">
                             <label for="start">From</label>
                             <input type="date" id="start" class="form-control">
@@ -999,6 +1076,12 @@
                             <label for="end">To</label>
                             <input type="date" id="end" class="form-control">
                         </div>
+                        <select id="college" class="form-control">
+                            <option value="">All Colleges</option>
+                        </select>
+                        <select id="program" class="form-control section-hidden">
+                            <option value="">All Programs</option>
+                        </select>
                     </div>
                 </div>
             </div>
@@ -1025,23 +1108,23 @@
                             <button class="btn btn-secondary" onclick="prevPage()">Prev</button>
                             <span>Page <span id="page">1</span></span>
                             <button class="btn btn-secondary" onclick="nextPage()">Next</button>
-                            <span>Total: <span id="total-count">0</span></span>
+                            <span id="violations-count-display">Showing 0-0 of 0</span>
                         </div>
                     </div>
                 </div>
                 <div class="card-body">
                     <div class="table-responsive">
-                        <table class="table">
+                        <table class="table table-9-cols">
                             <thead>
                                 <tr>
-                                    <th data-sort="timestamp" onclick="sortViolations('timestamp')" style="cursor: pointer; user-select: none;">Date <span class="sort-indicator"></span></th>
-                                    <th data-sort="student_id" onclick="sortViolations('student_id')" style="cursor: pointer; user-select: none;">Student ID <span class="sort-indicator"></span></th>
-                                    <th data-sort="name" onclick="sortViolations('name')" style="cursor: pointer; user-select: none;">Name <span class="sort-indicator"></span></th>
-                                    <th data-sort="college" onclick="sortViolations('college')" style="cursor: pointer; user-select: none;">College <span class="sort-indicator"></span></th>
-                                    <th data-sort="program" onclick="sortViolations('program')" style="cursor: pointer; user-select: none;">Program <span class="sort-indicator"></span></th>
-                                    <th data-sort="gender" onclick="sortViolations('gender')" style="cursor: pointer; user-select: none;">Gender <span class="sort-indicator"></span></th>
-                                    <th data-sort="violation_type" onclick="sortViolations('violation_type')" style="cursor: pointer; user-select: none;">Type <span class="sort-indicator"></span></th>
-                                    <th data-sort="status" onclick="sortViolations('status')" style="cursor: pointer; user-select: none;">Status <span class="sort-indicator"></span></th>
+                                    <th data-sort="timestamp" onclick="sortViolations('timestamp')" class="table-header-sortable">Date <span class="sort-indicator"></span></th>
+                                    <th data-sort="student_id" onclick="sortViolations('student_id')" class="table-header-sortable">Student ID <span class="sort-indicator"></span></th>
+                                    <th data-sort="name" onclick="sortViolations('name')" class="table-header-sortable">Name <span class="sort-indicator"></span></th>
+                                    <th data-sort="college" onclick="sortViolations('college')" class="table-header-sortable">College <span class="sort-indicator"></span></th>
+                                    <th data-sort="program" onclick="sortViolations('program')" class="table-header-sortable">Program <span class="sort-indicator"></span></th>
+                                    <th data-sort="gender" onclick="sortViolations('gender')" class="table-header-sortable">Gender <span class="sort-indicator"></span></th>
+                                    <th data-sort="violation_type" onclick="sortViolations('violation_type')" class="table-header-sortable">Type <span class="sort-indicator"></span></th>
+                                    <th data-sort="status" onclick="sortViolations('status')" class="table-header-sortable">Status <span class="sort-indicator"></span></th>
                                     <th>Action</th>
                                 </tr>
                             </thead>
@@ -1052,76 +1135,65 @@
             </div>
         </div>
         
-        <div id="settings-section" style="display:none;">
-            <div class="card">
+        <div id="settings-section" class="section-hidden">
+            <div class="card" style="margin-bottom: 1.25rem;">
                 <div class="card-header">
-                    <h3><i class="fas fa-user"></i> Settings</h3>
+                    <h3><i class="fas fa-user"></i> Change Username</h3>
                 </div>
                 <div class="card-body">
-                    <p style="color: #666; font-size: 14px; margin-bottom: 20px;">
-                        Manage your account settings including username, password, and email.
-                    </p>
-                    
-                    <!-- Username Update -->
-                    <div style="margin-bottom: 25px; padding: 20px; background-color: #f8f9fa; border-radius: 8px; border: 1px solid #e0e0e0;">
-                        <h4 style="margin-top: 0; margin-bottom: 15px; color: #333; font-size: 16px;">
-                            <i class="fas fa-user"></i> Change Username
-                        </h4>
-                        <div style="margin-bottom: 15px;">
-                            <label style="display: block; margin-bottom: 8px; font-weight: 600; color: #333; font-size: 14px;">Current Username:</label>
-                            <div id="current-username-display" style="padding: 10px; background-color: white; border: 1px solid #ddd; border-radius: 6px; font-size: 14px; color: #666;">Loading...</div>
-                        </div>
-                        <div style="margin-bottom: 15px;">
-                            <label style="display: block; margin-bottom: 8px; font-weight: 600; color: #333; font-size: 14px;">New Username:</label>
-                            <input type="text" id="new-username-input" placeholder="Enter new username" class="form-control" style="max-width: 400px;">
-                        </div>
-                        <div id="username-message" style="margin-bottom: 10px; font-size: 13px;"></div>
-                        <button id="update-username-btn" class="btn btn-primary">
-                            <i class="fas fa-save"></i> Update Username
-                        </button>
+                    <div style="margin-bottom: 15px;">
+                        <label style="display: block; margin-bottom: 8px; font-weight: 600; color: #333; font-size: 14px;">Current Username:</label>
+                        <div id="current-username-display" style="padding: 10px; background-color: #f8f9fa; border: 1px solid #e0e0e0; border-radius: 6px; font-size: 14px; color: #666; width: 100%; max-width: 400px; box-sizing: border-box;">Loading...</div>
                     </div>
-                    
-                    <!-- Password Update -->
-                    <div style="margin-bottom: 25px; padding: 20px; background-color: #f8f9fa; border-radius: 8px; border: 1px solid #e0e0e0;">
-                        <h4 style="margin-top: 0; margin-bottom: 15px; color: #333; font-size: 16px;">
-                            <i class="fas fa-lock"></i> Change Password
-                        </h4>
-                        <div style="margin-bottom: 15px;">
-                            <label style="display: block; margin-bottom: 8px; font-weight: 600; color: #333; font-size: 14px;">Current Password:</label>
-                            <input type="password" id="current-password-input" placeholder="Enter current password" class="form-control" style="max-width: 400px;">
-                        </div>
-                        <div style="margin-bottom: 15px;">
-                            <label style="display: block; margin-bottom: 8px; font-weight: 600; color: #333; font-size: 14px;">New Password:</label>
-                            <input type="password" id="new-password-input" placeholder="Enter new password (min. 6 characters)" class="form-control" style="max-width: 400px;">
-                        </div>
-                        <div style="margin-bottom: 15px;">
-                            <label style="display: block; margin-bottom: 8px; font-weight: 600; color: #333; font-size: 14px;">Confirm New Password:</label>
-                            <input type="password" id="confirm-password-input" placeholder="Confirm new password" class="form-control" style="max-width: 400px;">
-                        </div>
-                        <div id="password-message" style="margin-bottom: 10px; font-size: 13px;"></div>
-                        <button id="update-password-btn" class="btn btn-primary">
-                            <i class="fas fa-save"></i> Update Password
-                        </button>
+                    <div style="margin-bottom: 15px;">
+                        <label style="display: block; margin-bottom: 8px; font-weight: 600; color: #333; font-size: 14px;">New Username:</label>
+                        <input type="text" id="new-username-input" placeholder="Enter new username" class="form-control" style="width: 100%; max-width: 400px; box-sizing: border-box;">
                     </div>
-                    
-                    <!-- Email Update -->
-                    <div style="margin-bottom: 25px; padding: 20px; background-color: #f8f9fa; border-radius: 8px; border: 1px solid #e0e0e0;">
-                        <h4 style="margin-top: 0; margin-bottom: 15px; color: #333; font-size: 16px;">
-                            <i class="fas fa-envelope"></i> Change Email
-                        </h4>
-                        <div style="margin-bottom: 15px;">
-                            <label style="display: block; margin-bottom: 8px; font-weight: 600; color: #333; font-size: 14px;">Current Email:</label>
-                            <div id="current-email-display" style="padding: 10px; background-color: white; border: 1px solid #ddd; border-radius: 6px; font-size: 14px; color: #666;">Loading...</div>
-                        </div>
-                        <div style="margin-bottom: 15px;">
-                            <label style="display: block; margin-bottom: 8px; font-weight: 600; color: #333; font-size: 14px;">New Email:</label>
-                            <input type="email" id="new-email-input" placeholder="Enter new email address" class="form-control" style="max-width: 400px;">
-                        </div>
-                        <div id="email-message" style="margin-bottom: 10px; font-size: 13px;"></div>
-                        <button id="update-email-btn" class="btn btn-primary">
-                            <i class="fas fa-save"></i> Update Email
-                        </button>
+                    <button id="update-username-btn" class="btn btn-primary">
+                        <i class="fas fa-save"></i> Update Username
+                    </button>
+                </div>
+            </div>
+            
+            <div class="card" style="margin-bottom: 1.25rem;">
+                <div class="card-header">
+                    <h3><i class="fas fa-lock"></i> Change Password</h3>
+                </div>
+                <div class="card-body">
+                    <div style="margin-bottom: 15px;">
+                        <label style="display: block; margin-bottom: 8px; font-weight: 600; color: #333; font-size: 14px;">Current Password:</label>
+                        <input type="password" id="current-password-input" placeholder="Enter current password" class="form-control" style="width: 100%; max-width: 400px; box-sizing: border-box;">
                     </div>
+                    <div style="margin-bottom: 15px;">
+                        <label style="display: block; margin-bottom: 8px; font-weight: 600; color: #333; font-size: 14px;">New Password:</label>
+                        <input type="password" id="new-password-input" placeholder="Enter new password (min. 6 characters)" class="form-control" style="width: 100%; max-width: 400px; box-sizing: border-box;">
+                    </div>
+                    <div style="margin-bottom: 15px;">
+                        <label style="display: block; margin-bottom: 8px; font-weight: 600; color: #333; font-size: 14px;">Confirm New Password:</label>
+                        <input type="password" id="confirm-password-input" placeholder="Confirm new password" class="form-control" style="width: 100%; max-width: 400px; box-sizing: border-box;">
+                    </div>
+                    <button id="update-password-btn" class="btn btn-primary">
+                        <i class="fas fa-save"></i> Update Password
+                    </button>
+                </div>
+            </div>
+            
+            <div class="card" style="margin-bottom: 1.25rem;">
+                <div class="card-header">
+                    <h3><i class="fas fa-envelope"></i> Change Email</h3>
+                </div>
+                <div class="card-body">
+                    <div style="margin-bottom: 15px;">
+                        <label style="display: block; margin-bottom: 8px; font-weight: 600; color: #333; font-size: 14px;">Current Email:</label>
+                        <div id="current-email-display" style="padding: 10px; background-color: #f8f9fa; border: 1px solid #e0e0e0; border-radius: 6px; font-size: 14px; color: #666; width: 100%; max-width: 400px; box-sizing: border-box;">Loading...</div>
+                    </div>
+                    <div style="margin-bottom: 15px;">
+                        <label style="display: block; margin-bottom: 8px; font-weight: 600; color: #333; font-size: 14px;">New Email:</label>
+                        <input type="email" id="new-email-input" placeholder="Enter new email address" class="form-control" style="width: 100%; max-width: 400px; box-sizing: border-box;">
+                    </div>
+                    <button id="update-email-btn" class="btn btn-primary">
+                        <i class="fas fa-save"></i> Update Email
+                    </button>
                 </div>
             </div>
         </div>
@@ -1130,7 +1202,7 @@
         </div>
     
     <!-- Toast Notification Container -->
-    <div id="toast-container" style="position: fixed; top: 20px; right: 20px; z-index: 3000; display: flex; flex-direction: column; gap: 10px; align-items: flex-end; pointer-events: none;"></div>
+    <div id="toast-container" class="toast-container"></div>
 
     <script>
         // Sidebar-only navigation
@@ -1138,10 +1210,17 @@
             const sideButtons = document.querySelectorAll('.sidebar .nav-item');
             function showSection(target){
                 sideButtons.forEach(b=>b.classList.toggle('active', b.dataset.target===target));
-                document.getElementById('overview-section').style.display = target === 'overview-section' ? '' : 'none';
-                document.getElementById('statistics-section').style.display = target === 'statistics-section' ? '' : 'none';
-                document.getElementById('violations-section').style.display = target === 'violations-section' ? '' : 'none';
-                document.getElementById('settings-section').style.display = target === 'settings-section' ? '' : 'none';
+                const sections = ['overview-section', 'statistics-section', 'violations-section', 'settings-section'];
+                sections.forEach(sectionId => {
+                    const section = document.getElementById(sectionId);
+                    if (section) {
+                        if (sectionId === target) {
+                            section.classList.remove('section-hidden');
+                        } else {
+                            section.classList.add('section-hidden');
+                        }
+                    }
+                });
                 if (target === 'overview-section') { renderOverview(); }
                 if (target === 'statistics-section') { loadAnalytics(); }
                 if (target === 'violations-section') { loadViolations(); }
@@ -1174,124 +1253,28 @@
                 }
             }
             
-            // Global toast notification function
-            window.showToast = function(message, type = 'info') {
-                const toastContainer = document.getElementById('toast-container');
-                if (!toastContainer) return;
-                
-                // Create unique ID for this toast
-                const toastId = 'toast-' + Date.now() + '-' + Math.random().toString(36).substr(2, 9);
-                
-                // Create toast element
-                const toast = document.createElement('div');
-                toast.id = toastId;
-                toast.style.cssText = 'padding: 15px 20px; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.15); min-width: 250px; max-width: 400px; animation: slideInRight 0.3s ease-out; pointer-events: auto; display: flex; align-items: center; gap: 10px;';
-                
-                // Create icon
-                const icon = document.createElement('i');
-                icon.style.cssText = 'font-size: 20px; flex-shrink: 0;';
-                
-                // Create message
-                const messageSpan = document.createElement('span');
-                messageSpan.textContent = message;
-                messageSpan.style.cssText = 'flex: 1; font-size: 14px; font-weight: 500;';
-                
-                // Set colors and icon based on type
-                if (type === 'success') {
-                    toast.style.backgroundColor = '#d4edda';
-                    toast.style.color = '#155724';
-                    toast.style.border = '1px solid #c3e6cb';
-                    icon.className = 'fas fa-check-circle';
-                    icon.style.color = '#155724';
-                } else if (type === 'error') {
-                    toast.style.backgroundColor = '#f8d7da';
-                    toast.style.color = '#721c24';
-                    toast.style.border = '1px solid #f5c6cb';
-                    icon.className = 'fas fa-exclamation-circle';
-                    icon.style.color = '#721c24';
-                } else {
-                    toast.style.backgroundColor = '#d1ecf1';
-                    toast.style.color = '#0c5460';
-                    toast.style.border = '1px solid #bee5eb';
-                    icon.className = 'fas fa-info-circle';
-                    icon.style.color = '#0c5460';
-                }
-                
-                toast.appendChild(icon);
-                toast.appendChild(messageSpan);
-                
-                // Add toast to container
-                toastContainer.appendChild(toast);
-                
-                // Function to remove toast
-                function removeToast() {
-                    const toastElement = document.getElementById(toastId);
-                    if (!toastElement) return;
-                    
-                    // Animate out
-                    toastElement.style.animation = 'slideOutRight 0.3s ease-out';
-                    setTimeout(() => {
-                        if (toastElement && toastElement.parentNode) {
-                            toastElement.parentNode.removeChild(toastElement);
-                        }
-                    }, 300);
-                }
-                
-                // Auto-remove after 3 seconds
-                setTimeout(removeToast, 3000);
-            };
-            
-            // Add CSS animations for toast
-            if (!document.getElementById('toast-animations')) {
-                const style = document.createElement('style');
-                style.id = 'toast-animations';
-                style.textContent = `
-                    @keyframes slideInRight {
-                        from {
-                            transform: translateX(100%);
-                            opacity: 0;
-                        }
-                        to {
-                            transform: translateX(0);
-                            opacity: 1;
-                        }
-                    }
-                    @keyframes slideOutRight {
-                        from {
-                            transform: translateX(0);
-                            opacity: 1;
-                        }
-                        to {
-                            transform: translateX(100%);
-                            opacity: 0;
-                        }
-                    }
-                `;
-                document.head.appendChild(style);
-            }
+            // Toast notification function is now in static/js/toast.js
             
             // Update Username
             const updateUsernameBtn = document.getElementById('update-username-btn');
             const newUsernameInput = document.getElementById('new-username-input');
-            const usernameMessage = document.getElementById('username-message');
             
             if (updateUsernameBtn) {
                 updateUsernameBtn.addEventListener('click', async () => {
                     const newUsername = (newUsernameInput.value || '').trim();
                     
                     if (!newUsername) {
-                        usernameMessage.innerHTML = '<span style="color: #dc3545;">Please enter a new username</span>';
+                        showToast('Please enter a new username', 'error');
                         return;
                     }
                     
                     if (newUsername.length < 3) {
-                        usernameMessage.innerHTML = '<span style="color: #dc3545;">Username must be at least 3 characters long</span>';
+                        showToast('Username must be at least 3 characters long', 'error');
                         return;
                     }
                     
                     updateUsernameBtn.disabled = true;
                     updateUsernameBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Updating...';
-                    usernameMessage.innerHTML = '';
                     
                     try {
                         const response = await fetch('/api/settings/update-username', {
@@ -1305,18 +1288,15 @@
                         const data = await response.json();
                         
                         if (data.success) {
-                            usernameMessage.innerHTML = '<span style="color: #28a745;">Username updated successfully!</span>';
                             newUsernameInput.value = '';
                             await loadProfile();
-                            showToast(data.message, 'success');
+                            showToast(data.message || 'Username updated successfully!', 'success');
                         } else {
-                            usernameMessage.innerHTML = `<span style="color: #dc3545;">${data.message || 'Failed to update username'}</span>`;
                             showToast(data.message || 'Failed to update username', 'error');
                         }
                     } catch (error) {
                         console.error('Error updating username:', error);
-                        usernameMessage.innerHTML = '<span style="color: #dc3545;">Network error. Please try again.</span>';
-                        showToast('Error updating username', 'error');
+                        showToast('Network error. Please try again.', 'error');
                     } finally {
                         updateUsernameBtn.disabled = false;
                         updateUsernameBtn.innerHTML = '<i class="fas fa-save"></i> Update Username';
@@ -1329,7 +1309,6 @@
             const currentPasswordInput = document.getElementById('current-password-input');
             const newPasswordInput = document.getElementById('new-password-input');
             const confirmPasswordInput = document.getElementById('confirm-password-input');
-            const passwordMessage = document.getElementById('password-message');
             
             if (updatePasswordBtn) {
                 updatePasswordBtn.addEventListener('click', async () => {
@@ -1338,23 +1317,22 @@
                     const confirmPassword = confirmPasswordInput.value || '';
                     
                     if (!currentPassword || !newPassword || !confirmPassword) {
-                        passwordMessage.innerHTML = '<span style="color: #dc3545;">All fields are required</span>';
+                        showToast('All fields are required', 'error');
                         return;
                     }
                     
                     if (newPassword.length < 6) {
-                        passwordMessage.innerHTML = '<span style="color: #dc3545;">New password must be at least 6 characters long</span>';
+                        showToast('New password must be at least 6 characters long', 'error');
                         return;
                     }
                     
                     if (newPassword !== confirmPassword) {
-                        passwordMessage.innerHTML = '<span style="color: #dc3545;">New passwords do not match</span>';
+                        showToast('New passwords do not match', 'error');
                         return;
                     }
                     
                     updatePasswordBtn.disabled = true;
                     updatePasswordBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Updating...';
-                    passwordMessage.innerHTML = '';
                     
                     try {
                         const response = await fetch('/api/settings/update-password', {
@@ -1371,19 +1349,16 @@
                         const data = await response.json();
                         
                         if (data.success) {
-                            passwordMessage.innerHTML = '<span style="color: #28a745;">Password updated successfully!</span>';
                             currentPasswordInput.value = '';
                             newPasswordInput.value = '';
                             confirmPasswordInput.value = '';
-                            showToast(data.message, 'success');
+                            showToast(data.message || 'Password updated successfully!', 'success');
                         } else {
-                            passwordMessage.innerHTML = `<span style="color: #dc3545;">${data.message || 'Failed to update password'}</span>`;
                             showToast(data.message || 'Failed to update password', 'error');
                         }
                     } catch (error) {
                         console.error('Error updating password:', error);
-                        passwordMessage.innerHTML = '<span style="color: #dc3545;">Network error. Please try again.</span>';
-                        showToast('Error updating password', 'error');
+                        showToast('Network error. Please try again.', 'error');
                     } finally {
                         updatePasswordBtn.disabled = false;
                         updatePasswordBtn.innerHTML = '<i class="fas fa-save"></i> Update Password';
@@ -1394,25 +1369,23 @@
             // Update Email
             const updateEmailBtn = document.getElementById('update-email-btn');
             const newEmailInput = document.getElementById('new-email-input');
-            const emailMessage = document.getElementById('email-message');
             
             if (updateEmailBtn) {
                 updateEmailBtn.addEventListener('click', async () => {
                     const newEmail = (newEmailInput.value || '').trim();
                     
                     if (!newEmail) {
-                        emailMessage.innerHTML = '<span style="color: #dc3545;">Please enter a new email address</span>';
+                        showToast('Please enter a new email address', 'error');
                         return;
                     }
                     
                     if (!newEmail.includes('@') || !newEmail.includes('.')) {
-                        emailMessage.innerHTML = '<span style="color: #dc3545;">Please enter a valid email address</span>';
+                        showToast('Please enter a valid email address', 'error');
                         return;
                     }
                     
                     updateEmailBtn.disabled = true;
                     updateEmailBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Updating...';
-                    emailMessage.innerHTML = '';
                     
                     try {
                         const response = await fetch('/api/settings/update-email', {
@@ -1426,18 +1399,15 @@
                         const data = await response.json();
                         
                         if (data.success) {
-                            emailMessage.innerHTML = '<span style="color: #28a745;">Email updated successfully!</span>';
                             newEmailInput.value = '';
                             await loadProfile();
-                            showToast(data.message, 'success');
+                            showToast(data.message || 'Email updated successfully!', 'success');
                         } else {
-                            emailMessage.innerHTML = `<span style="color: #dc3545;">${data.message || 'Failed to update email'}</span>`;
                             showToast(data.message || 'Failed to update email', 'error');
                         }
                     } catch (error) {
                         console.error('Error updating email:', error);
-                        emailMessage.innerHTML = '<span style="color: #dc3545;">Network error. Please try again.</span>';
-                        showToast('Error updating email', 'error');
+                        showToast('Network error. Please try again.', 'error');
                     } finally {
                         updateEmailBtn.disabled = false;
                         updateEmailBtn.innerHTML = '<i class="fas fa-save"></i> Update Email';

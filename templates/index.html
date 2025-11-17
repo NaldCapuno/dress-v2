@@ -7,78 +7,79 @@
     
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
     <link href="{{ url_for('static', filename='css/style.css') }}" rel="stylesheet">
+    <script src="{{ url_for('static', filename='js/toast.js') }}"></script>
 </head>
 <body>
     <div class="container">
         <!-- Floating Menu Button Container -->
-        <div id="floating-menu" style="position: fixed; bottom: 30px; right: 30px; z-index: 1000; display: flex; flex-direction: column; align-items: center; gap: 15px;">
+        <div id="floating-menu" class="floating-menu">
             <!-- Settings Button -->
-            <button class="btn btn-primary" id="settings-btn" style="width: 60px; height: 60px; border-radius: 50%; box-shadow: 0 4px 12px rgba(0,0,0,0.2); display: none; align-items: center; justify-content: center; font-size: 24px; border: none; cursor: pointer; opacity: 0; transform: translateY(20px); transition: all 0.3s ease;">
+            <button class="btn btn-primary floating-menu-btn" id="settings-btn">
                 <i class="fas fa-cog"></i>
             </button>
             
             <!-- User Settings Button -->
-            <button class="btn btn-primary" id="security-settings-btn" style="width: 60px; height: 60px; border-radius: 50%; box-shadow: 0 4px 12px rgba(0,0,0,0.2); display: none; align-items: center; justify-content: center; font-size: 24px; border: none; cursor: pointer; opacity: 0; transform: translateY(20px); transition: all 0.3s ease; background-color: #28a745;">
+            <button class="btn btn-primary floating-menu-btn security-settings" id="security-settings-btn">
                 <i class="fas fa-user"></i>
             </button>
             
             <!-- Logout Button -->
-            <button class="btn btn-secondary" id="logout-btn" style="width: 60px; height: 60px; border-radius: 50%; box-shadow: 0 4px 12px rgba(0,0,0,0.2); display: none; align-items: center; justify-content: center; font-size: 24px; border: none; cursor: pointer; opacity: 0; transform: translateY(20px); transition: all 0.3s ease;">
+            <button class="btn btn-secondary floating-menu-btn" id="logout-btn">
                 <i class="fas fa-sign-out-alt"></i>
             </button>
             
             <!-- Main Menu Button -->
-            <button class="btn btn-primary" id="menu-toggle-btn" style="width: 60px; height: 60px; border-radius: 50%; box-shadow: 0 4px 12px rgba(0,0,0,0.2); display: flex; align-items: center; justify-content: center; font-size: 24px; border: none; cursor: pointer; background-color: #007bff;">
+            <button class="btn btn-primary floating-menu-btn menu-toggle" id="menu-toggle-btn">
                 <i class="fas fa-bars"></i>
             </button>
         </div>
         
         <!-- Settings Modal -->
-        <div id="settings-modal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background-color: rgba(0, 0, 0, 0.5); z-index: 2000; align-items: center; justify-content: center;">
-            <div style="background-color: white; border-radius: 12px; max-width: 600px; width: 90%; max-height: 80vh; box-shadow: 0 8px 32px rgba(0,0,0,0.3); position: relative; margin: auto; display: flex; flex-direction: column; overflow: hidden;">
-                <div style="padding: 30px 30px 20px 30px; border-bottom: 1px solid #e0e0e0; flex-shrink: 0;">
-                    <button id="close-settings-btn" style="position: absolute; top: 15px; right: 15px; background: none; border: none; font-size: 28px; cursor: pointer; color: #666; padding: 5px 10px; line-height: 1;">
+        <div id="settings-modal" class="modal-overlay">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <button id="close-settings-btn" class="modal-close-btn">
                         <i class="fas fa-times"></i>
                     </button>
-                    <h2 style="margin-top: 0; margin-bottom: 0; color: #333;">
+                    <h2 class="modal-title">
                         <i class="fas fa-cog"></i> Settings
                     </h2>
                 </div>
-                <div id="settings-content" style="padding: 30px; padding-bottom: 30px; overflow-y: auto; flex: 1; min-height: 0;">
+                <div id="settings-content" class="modal-body">
                     <!-- Schedule Settings -->
-                    <div style="margin-bottom: 0;">
-                        <h3 style="margin-top: 0; margin-bottom: 15px; color: #333; font-size: 18px;">
+                    <div class="settings-section">
+                        <h3 class="settings-section-title">
                             <i class="fas fa-calendar-alt"></i> System Schedule
                         </h3>
-                        <p style="color: #666; font-size: 14px; margin-bottom: 20px;">
+                        <p class="settings-section-description">
                             Configure the days and times when the system should be active.
                         </p>
                         
-                        <div id="schedule-settings" style="margin-bottom: 20px;">
+                        <div id="schedule-settings" class="settings-form-group">
                             <!-- Days Selection -->
-                            <div style="margin-bottom: 20px;">
-                                <label style="display: block; margin-bottom: 10px; font-weight: 600; color: #333; font-size: 14px;">Select Days:</label>
-                                <div id="days-container" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 10px; margin-bottom: 20px;">
+                            <div class="settings-form-group">
+                                <label class="settings-label">Select Days:</label>
+                                <div id="days-container" class="days-container">
                                     <!-- Days will be dynamically added here -->
                                 </div>
                             </div>
                             
                             <!-- Time Range -->
-                            <div style="margin-bottom: 20px;">
-                                <label style="display: block; margin-bottom: 10px; font-weight: 600; color: #333; font-size: 14px;">Time Range:</label>
-                                <div style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
-                                    <input type="time" id="schedule-start-time" value="08:00" style="flex: 1; min-width: 150px; padding: 10px; border: 1px solid #ddd; border-radius: 6px; font-size: 14px;">
-                                    <span style="font-size: 14px; color: #666; font-weight: 500;">to</span>
-                                    <input type="time" id="schedule-end-time" value="17:00" style="flex: 1; min-width: 150px; padding: 10px; border: 1px solid #ddd; border-radius: 6px; font-size: 14px;">
+                            <div class="settings-form-group">
+                                <label class="settings-label">Time Range:</label>
+                                <div class="settings-input-group">
+                                    <input type="time" id="schedule-start-time" value="08:00" class="settings-time-input">
+                                    <span class="settings-time-separator">to</span>
+                                    <input type="time" id="schedule-end-time" value="17:00" class="settings-time-input">
                                 </div>
                             </div>
                         </div>
                         
-                        <div style="display: flex; gap: 10px; margin-top: 20px;">
-                            <button id="save-schedule-btn" class="btn btn-primary" style="flex: 1; padding: 10px; font-size: 14px;">
+                        <div class="settings-button-group">
+                            <button id="save-schedule-btn" class="btn btn-primary settings-button">
                                 <i class="fas fa-save"></i> Save Schedule
                             </button>
-                            <button id="cancel-schedule-btn" class="btn btn-secondary" style="flex: 1; padding: 10px; font-size: 14px;">
+                            <button id="cancel-schedule-btn" class="btn btn-secondary settings-button">
                                 Cancel
                             </button>
                         </div>
@@ -86,20 +87,20 @@
                     </div>
                     
                     <!-- Auto-Sync Control -->
-                    <div style="margin-top: 40px; padding-top: 30px; border-top: 1px solid #e0e0e0;">
-                        <h3 style="margin-top: 0; margin-bottom: 15px; color: #333; font-size: 18px;">
+                    <div class="settings-divider">
+                        <h3 class="settings-section-title">
                             <i class="fas fa-sync-alt"></i> Database Auto-Sync
                         </h3>
-                        <p style="color: #666; font-size: 14px; margin-bottom: 20px;">
+                        <p class="settings-section-description">
                             Control automatic backup sync to Aiven database. When disabled, sync will not occur automatically.
                         </p>
                         
-                        <div style="display: flex; align-items: center; gap: 15px; padding: 15px; background-color: #f8f9fa; border-radius: 8px; border: 1px solid #e0e0e0;">
-                            <div style="flex: 1;">
-                                <div style="font-weight: 600; color: #333; margin-bottom: 5px;">Auto-Sync Status</div>
-                                <div id="auto-sync-status-text" style="font-size: 13px; color: #666;">Checking...</div>
+                        <div class="settings-status-box">
+                            <div class="settings-status-info">
+                                <div class="settings-status-title">Auto-Sync Status</div>
+                                <div id="auto-sync-status-text" class="settings-status-text">Checking...</div>
                             </div>
-                            <button id="toggle-auto-sync-btn" class="btn" style="padding: 10px 20px; font-size: 14px; min-width: 120px;">
+                            <button id="toggle-auto-sync-btn" class="btn settings-toggle-btn">
                                 <i class="fas fa-sync-alt"></i> <span id="auto-sync-btn-text">Loading...</span>
                             </button>
                         </div>
@@ -110,78 +111,75 @@
         </div>
         
         <!-- User Settings Modal -->
-        <div id="security-settings-modal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background-color: rgba(0, 0, 0, 0.5); z-index: 2000; align-items: center; justify-content: center;">
-            <div style="background-color: white; border-radius: 12px; max-width: 600px; width: 90%; max-height: 80vh; box-shadow: 0 8px 32px rgba(0,0,0,0.3); position: relative; margin: auto; display: flex; flex-direction: column; overflow: hidden;">
-                <div style="padding: 30px 30px 20px 30px; border-bottom: 1px solid #e0e0e0; flex-shrink: 0;">
-                    <button id="close-security-settings-btn" style="position: absolute; top: 15px; right: 15px; background: none; border: none; font-size: 28px; cursor: pointer; color: #666; padding: 5px 10px; line-height: 1;">
+        <div id="security-settings-modal" class="modal-overlay">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <button id="close-security-settings-btn" class="modal-close-btn">
                         <i class="fas fa-times"></i>
                     </button>
-                    <h2 style="margin-top: 0; margin-bottom: 0; color: #333;">
+                    <h2 class="modal-title">
                         <i class="fas fa-user"></i> User Settings
                     </h2>
                 </div>
-                <div id="security-settings-content" style="padding: 30px; padding-bottom: 30px; overflow-y: auto; flex: 1; min-height: 0;">
-                    <p style="color: #666; font-size: 14px; margin-bottom: 20px;">
+                <div id="security-settings-content" class="modal-body">
+                    <p class="settings-section-description">
                         Manage your account settings including username, password, and email.
                     </p>
                     
                     <!-- Username Update -->
-                    <div style="margin-bottom: 25px; padding: 20px; background-color: #f8f9fa; border-radius: 8px; border: 1px solid #e0e0e0;">
-                        <h4 style="margin-top: 0; margin-bottom: 15px; color: #333; font-size: 16px;">
+                    <div class="user-settings-section">
+                        <h4 class="user-settings-title">
                             <i class="fas fa-user"></i> Change Username
                         </h4>
-                        <div style="margin-bottom: 15px;">
-                            <label style="display: block; margin-bottom: 8px; font-weight: 600; color: #333; font-size: 14px;">Current Username:</label>
-                            <div id="current-username-display" style="padding: 10px; background-color: white; border: 1px solid #ddd; border-radius: 6px; font-size: 14px; color: #666;">Loading...</div>
+                        <div class="user-settings-field">
+                            <label class="user-settings-field-label">Current Username:</label>
+                            <div id="current-username-display" class="user-settings-display">Loading...</div>
                         </div>
-                        <div style="margin-bottom: 15px;">
-                            <label style="display: block; margin-bottom: 8px; font-weight: 600; color: #333; font-size: 14px;">New Username:</label>
-                            <input type="text" id="new-username-input" placeholder="Enter new username" style="width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 6px; font-size: 14px; box-sizing: border-box;">
+                        <div class="user-settings-field">
+                            <label class="user-settings-field-label">New Username:</label>
+                            <input type="text" id="new-username-input" placeholder="Enter new username" class="user-settings-input">
                         </div>
-                        <div id="username-message" style="margin-bottom: 10px; font-size: 13px;"></div>
-                        <button id="update-username-btn" class="btn btn-primary" style="width: 100%; padding: 10px; font-size: 14px;">
+                        <button id="update-username-btn" class="btn btn-primary user-settings-submit">
                             <i class="fas fa-save"></i> Update Username
                         </button>
                     </div>
                     
                     <!-- Password Update -->
-                    <div style="margin-bottom: 25px; padding: 20px; background-color: #f8f9fa; border-radius: 8px; border: 1px solid #e0e0e0;">
-                        <h4 style="margin-top: 0; margin-bottom: 15px; color: #333; font-size: 16px;">
+                    <div class="user-settings-section">
+                        <h4 class="user-settings-title">
                             <i class="fas fa-lock"></i> Change Password
                         </h4>
-                        <div style="margin-bottom: 15px;">
-                            <label style="display: block; margin-bottom: 8px; font-weight: 600; color: #333; font-size: 14px;">Current Password:</label>
-                            <input type="password" id="current-password-input" placeholder="Enter current password" style="width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 6px; font-size: 14px; box-sizing: border-box;">
+                        <div class="user-settings-field">
+                            <label class="user-settings-field-label">Current Password:</label>
+                            <input type="password" id="current-password-input" placeholder="Enter current password" class="user-settings-input">
                         </div>
-                        <div style="margin-bottom: 15px;">
-                            <label style="display: block; margin-bottom: 8px; font-weight: 600; color: #333; font-size: 14px;">New Password:</label>
-                            <input type="password" id="new-password-input" placeholder="Enter new password (min. 6 characters)" style="width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 6px; font-size: 14px; box-sizing: border-box;">
+                        <div class="user-settings-field">
+                            <label class="user-settings-field-label">New Password:</label>
+                            <input type="password" id="new-password-input" placeholder="Enter new password (min. 6 characters)" class="user-settings-input">
                         </div>
-                        <div style="margin-bottom: 15px;">
-                            <label style="display: block; margin-bottom: 8px; font-weight: 600; color: #333; font-size: 14px;">Confirm New Password:</label>
-                            <input type="password" id="confirm-password-input" placeholder="Confirm new password" style="width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 6px; font-size: 14px; box-sizing: border-box;">
+                        <div class="user-settings-field">
+                            <label class="user-settings-field-label">Confirm New Password:</label>
+                            <input type="password" id="confirm-password-input" placeholder="Confirm new password" class="user-settings-input">
                         </div>
-                        <div id="password-message" style="margin-bottom: 10px; font-size: 13px;"></div>
-                        <button id="update-password-btn" class="btn btn-primary" style="width: 100%; padding: 10px; font-size: 14px;">
+                        <button id="update-password-btn" class="btn btn-primary user-settings-submit">
                             <i class="fas fa-save"></i> Update Password
                         </button>
                     </div>
                     
                     <!-- Email Update -->
-                    <div style="margin-bottom: 25px; padding: 20px; background-color: #f8f9fa; border-radius: 8px; border: 1px solid #e0e0e0;">
-                        <h4 style="margin-top: 0; margin-bottom: 15px; color: #333; font-size: 16px;">
+                    <div class="user-settings-section">
+                        <h4 class="user-settings-title">
                             <i class="fas fa-envelope"></i> Change Email
                         </h4>
-                        <div style="margin-bottom: 15px;">
-                            <label style="display: block; margin-bottom: 8px; font-weight: 600; color: #333; font-size: 14px;">Current Email:</label>
-                            <div id="current-email-display" style="padding: 10px; background-color: white; border: 1px solid #ddd; border-radius: 6px; font-size: 14px; color: #666;">Loading...</div>
+                        <div class="user-settings-field">
+                            <label class="user-settings-field-label">Current Email:</label>
+                            <div id="current-email-display" class="user-settings-display">Loading...</div>
                         </div>
-                        <div style="margin-bottom: 15px;">
-                            <label style="display: block; margin-bottom: 8px; font-weight: 600; color: #333; font-size: 14px;">New Email:</label>
-                            <input type="email" id="new-email-input" placeholder="Enter new email address" style="width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 6px; font-size: 14px; box-sizing: border-box;">
+                        <div class="user-settings-field">
+                            <label class="user-settings-field-label">New Email:</label>
+                            <input type="email" id="new-email-input" placeholder="Enter new email address" class="user-settings-input">
                         </div>
-                        <div id="email-message" style="margin-bottom: 10px; font-size: 13px;"></div>
-                        <button id="update-email-btn" class="btn btn-primary" style="width: 100%; padding: 10px; font-size: 14px;">
+                        <button id="update-email-btn" class="btn btn-primary user-settings-submit">
                             <i class="fas fa-save"></i> Update Email
                         </button>
                     </div>
@@ -190,31 +188,7 @@
         </div>
         
         <!-- Toast Notification Container -->
-        <div id="toast-container" style="position: fixed; top: 20px; right: 20px; z-index: 3000; display: flex; flex-direction: column; gap: 10px; align-items: flex-end; pointer-events: none;"></div>
-        
-        <style>
-            @keyframes slideInRight {
-                from {
-                    transform: translateX(100%);
-                    opacity: 0;
-                }
-                to {
-                    transform: translateX(0);
-                    opacity: 1;
-                }
-            }
-            
-            @keyframes slideOutRight {
-                from {
-                    transform: translateX(0);
-                    opacity: 1;
-                }
-                to {
-                    transform: translateX(100%);
-                    opacity: 0;
-                }
-            }
-        </style>
+        <div id="toast-container" class="toast-container"></div>
         
         <div class="status-bar">
             <div class="status-item">
@@ -1196,74 +1170,6 @@
                 });
             }
             
-            // Global toast notification function (accessible throughout the page)
-            // Supports multiple toasts stacking vertically
-            window.showToast = function(message, type = 'info') {
-                const toastContainer = document.getElementById('toast-container');
-                if (!toastContainer) return;
-                
-                // Create unique ID for this toast
-                const toastId = 'toast-' + Date.now() + '-' + Math.random().toString(36).substr(2, 9);
-                
-                // Create toast element
-                const toast = document.createElement('div');
-                toast.id = toastId;
-                toast.style.cssText = 'padding: 15px 20px; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.15); min-width: 250px; max-width: 400px; animation: slideInRight 0.3s ease-out; pointer-events: auto; display: flex; align-items: center; gap: 10px;';
-                
-                // Create icon
-                const icon = document.createElement('i');
-                icon.style.cssText = 'font-size: 20px; flex-shrink: 0;';
-                
-                // Create message
-                const messageSpan = document.createElement('span');
-                messageSpan.textContent = message;
-                messageSpan.style.cssText = 'flex: 1; font-size: 14px; font-weight: 500;';
-                
-                // Set colors and icon based on type
-                if (type === 'success') {
-                    toast.style.backgroundColor = '#d4edda';
-                    toast.style.color = '#155724';
-                    toast.style.border = '1px solid #c3e6cb';
-                    icon.className = 'fas fa-check-circle';
-                    icon.style.color = '#155724';
-                } else if (type === 'error') {
-                    toast.style.backgroundColor = '#f8d7da';
-                    toast.style.color = '#721c24';
-                    toast.style.border = '1px solid #f5c6cb';
-                    icon.className = 'fas fa-exclamation-circle';
-                    icon.style.color = '#721c24';
-                } else {
-                    toast.style.backgroundColor = '#d1ecf1';
-                    toast.style.color = '#0c5460';
-                    toast.style.border = '1px solid #bee5eb';
-                    icon.className = 'fas fa-info-circle';
-                    icon.style.color = '#0c5460';
-                }
-                
-                toast.appendChild(icon);
-                toast.appendChild(messageSpan);
-                
-                // Add toast to container
-                toastContainer.appendChild(toast);
-                
-                // Function to remove toast and update positions
-                function removeToast() {
-                    const toastElement = document.getElementById(toastId);
-                    if (!toastElement) return;
-                    
-                    // Animate out
-                    toastElement.style.animation = 'slideOutRight 0.3s ease-out';
-                    setTimeout(() => {
-                        if (toastElement && toastElement.parentNode) {
-                            toastElement.parentNode.removeChild(toastElement);
-                        }
-                    }, 300);
-                }
-                
-                // Auto-remove after 3 seconds
-                setTimeout(removeToast, 3000);
-            };
-            
             // Schedule Settings functionality
             let scheduleEntries = [];
             const scheduleContainer = document.getElementById('schedule-settings');
@@ -1352,7 +1258,7 @@
             if (settingsBtn && settingsModal) {
                 // Open settings modal and load schedule
                 settingsBtn.addEventListener('click', async () => {
-                    settingsModal.style.display = 'flex';
+                    settingsModal.classList.add('show');
                     createDayToggles();
                     await loadSchedule();
                     await loadAutoSyncStatus();
@@ -1432,25 +1338,23 @@
                 // Update Username
                 const updateUsernameBtn = document.getElementById('update-username-btn');
                 const newUsernameInput = document.getElementById('new-username-input');
-                const usernameMessage = document.getElementById('username-message');
                 
                 if (updateUsernameBtn) {
                     updateUsernameBtn.addEventListener('click', async () => {
                         const newUsername = (newUsernameInput.value || '').trim();
                         
                         if (!newUsername) {
-                            usernameMessage.innerHTML = '<span style="color: #dc3545;">Please enter a new username</span>';
+                            showToast('Please enter a new username', 'error');
                             return;
                         }
                         
                         if (newUsername.length < 3) {
-                            usernameMessage.innerHTML = '<span style="color: #dc3545;">Username must be at least 3 characters long</span>';
+                            showToast('Username must be at least 3 characters long', 'error');
                             return;
                         }
                         
                         updateUsernameBtn.disabled = true;
                         updateUsernameBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Updating...';
-                        usernameMessage.innerHTML = '';
                         
                         try {
                             const response = await fetch('/api/settings/update-username', {
@@ -1464,18 +1368,15 @@
                             const data = await response.json();
                             
                             if (data.success) {
-                                usernameMessage.innerHTML = '<span style="color: #28a745;">Username updated successfully!</span>';
                                 newUsernameInput.value = '';
                                 await loadProfile();
-                                showToast(data.message, 'success');
+                                showToast(data.message || 'Username updated successfully!', 'success');
                             } else {
-                                usernameMessage.innerHTML = `<span style="color: #dc3545;">${data.message || 'Failed to update username'}</span>`;
                                 showToast(data.message || 'Failed to update username', 'error');
                             }
                         } catch (error) {
                             console.error('Error updating username:', error);
-                            usernameMessage.innerHTML = '<span style="color: #dc3545;">Network error. Please try again.</span>';
-                            showToast('Error updating username', 'error');
+                            showToast('Network error. Please try again.', 'error');
                         } finally {
                             updateUsernameBtn.disabled = false;
                             updateUsernameBtn.innerHTML = '<i class="fas fa-save"></i> Update Username';
@@ -1488,7 +1389,6 @@
                 const currentPasswordInput = document.getElementById('current-password-input');
                 const newPasswordInput = document.getElementById('new-password-input');
                 const confirmPasswordInput = document.getElementById('confirm-password-input');
-                const passwordMessage = document.getElementById('password-message');
                 
                 if (updatePasswordBtn) {
                     updatePasswordBtn.addEventListener('click', async () => {
@@ -1497,23 +1397,22 @@
                         const confirmPassword = confirmPasswordInput.value || '';
                         
                         if (!currentPassword || !newPassword || !confirmPassword) {
-                            passwordMessage.innerHTML = '<span style="color: #dc3545;">All fields are required</span>';
+                            showToast('All fields are required', 'error');
                             return;
                         }
                         
                         if (newPassword.length < 6) {
-                            passwordMessage.innerHTML = '<span style="color: #dc3545;">New password must be at least 6 characters long</span>';
+                            showToast('New password must be at least 6 characters long', 'error');
                             return;
                         }
                         
                         if (newPassword !== confirmPassword) {
-                            passwordMessage.innerHTML = '<span style="color: #dc3545;">New passwords do not match</span>';
+                            showToast('New passwords do not match', 'error');
                             return;
                         }
                         
                         updatePasswordBtn.disabled = true;
                         updatePasswordBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Updating...';
-                        passwordMessage.innerHTML = '';
                         
                         try {
                             const response = await fetch('/api/settings/update-password', {
@@ -1530,19 +1429,16 @@
                             const data = await response.json();
                             
                             if (data.success) {
-                                passwordMessage.innerHTML = '<span style="color: #28a745;">Password updated successfully!</span>';
                                 currentPasswordInput.value = '';
                                 newPasswordInput.value = '';
                                 confirmPasswordInput.value = '';
-                                showToast(data.message, 'success');
+                                showToast(data.message || 'Password updated successfully!', 'success');
                             } else {
-                                passwordMessage.innerHTML = `<span style="color: #dc3545;">${data.message || 'Failed to update password'}</span>`;
                                 showToast(data.message || 'Failed to update password', 'error');
                             }
                         } catch (error) {
                             console.error('Error updating password:', error);
-                            passwordMessage.innerHTML = '<span style="color: #dc3545;">Network error. Please try again.</span>';
-                            showToast('Error updating password', 'error');
+                            showToast('Network error. Please try again.', 'error');
                         } finally {
                             updatePasswordBtn.disabled = false;
                             updatePasswordBtn.innerHTML = '<i class="fas fa-save"></i> Update Password';
@@ -1553,25 +1449,23 @@
                 // Update Email
                 const updateEmailBtn = document.getElementById('update-email-btn');
                 const newEmailInput = document.getElementById('new-email-input');
-                const emailMessage = document.getElementById('email-message');
                 
                 if (updateEmailBtn) {
                     updateEmailBtn.addEventListener('click', async () => {
                         const newEmail = (newEmailInput.value || '').trim();
                         
                         if (!newEmail) {
-                            emailMessage.innerHTML = '<span style="color: #dc3545;">Please enter a new email address</span>';
+                            showToast('Please enter a new email address', 'error');
                             return;
                         }
                         
                         if (!newEmail.includes('@') || !newEmail.includes('.')) {
-                            emailMessage.innerHTML = '<span style="color: #dc3545;">Please enter a valid email address</span>';
+                            showToast('Please enter a valid email address', 'error');
                             return;
                         }
                         
                         updateEmailBtn.disabled = true;
                         updateEmailBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Updating...';
-                        emailMessage.innerHTML = '';
                         
                         try {
                             const response = await fetch('/api/settings/update-email', {
@@ -1585,18 +1479,15 @@
                             const data = await response.json();
                             
                             if (data.success) {
-                                emailMessage.innerHTML = '<span style="color: #28a745;">Email updated successfully!</span>';
                                 newEmailInput.value = '';
                                 await loadProfile();
-                                showToast(data.message, 'success');
+                                showToast(data.message || 'Email updated successfully!', 'success');
                             } else {
-                                emailMessage.innerHTML = `<span style="color: #dc3545;">${data.message || 'Failed to update email'}</span>`;
                                 showToast(data.message || 'Failed to update email', 'error');
                             }
                         } catch (error) {
                             console.error('Error updating email:', error);
-                            emailMessage.innerHTML = '<span style="color: #dc3545;">Network error. Please try again.</span>';
-                            showToast('Error updating email', 'error');
+                            showToast('Network error. Please try again.', 'error');
                         } finally {
                             updateEmailBtn.disabled = false;
                             updateEmailBtn.innerHTML = '<i class="fas fa-save"></i> Update Email';
@@ -1607,25 +1498,25 @@
                 // Close settings modal
                 if (closeSettingsBtn) {
                     closeSettingsBtn.addEventListener('click', () => {
-                        settingsModal.style.display = 'none';
+                        settingsModal.classList.remove('show');
                     });
                 }
                 
                 // Close modal when clicking outside of it
                 settingsModal.addEventListener('click', (e) => {
                     if (e.target === settingsModal) {
-                        settingsModal.style.display = 'none';
+                        settingsModal.classList.remove('show');
                     }
                 });
                 
                 // Close modal with Escape key
                 document.addEventListener('keydown', (e) => {
                     if (e.key === 'Escape') {
-                        if (settingsModal.style.display === 'flex') {
-                            settingsModal.style.display = 'none';
+                        if (settingsModal.classList.contains('show')) {
+                            settingsModal.classList.remove('show');
                         }
-                        if (securitySettingsModal && securitySettingsModal.style.display === 'flex') {
-                            securitySettingsModal.style.display = 'none';
+                        if (securitySettingsModal && securitySettingsModal.classList.contains('show')) {
+                            securitySettingsModal.classList.remove('show');
                         }
                     }
                 });
@@ -1660,21 +1551,21 @@
             if (securitySettingsBtn && securitySettingsModal) {
                 // Open user settings modal and load profile
                 securitySettingsBtn.addEventListener('click', async () => {
-                    securitySettingsModal.style.display = 'flex';
+                    securitySettingsModal.classList.add('show');
                     await loadProfile();
                 });
                 
                 // Close user settings modal
                 if (closeSecuritySettingsBtn) {
                     closeSecuritySettingsBtn.addEventListener('click', () => {
-                        securitySettingsModal.style.display = 'none';
+                        securitySettingsModal.classList.remove('show');
                     });
                 }
                 
                 // Close modal when clicking outside of it
                 securitySettingsModal.addEventListener('click', (e) => {
                     if (e.target === securitySettingsModal) {
-                        securitySettingsModal.style.display = 'none';
+                        securitySettingsModal.classList.remove('show');
                     }
                 });
             }
@@ -1791,7 +1682,7 @@
                             setTimeout(() => {
                                 // Close the settings modal after showing success message
                                 if (settingsModal) {
-                                    settingsModal.style.display = 'none';
+                                    settingsModal.classList.remove('show');
                                 }
                             }, 1500);
                         } else {
@@ -1808,7 +1699,7 @@
             if (cancelScheduleBtn) {
                 cancelScheduleBtn.addEventListener('click', () => {
                     if (settingsModal) {
-                        settingsModal.style.display = 'none';
+                        settingsModal.classList.remove('show');
                     }
                 });
             }

@@ -7,6 +7,7 @@
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/table-styles.css') }}">
+    <script src="{{ url_for('static', filename='js/toast.js') }}"></script>
     <style>
         .notification-dot {
             color: #ff4444;
@@ -319,6 +320,7 @@
         .trend-toggle-label {
             font-size: 0.85rem;
             color: #4b5563;
+            white-space: nowrap;
         }
         @media (max-width: 768px) {
             #violations-section .dashboard-filters {
@@ -460,33 +462,15 @@
             const tbody = document.getElementById('violations-body');
             tbody.innerHTML = '';
             
-            // Data is already sorted server-side, just apply search filter if needed
-            let filteredData = [...violationsData];
-            
-            // Apply search filter (client-side filtering for search is still useful)
-            if (searchTerm.trim()) {
-                const term = searchTerm.toLowerCase().trim();
-                filteredData = filteredData.filter(v => {
-                    const name = (v.name || '').toLowerCase();
-                    const studentId = (v.student_id || '').toLowerCase();
-                    const program = (v.program || '').toLowerCase();
-                    const violationType = (v.violation_type || '').toLowerCase();
-                    return name.includes(term) || 
-                           studentId.includes(term) || 
-                           program.includes(term) ||
-                           violationType.includes(term);
-                });
-            }
-            
-            // Calculate and display range
-            const displayedCount = filteredData.length;
+            // Data is already filtered and sorted server-side
+            const displayedCount = violationsData.length;
             const startIndex = (page - 1) * pageSize;
-            const endIndex = startIndex + displayedCount;
+            const endIndex = Math.min(startIndex + displayedCount, violationsTotal);
             const totalCount = violationsTotal; // Use server total
             const countDisplay = formatCountDisplay(startIndex, endIndex, totalCount);
             document.getElementById('violations-count-display').textContent = countDisplay;
             
-            filteredData.forEach(v => {
+            violationsData.forEach(v => {
                 const tr = document.createElement('tr');
                 // Format gender - capitalize first letter
                 const gender = v.gender ? v.gender.charAt(0).toUpperCase() + v.gender.slice(1).toLowerCase() : '';
@@ -531,10 +515,12 @@
             const start = document.getElementById('start')?.value?.trim() || '';
             const end = document.getElementById('end')?.value?.trim() || '';
             const program = document.getElementById('program')?.value?.trim() || '';
+            const search = document.getElementById('search')?.value?.trim() || '';
             
             if (start) params.start = start;
             if (end) params.end = end;
             if (program) params.program = program;
+            if (search) params.search = search;
             
             return params;
         }
@@ -550,12 +536,16 @@
                 if (!el) return;
                 el.addEventListener(event, () => applyFilters());
             });
-            // Search input uses 'input' event for real-time filtering
+            // Search input uses 'input' event with debounce for server-side filtering
             const searchInput = document.getElementById('search');
             if (searchInput) {
+                let searchTimeout;
                 searchInput.addEventListener('input', (e) => {
                     searchTerm = e.target.value;
-                    renderViolationsTable();
+                    clearTimeout(searchTimeout);
+                    searchTimeout = setTimeout(() => {
+                        applyFilters();
+                    }, 300); // Debounce 300ms
                 });
             }
         }
@@ -605,7 +595,7 @@
             const year = document.getElementById('report-year').value;
             
             if (!month || !year) {
-                alert('Please select both month and year');
+                showToast('Please select both month and year', 'error');
                 return;
             }
             
@@ -849,7 +839,7 @@
 </head>
 <body>
     <!-- Toast Notification Container -->
-    <div id="toast-container" style="position: fixed; top: 20px; right: 20px; z-index: 3000; display: flex; flex-direction: column; gap: 10px; align-items: flex-end; pointer-events: none;"></div>
+            <div id="toast-container" class="toast-container"></div>
     
     <div class="dashboard-shell">
         <aside class="sidebar">
@@ -857,9 +847,9 @@
                 <div class="brand">DEAN</div>
                 {% set adm = session.get('admin') %}
                 {% if college %}
-                <div style="margin-top:6px; font-size:0.9rem; color:#666;">{{ college }}</div>
+                <div class="text-muted-small">{{ college }}</div>
                 {% elif adm and adm.get('college') %}
-                <div style="margin-top:6px; font-size:0.9rem; color:#666;">{{ adm.get('college') }}</div>
+                <div class="text-muted-small">{{ adm.get('college') }}</div>
                 {% endif %}
             </div>
             <nav class="sidebar-nav">
@@ -916,14 +906,14 @@
                 </div>
             </div>
 
-            <div class="card" style="margin-bottom:1.25rem;">
+            <div class="card" class="card-margin-bottom">
                 <div class="card-header">
                     <h3>Violations Over Time</h3>
                 </div>
                 <div class="card-body">
                     <div class="trend-toggle">
                         <label for="trend-range" class="trend-toggle-label">View by</label>
-                        <select id="trend-range" class="form-control" style="max-width:160px;">
+                        <select id="trend-range" class="form-control" class="form-control-max-width">
                             <option value="day">Daily</option>
                             <option value="week" selected>Weekly</option>
                             <option value="month">Monthly</option>
@@ -971,7 +961,7 @@
         </div>
     </div>
 
-        <div id="statistics-section" style="display:none;">
+        <div id="statistics-section" class="section-hidden">
             <div class="metrics-grid">
                 <div class="card">
                     <div class="card-header">
@@ -1009,14 +999,16 @@
             </div>
         </div>
     
-        <div id="violations-section" style="display:none;">
+        <div id="violations-section" class="section-hidden">
             <div class="card">
                 <div class="card-header">
                     <h3>Filters</h3>
                 </div>
                 <div class="card-body">
+                    <div class="search-container">
+                        <input type="text" id="search" placeholder="Search by name, student ID, program, or violation type..." class="form-control search-input-full-width">
+                    </div>
                     <div class="dashboard-filters">
-                        <input type="text" id="search" placeholder="Search by name, student ID, program, or violation type..." class="form-control" style="grid-column: 1 / -1;">
                         <div class="filter-field">
                             <label for="start">From</label>
                             <input type="date" id="start" class="form-control">
@@ -1065,16 +1057,16 @@
                 </div>
                 <div class="card-body">
                     <div class="table-responsive">
-                        <table class="table">
+                        <table class="table table-7-cols">
                             <thead>
                                 <tr>
-                                    <th data-sort="timestamp" onclick="sortViolations('timestamp')" style="cursor: pointer; user-select: none;">Date <span class="sort-indicator"></span></th>
-                                    <th data-sort="student_id" onclick="sortViolations('student_id')" style="cursor: pointer; user-select: none;">Student ID <span class="sort-indicator"></span></th>
-                                    <th data-sort="name" onclick="sortViolations('name')" style="cursor: pointer; user-select: none;">Name <span class="sort-indicator"></span></th>
-                                    <th data-sort="program" onclick="sortViolations('program')" style="cursor: pointer; user-select: none;">Program <span class="sort-indicator"></span></th>
-                                    <th data-sort="gender" onclick="sortViolations('gender')" style="cursor: pointer; user-select: none;">Gender <span class="sort-indicator"></span></th>
-                                    <th data-sort="violation_type" onclick="sortViolations('violation_type')" style="cursor: pointer; user-select: none;">Type <span class="sort-indicator"></span></th>
-                                    <th data-sort="status" onclick="sortViolations('status')" style="cursor: pointer; user-select: none;">Status <span class="sort-indicator"></span></th>
+                                    <th data-sort="timestamp" onclick="sortViolations('timestamp')" class="table-header-sortable">Date <span class="sort-indicator"></span></th>
+                                    <th data-sort="student_id" onclick="sortViolations('student_id')" class="table-header-sortable">Student ID <span class="sort-indicator"></span></th>
+                                    <th data-sort="name" onclick="sortViolations('name')" class="table-header-sortable">Name <span class="sort-indicator"></span></th>
+                                    <th data-sort="program" onclick="sortViolations('program')" class="table-header-sortable">Program <span class="sort-indicator"></span></th>
+                                    <th data-sort="gender" onclick="sortViolations('gender')" class="table-header-sortable">Gender <span class="sort-indicator"></span></th>
+                                    <th data-sort="violation_type" onclick="sortViolations('violation_type')" class="table-header-sortable">Type <span class="sort-indicator"></span></th>
+                                    <th data-sort="status" onclick="sortViolations('status')" class="table-header-sortable">Status <span class="sort-indicator"></span></th>
                                 </tr>
                             </thead>
                             <tbody id="violations-body"></tbody>
@@ -1084,11 +1076,11 @@
             </div>
             
             <!-- Report Generation Section -->
-            <div class="card" style="margin-top: 1.5rem;">
-                <div class="card-header" style="background-color: #f25a04; color: white; padding: 1rem;">
-                    <div style="display: flex; align-items: center; gap: 0.75rem;">
+            <div class="card card-margin-top">
+                <div class="card-header card-header-accent">
+                    <div class="card-header-flex">
                         <span style="font-size: 1.25rem;">📄</span>
-                        <h3 style="margin: 0; color: white; font-size: 1.125rem;">Generate Report</h3>
+                        <h3 class="card-header-title">Generate Report</h3>
                     </div>
                 </div>
                 <div class="card-body" style="padding: 1.5rem;">
@@ -1125,14 +1117,14 @@
             </div>
         </div>
 
-        <div id="add-students-section" style="display:none;">
+        <div id="add-students-section" class="section-hidden">
             <div class="card">
                 <div class="card-header">
                     <h3>Filters</h3>
                 </div>
                 <div class="card-body">
                     <div class="dashboard-filters">
-                        <input type="text" id="students-search" placeholder="Search by name, student ID, email, program, or RFID UID..." class="form-control" style="grid-column: 1 / -1;">
+                        <input type="text" id="students-search" placeholder="Search by name, student ID, email, program, or RFID UID..." class="form-control" class="search-input-full-width">
                         <select id="students-program-filter" class="form-control">
                             <option value="">All Programs</option>
                         </select>
@@ -1172,13 +1164,13 @@
                         <table class="table">
                             <thead>
                                 <tr>
-                                    <th data-sort="student_id" onclick="sortStudents('student_id')" style="cursor: pointer; user-select: none;">Student ID <span class="sort-indicator"></span></th>
-                                    <th data-sort="name" onclick="sortStudents('name')" style="cursor: pointer; user-select: none;">Name <span class="sort-indicator"></span></th>
-                                    <th data-sort="email" onclick="sortStudents('email')" style="cursor: pointer; user-select: none;">Email <span class="sort-indicator"></span></th>
-                                    <th data-sort="gender" onclick="sortStudents('gender')" style="cursor: pointer; user-select: none;">Gender <span class="sort-indicator"></span></th>
-                                    <th data-sort="year_level" onclick="sortStudents('year_level')" style="cursor: pointer; user-select: none;">Year Level <span class="sort-indicator"></span></th>
-                                    <th data-sort="program" onclick="sortStudents('program')" style="cursor: pointer; user-select: none;">Program <span class="sort-indicator"></span></th>
-                                    <th data-sort="rfid_uid" onclick="sortStudents('rfid_uid')" style="cursor: pointer; user-select: none;">RFID UID <span class="sort-indicator"></span></th>
+                                    <th data-sort="student_id" onclick="sortStudents('student_id')" class="table-header-sortable">Student ID <span class="sort-indicator"></span></th>
+                                    <th data-sort="name" onclick="sortStudents('name')" class="table-header-sortable">Name <span class="sort-indicator"></span></th>
+                                    <th data-sort="email" onclick="sortStudents('email')" class="table-header-sortable">Email <span class="sort-indicator"></span></th>
+                                    <th data-sort="gender" onclick="sortStudents('gender')" class="table-header-sortable">Gender <span class="sort-indicator"></span></th>
+                                    <th data-sort="year_level" onclick="sortStudents('year_level')" class="table-header-sortable">Year Level <span class="sort-indicator"></span></th>
+                                    <th data-sort="program" onclick="sortStudents('program')" class="table-header-sortable">Program <span class="sort-indicator"></span></th>
+                                    <th data-sort="rfid_uid" onclick="sortStudents('rfid_uid')" class="table-header-sortable">RFID UID <span class="sort-indicator"></span></th>
                                     <th>Actions</th>
                                 </tr>
                             </thead>
@@ -1192,7 +1184,7 @@
                 </div>
             </div>
 
-            <div class="card" id="add-student-form-card" style="display:none;">
+            <div class="card section-hidden" id="add-student-form-card">
                 <div class="card-header">
                     <div style="display: flex; justify-content: space-between; align-items: center;">
                         <h3>Add New Student</h3>
@@ -1251,12 +1243,11 @@
                             <button type="submit" class="btn btn-primary">Add Student</button>
                             <button type="reset" class="btn btn-secondary">Clear Form</button>
                         </div>
-                        <div id="add-student-message" style="margin-top: 1rem; display: none;"></div>
                     </form>
                 </div>
             </div>
 
-            <div class="card" id="edit-student-form-card" style="display:none;">
+            <div class="card section-hidden" id="edit-student-form-card">
                 <div class="card-header">
                     <div style="display: flex; justify-content: space-between; align-items: center;">
                         <h3>Edit Student</h3>
@@ -1311,13 +1302,12 @@
                         <div style="display: flex; gap: 1rem; margin-top: 1rem;">
                             <button type="submit" class="btn btn-primary">Update Student</button>
                         </div>
-                        <div id="edit-student-message" style="margin-top: 1rem; display: none;"></div>
                     </form>
                 </div>
             </div>
         </div>
 
-        <div id="notifications-section" style="display:none;">
+        <div id="notifications-section" class="section-hidden">
             <div class="card">
                 <div class="card-header">
                     <h3>Notifications</h3>
@@ -1342,76 +1332,65 @@
             </div>
         </div>
         
-        <div id="settings-section" style="display:none;">
-            <div class="card">
+        <div id="settings-section" class="section-hidden">
+            <div class="card" style="margin-bottom: 1.25rem;">
                 <div class="card-header">
-                    <h3><i class="fas fa-user"></i> Settings</h3>
+                    <h3><i class="fas fa-user"></i> Change Username</h3>
                 </div>
                 <div class="card-body">
-                    <p style="color: #666; font-size: 14px; margin-bottom: 20px;">
-                        Manage your account settings including username, password, and email.
-                    </p>
-                    
-                    <!-- Username Update -->
-                    <div style="margin-bottom: 25px; padding: 20px; background-color: #f8f9fa; border-radius: 8px; border: 1px solid #e0e0e0;">
-                        <h4 style="margin-top: 0; margin-bottom: 15px; color: #333; font-size: 16px;">
-                            <i class="fas fa-user"></i> Change Username
-                        </h4>
-                        <div style="margin-bottom: 15px;">
-                            <label style="display: block; margin-bottom: 8px; font-weight: 600; color: #333; font-size: 14px;">Current Username:</label>
-                            <div id="current-username-display" style="padding: 10px; background-color: white; border: 1px solid #ddd; border-radius: 6px; font-size: 14px; color: #666;">Loading...</div>
-                        </div>
-                        <div style="margin-bottom: 15px;">
-                            <label style="display: block; margin-bottom: 8px; font-weight: 600; color: #333; font-size: 14px;">New Username:</label>
-                            <input type="text" id="new-username-input" placeholder="Enter new username" class="form-control" style="max-width: 400px;">
-                        </div>
-                        <div id="username-message" style="margin-bottom: 10px; font-size: 13px;"></div>
-                        <button id="update-username-btn" class="btn btn-primary">
-                            <i class="fas fa-save"></i> Update Username
-                        </button>
+                    <div style="margin-bottom: 15px;">
+                        <label style="display: block; margin-bottom: 8px; font-weight: 600; color: #333; font-size: 14px;">Current Username:</label>
+                        <div id="current-username-display" style="padding: 10px; background-color: #f8f9fa; border: 1px solid #e0e0e0; border-radius: 6px; font-size: 14px; color: #666; width: 100%; max-width: 400px; box-sizing: border-box;">Loading...</div>
                     </div>
-                    
-                    <!-- Password Update -->
-                    <div style="margin-bottom: 25px; padding: 20px; background-color: #f8f9fa; border-radius: 8px; border: 1px solid #e0e0e0;">
-                        <h4 style="margin-top: 0; margin-bottom: 15px; color: #333; font-size: 16px;">
-                            <i class="fas fa-lock"></i> Change Password
-                        </h4>
-                        <div style="margin-bottom: 15px;">
-                            <label style="display: block; margin-bottom: 8px; font-weight: 600; color: #333; font-size: 14px;">Current Password:</label>
-                            <input type="password" id="current-password-input" placeholder="Enter current password" class="form-control" style="max-width: 400px;">
-                        </div>
-                        <div style="margin-bottom: 15px;">
-                            <label style="display: block; margin-bottom: 8px; font-weight: 600; color: #333; font-size: 14px;">New Password:</label>
-                            <input type="password" id="new-password-input" placeholder="Enter new password (min. 6 characters)" class="form-control" style="max-width: 400px;">
-                        </div>
-                        <div style="margin-bottom: 15px;">
-                            <label style="display: block; margin-bottom: 8px; font-weight: 600; color: #333; font-size: 14px;">Confirm New Password:</label>
-                            <input type="password" id="confirm-password-input" placeholder="Confirm new password" class="form-control" style="max-width: 400px;">
-                        </div>
-                        <div id="password-message" style="margin-bottom: 10px; font-size: 13px;"></div>
-                        <button id="update-password-btn" class="btn btn-primary">
-                            <i class="fas fa-save"></i> Update Password
-                        </button>
+                    <div style="margin-bottom: 15px;">
+                        <label style="display: block; margin-bottom: 8px; font-weight: 600; color: #333; font-size: 14px;">New Username:</label>
+                        <input type="text" id="new-username-input" placeholder="Enter new username" class="form-control" style="width: 100%; max-width: 400px; box-sizing: border-box;">
                     </div>
-                    
-                    <!-- Email Update -->
-                    <div style="margin-bottom: 25px; padding: 20px; background-color: #f8f9fa; border-radius: 8px; border: 1px solid #e0e0e0;">
-                        <h4 style="margin-top: 0; margin-bottom: 15px; color: #333; font-size: 16px;">
-                            <i class="fas fa-envelope"></i> Change Email
-                        </h4>
-                        <div style="margin-bottom: 15px;">
-                            <label style="display: block; margin-bottom: 8px; font-weight: 600; color: #333; font-size: 14px;">Current Email:</label>
-                            <div id="current-email-display" style="padding: 10px; background-color: white; border: 1px solid #ddd; border-radius: 6px; font-size: 14px; color: #666;">Loading...</div>
-                        </div>
-                        <div style="margin-bottom: 15px;">
-                            <label style="display: block; margin-bottom: 8px; font-weight: 600; color: #333; font-size: 14px;">New Email:</label>
-                            <input type="email" id="new-email-input" placeholder="Enter new email address" class="form-control" style="max-width: 400px;">
-                        </div>
-                        <div id="email-message" style="margin-bottom: 10px; font-size: 13px;"></div>
-                        <button id="update-email-btn" class="btn btn-primary">
-                            <i class="fas fa-save"></i> Update Email
-                        </button>
+                    <button id="update-username-btn" class="btn btn-primary">
+                        <i class="fas fa-save"></i> Update Username
+                    </button>
+                </div>
+            </div>
+            
+            <div class="card" style="margin-bottom: 1.25rem;">
+                <div class="card-header">
+                    <h3><i class="fas fa-lock"></i> Change Password</h3>
+                </div>
+                <div class="card-body">
+                    <div style="margin-bottom: 15px;">
+                        <label style="display: block; margin-bottom: 8px; font-weight: 600; color: #333; font-size: 14px;">Current Password:</label>
+                        <input type="password" id="current-password-input" placeholder="Enter current password" class="form-control" style="width: 100%; max-width: 400px; box-sizing: border-box;">
                     </div>
+                    <div style="margin-bottom: 15px;">
+                        <label style="display: block; margin-bottom: 8px; font-weight: 600; color: #333; font-size: 14px;">New Password:</label>
+                        <input type="password" id="new-password-input" placeholder="Enter new password (min. 6 characters)" class="form-control" style="width: 100%; max-width: 400px; box-sizing: border-box;">
+                    </div>
+                    <div style="margin-bottom: 15px;">
+                        <label style="display: block; margin-bottom: 8px; font-weight: 600; color: #333; font-size: 14px;">Confirm New Password:</label>
+                        <input type="password" id="confirm-password-input" placeholder="Confirm new password" class="form-control" style="width: 100%; max-width: 400px; box-sizing: border-box;">
+                    </div>
+                    <button id="update-password-btn" class="btn btn-primary">
+                        <i class="fas fa-save"></i> Update Password
+                    </button>
+                </div>
+            </div>
+            
+            <div class="card" style="margin-bottom: 1.25rem;">
+                <div class="card-header">
+                    <h3><i class="fas fa-envelope"></i> Change Email</h3>
+                </div>
+                <div class="card-body">
+                    <div style="margin-bottom: 15px;">
+                        <label style="display: block; margin-bottom: 8px; font-weight: 600; color: #333; font-size: 14px;">Current Email:</label>
+                        <div id="current-email-display" style="padding: 10px; background-color: #f8f9fa; border: 1px solid #e0e0e0; border-radius: 6px; font-size: 14px; color: #666; width: 100%; max-width: 400px; box-sizing: border-box;">Loading...</div>
+                    </div>
+                    <div style="margin-bottom: 15px;">
+                        <label style="display: block; margin-bottom: 8px; font-weight: 600; color: #333; font-size: 14px;">New Email:</label>
+                        <input type="email" id="new-email-input" placeholder="Enter new email address" class="form-control" style="width: 100%; max-width: 400px; box-sizing: border-box;">
+                    </div>
+                    <button id="update-email-btn" class="btn btn-primary">
+                        <i class="fas fa-save"></i> Update Email
+                    </button>
                 </div>
             </div>
         </div>
@@ -1425,12 +1404,17 @@
             const sideButtons = document.querySelectorAll('.sidebar .nav-item');
             function showSection(target){
                 sideButtons.forEach(b=>b.classList.toggle('active', b.dataset.target===target));
-                document.getElementById('overview-section').style.display = target === 'overview-section' ? '' : 'none';
-                document.getElementById('statistics-section').style.display = target === 'statistics-section' ? '' : 'none';
-                document.getElementById('violations-section').style.display = target === 'violations-section' ? '' : 'none';
-                document.getElementById('add-students-section').style.display = target === 'add-students-section' ? '' : 'none';
-                document.getElementById('notifications-section').style.display = target === 'notifications-section' ? '' : 'none';
-                document.getElementById('settings-section').style.display = target === 'settings-section' ? '' : 'none';
+                const sections = ['overview-section', 'statistics-section', 'violations-section', 'add-students-section', 'notifications-section', 'settings-section'];
+                sections.forEach(sectionId => {
+                    const section = document.getElementById(sectionId);
+                    if (section) {
+                        if (sectionId === target) {
+                            section.classList.remove('section-hidden');
+                        } else {
+                            section.classList.add('section-hidden');
+                        }
+                    }
+                });
                 if (target === 'overview-section') { renderOverview(); }
                 if (target === 'statistics-section') { loadAnalytics(); }
                 if (target === 'add-students-section') { 
@@ -1575,25 +1559,16 @@
             window.toggleAddStudentForm = function() {
                 const formCard = document.getElementById('add-student-form-card');
                 const listCard = document.getElementById('students-list-card');
-                const messageEl = document.getElementById('add-student-message');
                 if (formCard && listCard) {
-                    const isFormVisible = formCard.style.display !== 'none';
+                    const isFormVisible = !formCard.classList.contains('section-hidden');
                     if (isFormVisible) {
                         // Hide form, show list
-                        formCard.style.display = 'none';
-                        listCard.style.display = '';
-                        // Clear any messages
-                        if (messageEl) {
-                            messageEl.style.display = 'none';
-                        }
+                        formCard.classList.add('section-hidden');
+                        listCard.classList.remove('section-hidden');
                     } else {
                         // Show form, hide list
-                        formCard.style.display = '';
-                        listCard.style.display = 'none';
-                        // Clear any previous messages
-                        if (messageEl) {
-                            messageEl.style.display = 'none';
-                        }
+                        formCard.classList.remove('section-hidden');
+                        listCard.classList.add('section-hidden');
                     }
                 }
             };
@@ -1831,11 +1806,11 @@
                         // Show edit form
                         toggleEditStudentForm();
                     } else {
-                        alert('Error loading student data: ' + (data.error || 'Unknown error'));
+                        showToast('Error loading student data: ' + (data.error || 'Unknown error'), 'error');
                     }
                 } catch (e) {
                     console.error('Error loading student:', e);
-                    alert('Error loading student data. Please try again.');
+                    showToast('Error loading student data. Please try again.', 'error');
                 }
             };
             
@@ -1863,15 +1838,15 @@
                     .then(res => res.json())
                     .then(data => {
                         if (data.success) {
-                            alert('Student deleted successfully!');
+                            showToast('Student deleted successfully!', 'success');
                             loadStudents();
                         } else {
-                            alert('Error deleting student: ' + (data.error || 'Unknown error'));
+                            showToast('Error deleting student: ' + (data.error || 'Unknown error'), 'error');
                         }
                     })
                     .catch(e => {
                         console.error('Error deleting student:', e);
-                        alert('Error deleting student. Please try again.');
+                        showToast('Error deleting student. Please try again.', 'error');
                     });
                 }
             };
@@ -1880,25 +1855,16 @@
             window.toggleEditStudentForm = function() {
                 const formCard = document.getElementById('edit-student-form-card');
                 const listCard = document.getElementById('students-list-card');
-                const messageEl = document.getElementById('edit-student-message');
                 if (formCard && listCard) {
-                    const isFormVisible = formCard.style.display !== 'none';
+                    const isFormVisible = !formCard.classList.contains('section-hidden');
                     if (isFormVisible) {
                         // Hide form, show list
-                        formCard.style.display = 'none';
-                        listCard.style.display = '';
-                        // Clear any messages
-                        if (messageEl) {
-                            messageEl.style.display = 'none';
-                        }
+                        formCard.classList.add('section-hidden');
+                        listCard.classList.remove('section-hidden');
                     } else {
                         // Show form, hide list
-                        formCard.style.display = '';
-                        listCard.style.display = 'none';
-                        // Clear any previous messages
-                        if (messageEl) {
-                            messageEl.style.display = 'none';
-                        }
+                        formCard.classList.remove('section-hidden');
+                        listCard.classList.add('section-hidden');
                     }
                 }
             };
@@ -1908,8 +1874,6 @@
             if (addStudentForm) {
                 addStudentForm.addEventListener('submit', async (e) => {
                     e.preventDefault();
-                    const messageEl = document.getElementById('add-student-message');
-                    messageEl.style.display = 'none';
                     
                     const formData = new FormData(addStudentForm);
                     const data = {
@@ -1931,10 +1895,8 @@
                         });
                         const result = await res.json();
                         
-                        messageEl.style.display = 'block';
                         if (result.success) {
-                            messageEl.className = 'alert alert-success';
-                            messageEl.textContent = `Student "${data.name}" added successfully!`;
+                            showToast(`Student "${data.name}" added successfully!`, 'success');
                             addStudentForm.reset();
                             // Reload college and programs after reset
                             setTimeout(() => {
@@ -1942,18 +1904,11 @@
                             }, 100);
                             // Reload students list in the background (form stays visible)
                             loadStudents();
-                            // Hide message after 3 seconds
-                            setTimeout(() => {
-                                messageEl.style.display = 'none';
-                            }, 3000);
                         } else {
-                            messageEl.className = 'alert alert-error';
-                            messageEl.textContent = result.error || 'Failed to add student. Please try again.';
+                            showToast(result.error || 'Failed to add student. Please try again.', 'error');
                         }
                     } catch (e) {
-                        messageEl.style.display = 'block';
-                        messageEl.className = 'alert alert-error';
-                        messageEl.textContent = 'An error occurred. Please try again.';
+                        showToast('An error occurred. Please try again.', 'error');
                         console.error('Error adding student:', e);
                     }
                 });
@@ -1964,8 +1919,6 @@
             if (editStudentForm) {
                 editStudentForm.addEventListener('submit', async (e) => {
                     e.preventDefault();
-                    const messageEl = document.getElementById('edit-student-message');
-                    messageEl.style.display = 'none';
                     
                     const studentId = document.getElementById('edit-student_id').value;
                     const formData = new FormData(editStudentForm);
@@ -1987,25 +1940,19 @@
                         });
                         const result = await res.json();
                         
-                        messageEl.style.display = 'block';
                         if (result.success) {
-                            messageEl.className = 'alert alert-success';
-                            messageEl.textContent = `Student "${data.name}" updated successfully!`;
+                            showToast(`Student "${data.name}" updated successfully!`, 'success');
                             // Reload students list
                             loadStudents();
-                            // Hide message after 2 seconds, then hide form and show list
+                            // Hide form and show list after a short delay
                             setTimeout(() => {
-                                messageEl.style.display = 'none';
                                 toggleEditStudentForm();
-                            }, 2000);
+                            }, 1500);
                         } else {
-                            messageEl.className = 'alert alert-error';
-                            messageEl.textContent = result.error || 'Failed to update student. Please try again.';
+                            showToast(result.error || 'Failed to update student. Please try again.', 'error');
                         }
                     } catch (e) {
-                        messageEl.style.display = 'block';
-                        messageEl.className = 'alert alert-error';
-                        messageEl.textContent = 'An error occurred. Please try again.';
+                        showToast('An error occurred. Please try again.', 'error');
                         console.error('Error updating student:', e);
                     }
                 });
@@ -2213,125 +2160,29 @@
             // Make loadProfile available globally for showSection
             window.loadProfile = loadProfile;
             
-            // Global toast notification function
-            window.showToast = function(message, type = 'info') {
-                const toastContainer = document.getElementById('toast-container');
-                if (!toastContainer) return;
-                
-                // Create unique ID for this toast
-                const toastId = 'toast-' + Date.now() + '-' + Math.random().toString(36).substr(2, 9);
-                
-                // Create toast element
-                const toast = document.createElement('div');
-                toast.id = toastId;
-                toast.style.cssText = 'padding: 15px 20px; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.15); min-width: 250px; max-width: 400px; animation: slideInRight 0.3s ease-out; pointer-events: auto; display: flex; align-items: center; gap: 10px;';
-                
-                // Create icon
-                const icon = document.createElement('i');
-                icon.style.cssText = 'font-size: 20px; flex-shrink: 0;';
-                
-                // Create message
-                const messageSpan = document.createElement('span');
-                messageSpan.textContent = message;
-                messageSpan.style.cssText = 'flex: 1; font-size: 14px; font-weight: 500;';
-                
-                // Set colors and icon based on type
-                if (type === 'success') {
-                    toast.style.backgroundColor = '#d4edda';
-                    toast.style.color = '#155724';
-                    toast.style.border = '1px solid #c3e6cb';
-                    icon.className = 'fas fa-check-circle';
-                    icon.style.color = '#155724';
-                } else if (type === 'error') {
-                    toast.style.backgroundColor = '#f8d7da';
-                    toast.style.color = '#721c24';
-                    toast.style.border = '1px solid #f5c6cb';
-                    icon.className = 'fas fa-exclamation-circle';
-                    icon.style.color = '#721c24';
-                } else {
-                    toast.style.backgroundColor = '#d1ecf1';
-                    toast.style.color = '#0c5460';
-                    toast.style.border = '1px solid #bee5eb';
-                    icon.className = 'fas fa-info-circle';
-                    icon.style.color = '#0c5460';
-                }
-                
-                toast.appendChild(icon);
-                toast.appendChild(messageSpan);
-                
-                // Add toast to container
-                toastContainer.appendChild(toast);
-                
-                // Function to remove toast
-                function removeToast() {
-                    const toastElement = document.getElementById(toastId);
-                    if (!toastElement) return;
-                    
-                    // Animate out
-                    toastElement.style.animation = 'slideOutRight 0.3s ease-out';
-                    setTimeout(() => {
-                        if (toastElement && toastElement.parentNode) {
-                            toastElement.parentNode.removeChild(toastElement);
-                        }
-                    }, 300);
-                }
-                
-                // Auto-remove after 3 seconds
-                setTimeout(removeToast, 3000);
-            };
-            
-            // Add CSS animations for toast
-            if (!document.getElementById('toast-animations')) {
-                const style = document.createElement('style');
-                style.id = 'toast-animations';
-                style.textContent = `
-                    @keyframes slideInRight {
-                        from {
-                            transform: translateX(100%);
-                            opacity: 0;
-                        }
-                        to {
-                            transform: translateX(0);
-                            opacity: 1;
-                        }
-                    }
-                    @keyframes slideOutRight {
-                        from {
-                            transform: translateX(0);
-                            opacity: 1;
-                        }
-                        to {
-                            transform: translateX(100%);
-                            opacity: 0;
-                        }
-                    }
-                `;
-                document.head.appendChild(style);
-            }
+            // Toast notification function is now in static/js/toast.js
             
             
             // Update Username
             const updateUsernameBtn = document.getElementById('update-username-btn');
             const newUsernameInput = document.getElementById('new-username-input');
-            const usernameMessage = document.getElementById('username-message');
             
             if (updateUsernameBtn) {
                 updateUsernameBtn.addEventListener('click', async () => {
                     const newUsername = (newUsernameInput.value || '').trim();
                     
                     if (!newUsername) {
-                        usernameMessage.innerHTML = '<span style="color: #dc3545;">Please enter a new username</span>';
+                        showToast('Please enter a new username', 'error');
                         return;
                     }
                     
                     if (newUsername.length < 3) {
-                        usernameMessage.innerHTML = '<span style="color: #dc3545;">Username must be at least 3 characters long</span>';
+                        showToast('Username must be at least 3 characters long', 'error');
                         return;
                     }
                     
                     updateUsernameBtn.disabled = true;
                     updateUsernameBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Updating...';
-                    usernameMessage.innerHTML = '';
                     
                     try {
                         const response = await fetch('/api/settings/update-username', {
@@ -2345,18 +2196,15 @@
                         const data = await response.json();
                         
                         if (data.success) {
-                            usernameMessage.innerHTML = '<span style="color: #28a745;">Username updated successfully!</span>';
                             newUsernameInput.value = '';
                             await loadProfile();
-                            showToast(data.message, 'success');
+                            showToast(data.message || 'Username updated successfully!', 'success');
                         } else {
-                            usernameMessage.innerHTML = `<span style="color: #dc3545;">${data.message || 'Failed to update username'}</span>`;
                             showToast(data.message || 'Failed to update username', 'error');
                         }
                     } catch (error) {
                         console.error('Error updating username:', error);
-                        usernameMessage.innerHTML = '<span style="color: #dc3545;">Network error. Please try again.</span>';
-                        showToast('Error updating username', 'error');
+                        showToast('Network error. Please try again.', 'error');
                     } finally {
                         updateUsernameBtn.disabled = false;
                         updateUsernameBtn.innerHTML = '<i class="fas fa-save"></i> Update Username';
@@ -2369,7 +2217,6 @@
             const currentPasswordInput = document.getElementById('current-password-input');
             const newPasswordInput = document.getElementById('new-password-input');
             const confirmPasswordInput = document.getElementById('confirm-password-input');
-            const passwordMessage = document.getElementById('password-message');
             
             if (updatePasswordBtn) {
                 updatePasswordBtn.addEventListener('click', async () => {
@@ -2378,23 +2225,22 @@
                     const confirmPassword = confirmPasswordInput.value || '';
                     
                     if (!currentPassword || !newPassword || !confirmPassword) {
-                        passwordMessage.innerHTML = '<span style="color: #dc3545;">All fields are required</span>';
+                        showToast('All fields are required', 'error');
                         return;
                     }
                     
                     if (newPassword.length < 6) {
-                        passwordMessage.innerHTML = '<span style="color: #dc3545;">New password must be at least 6 characters long</span>';
+                        showToast('New password must be at least 6 characters long', 'error');
                         return;
                     }
                     
                     if (newPassword !== confirmPassword) {
-                        passwordMessage.innerHTML = '<span style="color: #dc3545;">New passwords do not match</span>';
+                        showToast('New passwords do not match', 'error');
                         return;
                     }
                     
                     updatePasswordBtn.disabled = true;
                     updatePasswordBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Updating...';
-                    passwordMessage.innerHTML = '';
                     
                     try {
                         const response = await fetch('/api/settings/update-password', {
@@ -2411,19 +2257,16 @@
                         const data = await response.json();
                         
                         if (data.success) {
-                            passwordMessage.innerHTML = '<span style="color: #28a745;">Password updated successfully!</span>';
                             currentPasswordInput.value = '';
                             newPasswordInput.value = '';
                             confirmPasswordInput.value = '';
-                            showToast(data.message, 'success');
+                            showToast(data.message || 'Password updated successfully!', 'success');
                         } else {
-                            passwordMessage.innerHTML = `<span style="color: #dc3545;">${data.message || 'Failed to update password'}</span>`;
                             showToast(data.message || 'Failed to update password', 'error');
                         }
                     } catch (error) {
                         console.error('Error updating password:', error);
-                        passwordMessage.innerHTML = '<span style="color: #dc3545;">Network error. Please try again.</span>';
-                        showToast('Error updating password', 'error');
+                        showToast('Network error. Please try again.', 'error');
                     } finally {
                         updatePasswordBtn.disabled = false;
                         updatePasswordBtn.innerHTML = '<i class="fas fa-save"></i> Update Password';
@@ -2434,25 +2277,23 @@
             // Update Email
             const updateEmailBtn = document.getElementById('update-email-btn');
             const newEmailInput = document.getElementById('new-email-input');
-            const emailMessage = document.getElementById('email-message');
             
             if (updateEmailBtn) {
                 updateEmailBtn.addEventListener('click', async () => {
                     const newEmail = (newEmailInput.value || '').trim();
                     
                     if (!newEmail) {
-                        emailMessage.innerHTML = '<span style="color: #dc3545;">Please enter a new email address</span>';
+                        showToast('Please enter a new email address', 'error');
                         return;
                     }
                     
                     if (!newEmail.includes('@') || !newEmail.includes('.')) {
-                        emailMessage.innerHTML = '<span style="color: #dc3545;">Please enter a valid email address</span>';
+                        showToast('Please enter a valid email address', 'error');
                         return;
                     }
                     
                     updateEmailBtn.disabled = true;
                     updateEmailBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Updating...';
-                    emailMessage.innerHTML = '';
                     
                     try {
                         const response = await fetch('/api/settings/update-email', {
@@ -2466,18 +2307,15 @@
                         const data = await response.json();
                         
                         if (data.success) {
-                            emailMessage.innerHTML = '<span style="color: #28a745;">Email updated successfully!</span>';
                             newEmailInput.value = '';
                             await loadProfile();
-                            showToast(data.message, 'success');
+                            showToast(data.message || 'Email updated successfully!', 'success');
                         } else {
-                            emailMessage.innerHTML = `<span style="color: #dc3545;">${data.message || 'Failed to update email'}</span>`;
                             showToast(data.message || 'Failed to update email', 'error');
                         }
                     } catch (error) {
                         console.error('Error updating email:', error);
-                        emailMessage.innerHTML = '<span style="color: #dc3545;">Network error. Please try again.</span>';
-                        showToast('Error updating email', 'error');
+                        showToast('Network error. Please try again.', 'error');
                     } finally {
                         updateEmailBtn.disabled = false;
                         updateEmailBtn.innerHTML = '<i class="fas fa-save"></i> Update Email';

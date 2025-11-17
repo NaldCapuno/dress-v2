@@ -8,6 +8,7 @@ from werkzeug.security import check_password_hash, generate_password_hash
 from flask_mail import Message
 import random
 import string
+import threading
 from datetime import datetime, timedelta
 
 auth_bp = Blueprint('auth', __name__)
@@ -100,13 +101,13 @@ def forgot_password():
     if request.method == 'GET':
         return render_template('forgot_password.html')
     
-    # POST: JSON { username }
+    # POST: JSON { username } - can be username or email
     try:
         data = request.get_json(force=True, silent=True) or {}
-        username = (data.get('username') or '').strip()
+        identifier = (data.get('username') or '').strip()
         
-        if not username:
-            return jsonify({'success': False, 'error': 'Username is required.'}), 400
+        if not identifier:
+            return jsonify({'success': False, 'error': 'Username or email is required.'}), 400
         
         if get_connection is None:
             return jsonify({'success': False, 'error': 'Database not configured.'}), 500
@@ -114,21 +115,22 @@ def forgot_password():
         conn = get_connection()
         try:
             with conn.cursor() as cur:
-                # Check if username exists and get email
+                # Check if identifier is an email (contains @) or username
+                # Try to find by username or email
                 cur.execute(
                     """
                     SELECT username, email
                     FROM admins
-                    WHERE username = %s
+                    WHERE username = %s OR email = %s
                     LIMIT 1
                     """,
-                    (username,)
+                    (identifier, identifier)
                 )
                 admin = cur.fetchone()
             
             if not admin:
-                # Don't reveal if username exists for security
-                return jsonify({'success': True, 'message': 'If the username exists, a reset code has been sent to the associated email address.'})
+                # Don't reveal if username/email exists for security
+                return jsonify({'success': True, 'message': 'If the username or email exists, a reset code has been sent to the associated email address.'})
             
             email = admin.get('email')
             username = admin.get('username')
@@ -150,10 +152,14 @@ def forgot_password():
                     (reset_code, expires_at, username)
                 )
             
-            # Send email with reset code
-            try:
-                html_body = generate_password_reset_email_body(username, reset_code)
-                plain_text_body = f"""PASSWORD RESET REQUEST
+            # Send email with reset code - asynchronously
+            def send_email_async():
+                """Send email in background thread to avoid blocking the response"""
+                try:
+                    html_body = generate_password_reset_email_body(username, reset_code, include_username=False)
+                    
+                    # Build plain text body
+                    plain_text_body = f"""PASSWORD RESET REQUEST
 
 Hello {username},
 
@@ -172,28 +178,32 @@ Palawan State University
 
 This is an automated notification. Please do not reply to this email.
 """
-                
-                msg = Message(
-                    subject='DRESS Password Reset Code',
-                    recipients=[email],
-                    html=html_body,
-                    body=plain_text_body,
-                    sender=app.config.get('MAIL_DEFAULT_SENDER', app.config.get('MAIL_USERNAME'))
-                )
-                
-                with app.app_context():
-                    mail.send(msg)
-                
-                return jsonify({
-                    'success': True,
-                    'message': 'If the username exists, a reset code has been sent to the associated email address.'
-                })
-            except Exception as email_error:
-                print(f"Error sending password reset email: {email_error}")
-                return jsonify({
-                    'success': False,
-                    'error': 'Failed to send reset code. Please try again later or contact administrator.'
-                }), 500
+                    
+                    msg = Message(
+                        subject='DRESS Password Reset Code',
+                        recipients=[email],
+                        html=html_body,
+                        body=plain_text_body,
+                        sender=app.config.get('MAIL_DEFAULT_SENDER', app.config.get('MAIL_USERNAME'))
+                    )
+                    
+                    with app.app_context():
+                        mail.send(msg)
+                    print(f"✓ Password reset email sent successfully to {email}")
+                except Exception as email_error:
+                    print(f"✗ Error sending password reset email: {email_error}")
+                    import traceback
+                    print(traceback.format_exc())
+            
+            # Start email sending in background thread
+            email_thread = threading.Thread(target=send_email_async, daemon=True)
+            email_thread.start()
+            
+            # Return immediately - email is being sent in background
+            return jsonify({
+                'success': True,
+                'message': 'If the username or email exists, a reset code has been sent to the associated email address.'
+            })
         finally:
             conn.close()
     except Exception as e:

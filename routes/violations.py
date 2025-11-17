@@ -57,6 +57,7 @@ def dean_get_violations():
         offset = max(0, (page - 1) * page_size)
         college = request.args.get('college') or ((session.get('admin') or {}).get('college'))
         program = request.args.get('program')
+        search = request.args.get('search', '').strip()
         sort_column = request.args.get('sort_column', 'timestamp')
         sort_direction = request.args.get('sort_direction', 'desc').upper()
 
@@ -83,6 +84,10 @@ def dean_get_violations():
         if end_dt:
             where.append("v.timestamp <= %s")
             params.append(end_dt)
+        if search:
+            search_pattern = f"%{search}%"
+            where.append("(s.name LIKE %s OR v.student_id LIKE %s OR s.program LIKE %s OR v.violation_type LIKE %s)")
+            params.extend([search_pattern, search_pattern, search_pattern, search_pattern])
         if academic_year and semester in {"1", "2"}:
             try:
                 start_year = int(academic_year.split('-')[0])
@@ -475,6 +480,7 @@ def osas_get_violations():
         semester = request.args.get('semester')
         college = request.args.get('college')
         program = request.args.get('program')
+        search = request.args.get('search', '').strip()
         page = int(request.args.get('page', 1))
         page_size = int(request.args.get('page_size', 50))
         offset = max(0, (page - 1) * page_size)
@@ -502,6 +508,10 @@ def osas_get_violations():
         if end_dt:
             where.append("v.timestamp <= %s")
             params.append(end_dt)
+        if search:
+            search_pattern = f"%{search}%"
+            where.append("(s.name LIKE %s OR v.student_id LIKE %s OR s.college LIKE %s OR s.program LIKE %s OR v.violation_type LIKE %s)")
+            params.extend([search_pattern, search_pattern, search_pattern, search_pattern, search_pattern])
         if academic_year and semester in {"1", "2"}:
             try:
                 start_year = int(academic_year.split('-')[0])
@@ -567,6 +577,9 @@ def guidance_get_violations():
         status_filter = request.args.get('status')
         start_dt = request.args.get('start')
         end_dt = request.args.get('end')
+        college = request.args.get('college')
+        program = request.args.get('program')
+        search = request.args.get('search', '').strip()
         academic_year = request.args.get('academic_year')
         semester = request.args.get('semester')
         page = int(request.args.get('page', 1))
@@ -590,6 +603,16 @@ def guidance_get_violations():
         if end_dt:
             where.append("v.timestamp <= %s")
             params.append(end_dt)
+        if college:
+            where.append("s.college = %s")
+            params.append(college)
+        if program:
+            where.append("s.program = %s")
+            params.append(program)
+        if search:
+            search_pattern = f"%{search}%"
+            where.append("(s.name LIKE %s OR v.student_id LIKE %s OR s.college LIKE %s OR s.program LIKE %s OR v.violation_type LIKE %s)")
+            params.extend([search_pattern, search_pattern, search_pattern, search_pattern, search_pattern])
         if academic_year and semester in {"1", "2"}:
             try:
                 start_year = int(academic_year.split('-')[0])
@@ -679,6 +702,8 @@ def guidance_analytics():
     try:
         start_dt = request.args.get('start')
         end_dt = request.args.get('end')
+        college = request.args.get('college')
+        program = request.args.get('program')
         academic_year = request.args.get('academic_year')
         semester = request.args.get('semester')
         status_filter = request.args.get('status')
@@ -692,6 +717,12 @@ def guidance_analytics():
         if status_filter:
             where.append("v.status = %s")
             params.append(status_filter)
+        if college:
+            where.append("s.college = %s")
+            params.append(college)
+        if program:
+            where.append("s.program = %s")
+            params.append(program)
         if start_dt:
             where.append("v.timestamp >= %s")
             params.append(start_dt)

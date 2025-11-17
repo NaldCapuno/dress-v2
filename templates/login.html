@@ -5,8 +5,11 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Admin Login - DRESS System</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <script src="{{ url_for('static', filename='js/toast.js') }}"></script>
 </head>
 <body class="login-body">
+    <div id="toast-container" class="toast-container"></div>
     <div class="login-container floating-card">
         <div class="login-illustration">
             <img src="{{ url_for('static', filename='images/login_logo.png') }}" alt="Login Illustration" />
@@ -15,8 +18,6 @@
             <h1>Admin Login</h1>
             <p>Enter valid username & password to continue</p>
         </div>
-
-        <div id="message-container"></div>
 
         <form id="login-form" class="login-form">
             <div class="form-group">
@@ -34,8 +35,8 @@
             </button>
         </form>
 
-        <div style="text-align: center; margin-top: 15px;">
-            <a href="/forgot-password" style="color: #2ca9e1; text-decoration: none; font-size: 14px;">
+        <div class="login-link-container">
+            <a href="/forgot-password" class="login-link">
                 Forgot Password?
             </a>
         </div>
@@ -54,10 +55,6 @@
             
             const loginBtn = document.getElementById('login-btn');
             const loading = document.getElementById('loading');
-            const messageContainer = document.getElementById('message-container');
-
-            // Clear previous messages
-            messageContainer.innerHTML = '';
 
             // Show loading state
             loginBtn.style.display = 'none';
@@ -78,16 +75,25 @@
                 const data = await response.json();
 
                 if (data.success) {
-                    // Show success message
-                    messageContainer.innerHTML = `
-                        <div class="success-message">
-                            Login successful! Redirecting to security dashboard...
-                        </div>
-                    `;
+                    // Determine role and dashboard name
+                    const role = (data.admin && data.admin.role || '').toLowerCase();
+                    let dashboardName = 'dashboard';
+                    
+                    if (role === 'security') {
+                        dashboardName = 'security dashboard';
+                    } else if (role === 'osas') {
+                        dashboardName = 'OSAS dashboard';
+                    } else if (role === 'guidance') {
+                        dashboardName = 'guidance dashboard';
+                    } else if (role === 'dean') {
+                        dashboardName = 'dean dashboard';
+                    }
+                    
+                    // Show success toast
+                    showToast(`Login successful! Redirecting to ${dashboardName}...`, 'success');
                     
                     // Redirect based on role after a short delay
                     setTimeout(() => {
-                        const role = (data.admin && data.admin.role || '').toLowerCase();
                         if (role === 'security') {
                             window.location.href = '/';
                         } else if (role === 'osas') {
@@ -101,20 +107,12 @@
                         }
                     }, 1500);
                 } else {
-                    // Show error message
-                    messageContainer.innerHTML = `
-                        <div class="error-message">
-                            ${data.error || 'Login failed. Please check your credentials.'}
-                        </div>
-                    `;
+                    // Show error toast
+                    showToast(data.error || 'Login failed. Please check your credentials.', 'error');
                 }
             } catch (error) {
                 console.error('Login error:', error);
-                messageContainer.innerHTML = `
-                    <div class="error-message">
-                        Network error. Please try again.
-                    </div>
-                `;
+                showToast('Network error. Please try again.', 'error');
             } finally {
                 // Hide loading state
                 loginBtn.style.display = 'block';

@@ -366,7 +366,7 @@ def generate_followup_email_body(student_name, first_notice_date, violation_date
     )
 
 
-def generate_password_reset_email_body(username, reset_code):
+def generate_password_reset_email_body(username, reset_code, include_username=False):
     """
     Generate HTML email body for password reset code notification.
     Mobile-responsive design with inline CSS matching web app color scheme.
@@ -374,10 +374,27 @@ def generate_password_reset_email_body(username, reset_code):
     Args:
         username (str): Username of the admin requesting password reset
         reset_code (str): 6-digit reset code
+        include_username (bool): If True, include username in the email (for when user forgot username)
     
     Returns:
         str: HTML formatted email body
     """
+    # Username section (only shown if include_username is True)
+    if include_username:
+        username_section = f"""
+                            <!-- Username Box -->
+                            <div style="background-color: #fff7ed; border: 2px solid #f25a04; padding: 20px; margin: 25px 0; border-radius: 8px; text-align: center;">
+                                <p style="margin: 0 0 10px 0; color: #6b7280; font-size: 14px; font-weight: 500;">
+                                    Your Username:
+                                </p>
+                                <p style="margin: 0; color: #f25a04; font-size: 24px; font-weight: 700; font-family: 'Courier New', monospace;">
+                                    {username}
+                                </p>
+                            </div>
+"""
+    else:
+        username_section = ""
+    
     html_template = """
 <!DOCTYPE html>
 <html>
@@ -412,7 +429,7 @@ def generate_password_reset_email_body(username, reset_code):
                             <p style="margin: 0 0 20px 0; color: #4b5563; font-size: 15px; line-height: 1.6;">
                                 We received a request to reset your password for your DRESS admin account. Use the code below to reset your password:
                             </p>
-                            
+                            {username_section}
                             <!-- Reset Code Box -->
                             <div style="background-color: #f8fafc; border: 2px solid #2ca9e1; padding: 30px; margin: 25px 0; border-radius: 8px; text-align: center;">
                                 <p style="margin: 0 0 10px 0; color: #6b7280; font-size: 14px; font-weight: 500;">
@@ -466,5 +483,6 @@ def generate_password_reset_email_body(username, reset_code):
     
     return html_template.format(
         username=username,
-        reset_code=reset_code
+        reset_code=reset_code,
+        username_section=username_section
     )
