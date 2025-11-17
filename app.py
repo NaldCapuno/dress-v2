@@ -228,6 +228,7 @@ rfid_consecutive_compliant = 0  # counter for consecutive compliant detections
 rfid_last_compliance_status = None  # track last compliance status to detect changes
 rfid_enabled = False  # flag to completely disable RFID processing
 rfid_violation_timeout = 30  # seconds after which violation flag resets (allows re-recording)
+compliant_monitor_frame_counter = 0  # counter to periodically check for violations even when compliant
 
 # Global variable for test mode
 test_mode = False
@@ -467,6 +468,7 @@ def rfid_event_handler():
                             rfid_current_uid_snapshot_saved = False
                             rfid_last_violation_ts = 0
                             rfid_last_violation_uid = None  # Reset violation UID tracking for new card
+                            compliant_monitor_frame_counter = 0  # Reset compliant monitoring counter
                             # Reset tracker for new RFID scan
                             tracker = BotSORT()
                             print("DEBUG: Tracker reset for new RFID scan - All flags reset")
@@ -744,7 +746,7 @@ def detect_dress_code(person_crop, gender: str = 'male'):
                     class_id = int(box.cls[0])
                     confidence = float(box.conf[0])
                     
-                    if confidence > 0.85:  # High threshold for dress detection
+                    if confidence > 0.70:  # High threshold for dress detection
                         # Get class name from model
                         class_name = dress_model.names[class_id]
                         dress_detections.append({
@@ -1274,7 +1276,21 @@ def _maybe_record_violation(frame, detections, admin_user):
         # Consider both NON-COMPLIANT and PARTIALLY COMPLIANT as violations
         has_violation = non_compliant or partially_compliant
         
+        # Collect compliant items for debug output
+        compliant_items_list = []
+        if detections:
+            for det in detections:
+                dv = det.get('dress_validation') or {}
+                comp = dv.get('compliance_status') or {}
+                for key, val in comp.items():
+                    if val.get('present'):
+                        compliant_items_list.append(val.get('name') or key)
+        
         print(f"DEBUG: Frame analysis - Non-compliant: {non_compliant}, Partially compliant: {partially_compliant}, Status: {current_compliance_status}, Detections: {len(detections)}")
+        if current_compliance_status == 'COMPLIANT':
+            print(f"DEBUG: COMPLIANT items detected: {', '.join(compliant_items_list) if compliant_items_list else 'None'}")
+        elif current_compliance_status in ['NON-COMPLIANT', 'PARTIALLY COMPLIANT']:
+            print(f"DEBUG: Violation items missing: {', '.join(violation_details) if violation_details else 'None'}")
         
         # Only process if RFID card is present
         with rfid_lock:
@@ -1312,6 +1328,12 @@ def _maybe_record_violation(frame, detections, admin_user):
             
             # Increment counter for both non-compliant and partially compliant detections
             if has_violation:
+                # If person was previously marked as compliant, don't record violations or re-enable detection
+                # This prevents false positives when detection was stopped after 2 compliant detections
+                if rfid_current_uid_compliant:
+                    print(f"DEBUG: Violation detected but person was previously COMPLIANT - ignoring to prevent false positives (Status: {current_compliance_status})")
+                    return None  # Exit early, don't process or record this violation
+                
                 rfid_consecutive_non_compliant += 1
                 print(f"DEBUG: Violation detection #{rfid_consecutive_non_compliant} for student {rfid_last_student.get('student_id')} (Status: {current_compliance_status})")
             else:
@@ -1327,7 +1349,10 @@ def _maybe_record_violation(frame, detections, admin_user):
                     
                     # Increment compliant counter
                     rfid_consecutive_compliant += 1
-                    print(f"DEBUG: Compliant detection #{rfid_consecutive_compliant} for student {rfid_last_student.get('student_id')}")
+                    student_id = rfid_last_student.get('student_id') if rfid_last_student else 'Unknown'
+                    print(f"DEBUG: [COMPLIANT] Detection #{rfid_consecutive_compliant} for student {student_id}")
+                    print(f"DEBUG: [COMPLIANT] Compliant items: {', '.join(compliant_items_list) if compliant_items_list else 'None'}")
+                    print(f"DEBUG: [COMPLIANT] Counter: {rfid_consecutive_compliant}/2 (need 2 consecutive for auto-stop)")
                     
                     # Stop detection after 2 consecutive compliant detections (to avoid false positives)
                     if rfid_consecutive_compliant >= 2 and not rfid_current_uid_compliant:
@@ -1335,8 +1360,11 @@ def _maybe_record_violation(frame, detections, admin_user):
                         rfid_current_uid_compliant = True
                         with rfid_lock:
                             detection_enabled = False
-                        print(f"DEBUG: Student {rfid_last_student.get('student_id')} detected as COMPLIANT ({rfid_consecutive_compliant} consecutive detections) - stopping detection")
-                        print(f"DEBUG: rfid_current_uid_compliant={rfid_current_uid_compliant}, detection_enabled={detection_enabled}")
+                        print(f"DEBUG: [COMPLIANT] ✓ Student {student_id} reached 2 consecutive COMPLIANT detections - DETECTION STOPPED")
+                        print(f"DEBUG: [COMPLIANT] Flags: rfid_current_uid_compliant={rfid_current_uid_compliant}, detection_enabled={detection_enabled}")
+                    else:
+                        remaining = 2 - rfid_consecutive_compliant
+                        print(f"DEBUG: [COMPLIANT] Need {remaining} more consecutive compliant detection(s) to stop")
                 else:
                     # Reset compliant counter if status is not COMPLIANT
                     rfid_consecutive_compliant = 0
@@ -1813,7 +1841,7 @@ def detection_worker():
 def generate_frames():
     """Generate video frames for streaming with smooth async detection"""
     global camera, detection_enabled, current_frame, frame_lock, detection_queue
-    global latest_detections, latest_detection_frame, detection_results_lock
+    global latest_detections, latest_detection_frame, detection_results_lock, compliant_monitor_frame_counter
     
     # Use time-based frame rate control for smoother playback
     target_fps = 30.0
@@ -1843,14 +1871,26 @@ def generate_frames():
                 # In test mode, detection always runs regardless of RFID
                 detection_enabled_for_frame = rfid_detection_enabled or test_mode_active
                 
+                # Even when compliant, periodically check for violations (every 30 frames = ~1 second at 30fps)
+                # This prevents the system from hanging when transitioning from compliant to non-compliant
+                should_monitor_compliant = False
+                if _compliant and _present and _student_set and not test_mode_active:
+                    compliant_monitor_frame_counter += 1
+                    if compliant_monitor_frame_counter >= 30:  # Check every ~1 second
+                        should_monitor_compliant = True
+                        compliant_monitor_frame_counter = 0
+                elif not _compliant:
+                    # Reset counter when not compliant
+                    compliant_monitor_frame_counter = 0
+                
                 # Add frame to detection queue (non-blocking, drop old frames if queue is full)
-                if detection_enabled_for_frame and detection_queue is not None:
+                if (detection_enabled_for_frame or should_monitor_compliant) and detection_queue is not None:
                     try:
                         detection_queue.put_nowait((frame.copy(), True))
                     except queue.Full:
                         pass
-                elif not detection_enabled_for_frame:
-                    # Clear detection results when detection is disabled
+                elif not detection_enabled_for_frame and not should_monitor_compliant:
+                    # Clear detection results when detection is disabled (but not during compliant monitoring)
                     with detection_results_lock:
                         latest_detections = None
                         latest_detection_frame = None
