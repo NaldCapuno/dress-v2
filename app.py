@@ -139,6 +139,9 @@ app.config['MAIL_USE_SSL'] = os.getenv('MAIL_USE_SSL', 'false').lower() in {'1',
 app.config['MAIL_USERNAME'] = os.getenv('MAIL_USERNAME')
 app.config['MAIL_PASSWORD'] = os.getenv('MAIL_PASSWORD')
 app.config['MAIL_DEFAULT_SENDER'] = os.getenv('MAIL_DEFAULT_SENDER', os.getenv('MAIL_USERNAME'))
+# Email timeout settings to prevent hanging
+app.config['MAIL_TIMEOUT'] = int(os.getenv('MAIL_TIMEOUT', '10'))  # 10 seconds timeout
+app.config['MAIL_CONNECT_TIMEOUT'] = int(os.getenv('MAIL_CONNECT_TIMEOUT', '5'))  # 5 seconds connection timeout
 
 # Validate required email settings
 if not app.config['MAIL_USERNAME'] or not app.config['MAIL_PASSWORD']:
@@ -1649,6 +1652,17 @@ def _maybe_record_violation(frame, detections, admin_user):
                             image_cid = f"violation_proof_{int(now_ts)}"
                             print(f"DEBUG: Image CID generated: {image_cid}")
                         
+                        # Read logo and convert to base64
+                        import base64
+                        logo_base64 = None
+                        logo_path = os.path.join(app.root_path, 'static', 'images', 'dress_logo.png')
+                        if os.path.exists(logo_path):
+                            try:
+                                with open(logo_path, 'rb') as logo_file:
+                                    logo_base64 = base64.b64encode(logo_file.read()).decode('utf-8')
+                            except Exception as logo_err:
+                                print(f"DEBUG: Could not read logo: {logo_err}")
+                        
                         # Generate email body using HTML template
                         html_body = generate_violation_email_body(
                             student_name=student_name,
@@ -1656,7 +1670,8 @@ def _maybe_record_violation(frame, detections, admin_user):
                             strike_num=strike_num,
                             offense_line=offense_line,
                             violation_history=violation_text,
-                            image_cid=image_cid
+                            image_cid=image_cid,
+                            logo_base64=logo_base64
                         )
                         
                         # Create plain text fallback

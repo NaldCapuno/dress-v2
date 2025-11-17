@@ -77,22 +77,50 @@ def get_programs_by_college(college):
 
 @dashboards_bp.route('/')
 def index():
-    """Main dashboard - only allow SECURITY role to access"""
+    """Main dashboard - redirect logged-in users to their appropriate dashboard"""
     admin = session.get('admin') or {}
     role = str(admin.get('role') or '').lower()
-    if role != 'security':
+    
+    # If not logged in, redirect to login
+    if not admin or not role:
         return redirect(url_for('auth.login'))
-    return render_template('index.html')
+    
+    # Redirect logged-in users to their appropriate dashboard
+    if role == 'security':
+        return render_template('index.html')
+    elif role == 'osas':
+        return redirect(url_for('dashboards.osas_dashboard'))
+    elif role == 'guidance':
+        return redirect(url_for('dashboards.guidance_dashboard'))
+    elif role == 'dean':
+        return redirect(url_for('dashboards.dean_dashboard'))
+    else:
+        # Unknown role, redirect to login
+        return redirect(url_for('auth.login'))
 
 
 @dashboards_bp.route('/dashboard')
 def dashboard():
-    """Alias for the main dashboard; restricted to security role."""
+    """Alias for the main dashboard; redirect logged-in users to their appropriate dashboard."""
     admin = session.get('admin') or {}
     role = str(admin.get('role') or '').lower()
-    if role != 'security':
+    
+    # If not logged in, redirect to login
+    if not admin or not role:
         return redirect(url_for('auth.login'))
-    return render_template('index.html')
+    
+    # Redirect logged-in users to their appropriate dashboard
+    if role == 'security':
+        return render_template('index.html')
+    elif role == 'osas':
+        return redirect(url_for('dashboards.osas_dashboard'))
+    elif role == 'guidance':
+        return redirect(url_for('dashboards.guidance_dashboard'))
+    elif role == 'dean':
+        return redirect(url_for('dashboards.dean_dashboard'))
+    else:
+        # Unknown role, redirect to login
+        return redirect(url_for('auth.login'))
 
 
 @dashboards_bp.route('/osas', methods=['GET'])
@@ -100,8 +128,22 @@ def osas_dashboard():
     """OSAS dashboard - only accessible to admins with role 'osas'."""
     admin = session.get('admin') or {}
     role = str(admin.get('role') or '').lower()
-    if role != 'osas':
+    
+    # If not logged in, redirect to login
+    if not admin or not role:
         return redirect(url_for('auth.login'))
+    
+    # If wrong role, redirect to their appropriate dashboard
+    if role != 'osas':
+        if role == 'security':
+            return redirect(url_for('dashboards.index'))
+        elif role == 'guidance':
+            return redirect(url_for('dashboards.guidance_dashboard'))
+        elif role == 'dean':
+            return redirect(url_for('dashboards.dean_dashboard'))
+        else:
+            return redirect(url_for('auth.login'))
+    
     return render_template('osas_dashboard.html')
 
 
@@ -180,9 +222,93 @@ def guidance_dashboard():
     """Guidance dashboard - only accessible to admins with role 'guidance'."""
     admin = session.get('admin') or {}
     role = str(admin.get('role') or '').lower()
-    if role != 'guidance':
+    
+    # If not logged in, redirect to login
+    if not admin or not role:
         return redirect(url_for('auth.login'))
+    
+    # If wrong role, redirect to their appropriate dashboard
+    if role != 'guidance':
+        if role == 'security':
+            return redirect(url_for('dashboards.index'))
+        elif role == 'osas':
+            return redirect(url_for('dashboards.osas_dashboard'))
+        elif role == 'dean':
+            return redirect(url_for('dashboards.dean_dashboard'))
+        else:
+            return redirect(url_for('auth.login'))
+    
     return render_template('guidance_dashboard.html')
+
+
+@dashboards_bp.route('/guidance/colleges', methods=['GET'])
+def guidance_colleges():
+    """Return distinct colleges for Guidance filtering."""
+    from app import get_connection
+    conn = get_connection() if get_connection else None
+    if conn is None:
+        return jsonify({'success': False, 'error': 'DB not configured'}), 500
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT DISTINCT COALESCE(college,'') AS college FROM students WHERE COALESCE(college,'')<>'' ORDER BY college ASC"
+            )
+            rows = cur.fetchall() or []
+        colleges = [r.get('college') for r in rows if r.get('college')]
+        return jsonify({'success': True, 'colleges': colleges})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+    finally:
+        conn.close()
+
+
+@dashboards_bp.route('/guidance/programs', methods=['GET'])
+def guidance_programs():
+    """Return distinct programs for Guidance filtering (optionally filtered by college).
+    Returns all enum values from the database schema, optionally filtered by college mapping."""
+    from app import get_connection
+    college = request.args.get('college')
+    conn = get_connection() if get_connection else None
+    if conn is None:
+        return jsonify({'success': False, 'error': 'DB not configured'}), 500
+    try:
+        # Get all enum values from the database schema
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT COLUMN_TYPE 
+                FROM INFORMATION_SCHEMA.COLUMNS 
+                WHERE TABLE_SCHEMA = DATABASE() 
+                AND TABLE_NAME = 'students' 
+                AND COLUMN_NAME = 'program'
+            """)
+            enum_row = cur.fetchone()
+            
+            if enum_row and enum_row.get('COLUMN_TYPE'):
+                # Parse enum values from format: enum('value1','value2',...)
+                enum_str = enum_row.get('COLUMN_TYPE', '')
+                enum_values = re.findall(r"'([^']+)'", enum_str)
+                all_programs = sorted(enum_values)
+            else:
+                # Fallback: query from students table
+                cur.execute(
+                    "SELECT DISTINCT COALESCE(program,'') AS program FROM students WHERE COALESCE(program,'')<>'' ORDER BY program ASC"
+                )
+                rows = cur.fetchall() or []
+                all_programs = [r.get('program') for r in rows if r.get('program')]
+            
+            # If college filter is provided, return all programs for that college based on mapping
+            if college:
+                college_programs = get_programs_by_college(college)
+                # Filter to only include programs that are in both the enum and the college mapping
+                programs = [p for p in all_programs if p in college_programs]
+            else:
+                programs = all_programs
+                
+        return jsonify({'success': True, 'programs': programs})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+    finally:
+        conn.close()
 
 
 @dashboards_bp.route('/guiance', methods=['GET'])
@@ -190,8 +316,22 @@ def guidance_alias():
     """Alias path for guidance (handles common misspelling)."""
     admin = session.get('admin') or {}
     role = str(admin.get('role') or '').lower()
-    if role != 'guidance':
+    
+    # If not logged in, redirect to login
+    if not admin or not role:
         return redirect(url_for('auth.login'))
+    
+    # If wrong role, redirect to their appropriate dashboard
+    if role != 'guidance':
+        if role == 'security':
+            return redirect(url_for('dashboards.index'))
+        elif role == 'osas':
+            return redirect(url_for('dashboards.osas_dashboard'))
+        elif role == 'dean':
+            return redirect(url_for('dashboards.dean_dashboard'))
+        else:
+            return redirect(url_for('auth.login'))
+    
     return redirect(url_for('dashboards.guidance_dashboard'))
 
 
@@ -200,8 +340,22 @@ def dean_dashboard():
     """Dean dashboard - only accessible to admins with role 'dean'."""
     admin = session.get('admin') or {}
     role = str(admin.get('role') or '').lower()
-    if role != 'dean':
+    
+    # If not logged in, redirect to login
+    if not admin or not role:
         return redirect(url_for('auth.login'))
+    
+    # If wrong role, redirect to their appropriate dashboard
+    if role != 'dean':
+        if role == 'security':
+            return redirect(url_for('dashboards.index'))
+        elif role == 'osas':
+            return redirect(url_for('dashboards.osas_dashboard'))
+        elif role == 'guidance':
+            return redirect(url_for('dashboards.guidance_dashboard'))
+        else:
+            return redirect(url_for('auth.login'))
+    
     return render_template('dean_dashboard.html', college=admin.get('college'))
 
 
