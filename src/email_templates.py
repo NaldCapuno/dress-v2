@@ -4,7 +4,7 @@ Contains HTML email templates with mobile-responsive design.
 """
 
 
-def generate_violation_email_body(student_name, violation_datetime, strike_num, offense_line, violation_history, image_cid=None):
+def generate_violation_email_body(student_name, violation_datetime, strike_num, offense_line, violation_history, image_cid=None, logo_base64=None):
     """
     Generate HTML email body for dress code violation notification.
     Mobile-responsive design with inline CSS matching web app color scheme.
@@ -39,6 +39,12 @@ def generate_violation_email_body(student_name, violation_datetime, strike_num, 
     else:
         strike_color = '#e55100'  # Accent-dark (matches web app)
     
+    # Generate logo section with base64 or CID
+    if logo_base64:
+        logo_section = f'<div style="margin-bottom: 15px;"><img src="data:image/png;base64,{logo_base64}" alt="DRESS Logo" style="max-width: 120px; height: auto; margin-bottom: 10px;" /></div>'
+    else:
+        logo_section = '<div style="margin-bottom: 15px;"><img src="cid:dress_logo" alt="DRESS Logo" style="max-width: 120px; height: auto; margin-bottom: 10px;" /></div>'
+    
     html_template = """
 <!DOCTYPE html>
 <html>
@@ -55,6 +61,7 @@ def generate_violation_email_body(student_name, violation_datetime, strike_num, 
                     <!-- Header -->
                     <tr>
                         <td style="background: linear-gradient(135deg, #2ca9e1 0%, #1e7bb8 100%); padding: 30px 20px; text-align: center; border-radius: 8px 8px 0 0;">
+                            {logo_section}
                             <h1 style="margin: 0; color: #ffffff; font-size: 24px; font-weight: 600; letter-spacing: 0.5px;">
                                 DRESS CODE VIOLATION
                             </h1>
@@ -178,11 +185,12 @@ def generate_violation_email_body(student_name, violation_datetime, strike_num, 
         offense_line=offense_line,
         violation_history=formatted_history,
         strike_color=strike_color,
-        proof_image_section=proof_image_section
+        proof_image_section=proof_image_section,
+        logo_section=logo_section
     )
 
 
-def generate_followup_email_body(student_name, first_notice_date, violation_datetime, strike_num, offense_line, violation_history, image_cid=None):
+def generate_followup_email_body(student_name, first_notice_date, violation_datetime, strike_num, offense_line, violation_history, image_cid=None, logo_base64=None):
     """
     Generate HTML email body for dress code violation follow-up notification.
     Sent after 3 days if violation is still not resolved.
@@ -222,6 +230,12 @@ def generate_followup_email_body(student_name, first_notice_date, violation_date
     # Generate image attachment text
     image_attachment_text = '<p style="margin: 10px 0 0 0; color: #6b7280; font-size: 12px; font-style: italic;">Proof image attached to this email</p>' if image_cid else ''
     
+    # Generate logo section with base64 or CID
+    if logo_base64:
+        logo_section = f'<div style="margin-bottom: 15px;"><img src="data:image/png;base64,{logo_base64}" alt="DRESS Logo" style="max-width: 120px; height: auto; margin-bottom: 10px;" /></div>'
+    else:
+        logo_section = '<div style="margin-bottom: 15px;"><img src="cid:dress_logo" alt="DRESS Logo" style="max-width: 120px; height: auto; margin-bottom: 10px;" /></div>'
+    
     html_template = """
 <!DOCTYPE html>
 <html>
@@ -238,6 +252,7 @@ def generate_followup_email_body(student_name, first_notice_date, violation_date
                     <!-- Header -->
                     <tr>
                         <td style="background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%); padding: 30px 20px; text-align: center; border-radius: 8px 8px 0 0;">
+                            {logo_section}
                             <h1 style="margin: 0; color: #ffffff; font-size: 24px; font-weight: 600; letter-spacing: 0.5px;">
                                 DRESS CODE VIOLATION FOLLOW-UP NOTICE
                             </h1>
@@ -362,11 +377,12 @@ def generate_followup_email_body(student_name, first_notice_date, violation_date
         violation_history=formatted_history,
         strike_color=strike_color,
         proof_image_section=proof_image_section,
-        image_attachment_text=image_attachment_text
+        image_attachment_text=image_attachment_text,
+        logo_section=logo_section
     )
 
 
-def generate_password_reset_email_body(username, reset_code, include_username=False):
+def generate_password_reset_email_body(username, reset_code, include_username=False, logo_base64=None):
     """
     Generate HTML email body for password reset code notification.
     Mobile-responsive design with inline CSS matching web app color scheme.
@@ -395,6 +411,12 @@ def generate_password_reset_email_body(username, reset_code, include_username=Fa
     else:
         username_section = ""
     
+    # Generate logo section with base64 or CID
+    if logo_base64:
+        logo_section = f'<div style="margin-bottom: 15px;"><img src="data:image/png;base64,{logo_base64}" alt="DRESS Logo" style="max-width: 120px; height: auto; margin-bottom: 10px;" /></div>'
+    else:
+        logo_section = '<div style="margin-bottom: 15px;"><img src="cid:dress_logo" alt="DRESS Logo" style="max-width: 120px; height: auto; margin-bottom: 10px;" /></div>'
+    
     html_template = """
 <!DOCTYPE html>
 <html>
@@ -411,6 +433,7 @@ def generate_password_reset_email_body(username, reset_code, include_username=Fa
                     <!-- Header -->
                     <tr>
                         <td style="background: linear-gradient(135deg, #2ca9e1 0%, #1e7bb8 100%); padding: 30px 20px; text-align: center; border-radius: 8px 8px 0 0;">
+                            {logo_section}
                             <h1 style="margin: 0; color: #ffffff; font-size: 24px; font-weight: 600; letter-spacing: 0.5px;">
                                 PASSWORD RESET REQUEST
                             </h1>
@@ -484,5 +507,6 @@ def generate_password_reset_email_body(username, reset_code, include_username=Fa
     return html_template.format(
         username=username,
         reset_code=reset_code,
-        username_section=username_section
+        username_section=username_section,
+        logo_section=logo_section
     )

@@ -2021,6 +2021,17 @@ def send_followup_emails():
                     if os.path.exists(proof_path):
                         image_cid = f"violation_proof_{violation_id}"
                 
+                # Read logo and convert to base64
+                import base64
+                logo_base64 = None
+                logo_path = os.path.join(app.root_path, 'static', 'images', 'dress_logo.png')
+                if os.path.exists(logo_path):
+                    try:
+                        with open(logo_path, 'rb') as logo_file:
+                            logo_base64 = base64.b64encode(logo_file.read()).decode('utf-8')
+                    except Exception as logo_err:
+                        print(f"Warning: Could not read logo: {logo_err}")
+                
                 # Generate email body
                 html_body = generate_followup_email_body(
                     student_name=student_name,
@@ -2029,7 +2040,8 @@ def send_followup_emails():
                     strike_num=strike_count,
                     offense_line=offense_line,
                     violation_history=violation_text,
-                    image_cid=image_cid
+                    image_cid=image_cid,
+                    logo_base64=logo_base64
                 )
                 
                 # Create plain text fallback

@@ -156,7 +156,19 @@ def forgot_password():
             def send_email_async():
                 """Send email in background thread to avoid blocking the response"""
                 try:
-                    html_body = generate_password_reset_email_body(username, reset_code, include_username=False)
+                    # Read logo and convert to base64
+                    import os
+                    import base64
+                    logo_base64 = None
+                    logo_path = os.path.join(app.root_path, 'static', 'images', 'dress_logo.png')
+                    if os.path.exists(logo_path):
+                        try:
+                            with open(logo_path, 'rb') as logo_file:
+                                logo_base64 = base64.b64encode(logo_file.read()).decode('utf-8')
+                        except Exception as logo_err:
+                            print(f"Warning: Could not read logo: {logo_err}")
+                    
+                    html_body = generate_password_reset_email_body(username, reset_code, include_username=False, logo_base64=logo_base64)
                     
                     # Build plain text body
                     plain_text_body = f"""PASSWORD RESET REQUEST

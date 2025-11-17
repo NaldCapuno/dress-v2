@@ -1556,6 +1556,71 @@
             }
             
             // Toggle add student form (make it globally accessible)
+            // RFID scanning state for add student form
+            let rfidScanInterval = null;
+            let lastScannedRfid = null;
+            let rfidScanningActive = false;
+
+            // Function to scan RFID and auto-fill if available
+            async function scanRfidForAddStudent() {
+                if (!rfidScanningActive) return;
+                
+                try {
+                    const response = await fetch('/rfid/read', {
+                        method: 'POST'
+                    });
+                    const result = await response.json();
+                    
+                    if (result.success && result.uid) {
+                        // Only process if this is a new card (not the same as last scanned)
+                        if (result.uid !== lastScannedRfid) {
+                            lastScannedRfid = result.uid;
+                            
+                            // Check if RFID is already in use
+                            if (result.student) {
+                                // RFID is already assigned to a student
+                                showToast(`RFID ${result.uid} is already assigned to student: ${result.student.name}`, 'error');
+                            } else {
+                                // RFID is available, auto-fill the field
+                                const rfidInput = document.getElementById('rfid_uid');
+                                if (rfidInput) {
+                                    if (!rfidInput.value) {
+                                        // Field is empty, auto-fill it
+                                        rfidInput.value = result.uid;
+                                        showToast(`RFID ${result.uid} scanned and ready to use`, 'success');
+                                    } else if (rfidInput.value !== result.uid) {
+                                        // Field has a different value, inform user
+                                        showToast(`RFID ${result.uid} detected. Clear the field first to use this RFID.`, 'info');
+                                    }
+                                }
+                            }
+                        }
+                    }
+                } catch (error) {
+                    // Silently fail - RFID reader might not be available
+                    console.debug('RFID scan error:', error);
+                }
+            }
+
+            // Start RFID scanning when form is shown
+            function startRfidScanning() {
+                if (rfidScanInterval) return; // Already scanning
+                rfidScanningActive = true;
+                lastScannedRfid = null;
+                // Poll every 500ms for RFID cards
+                rfidScanInterval = setInterval(scanRfidForAddStudent, 500);
+            }
+
+            // Stop RFID scanning when form is hidden
+            function stopRfidScanning() {
+                rfidScanningActive = false;
+                if (rfidScanInterval) {
+                    clearInterval(rfidScanInterval);
+                    rfidScanInterval = null;
+                }
+                lastScannedRfid = null;
+            }
+
             window.toggleAddStudentForm = function() {
                 const formCard = document.getElementById('add-student-form-card');
                 const listCard = document.getElementById('students-list-card');
@@ -1565,10 +1630,12 @@
                         // Hide form, show list
                         formCard.classList.add('section-hidden');
                         listCard.classList.remove('section-hidden');
+                        stopRfidScanning(); // Stop scanning when form is hidden
                     } else {
                         // Show form, hide list
                         formCard.classList.remove('section-hidden');
                         listCard.classList.add('section-hidden');
+                        startRfidScanning(); // Start scanning when form is shown
                     }
                 }
             };
@@ -1898,6 +1965,8 @@
                         if (result.success) {
                             showToast(`Student "${data.name}" added successfully!`, 'success');
                             addStudentForm.reset();
+                            // Reset last scanned RFID so same card can be scanned again if needed
+                            lastScannedRfid = null;
                             // Reload college and programs after reset
                             setTimeout(() => {
                                 loadCollegeForAddStudent();
@@ -1912,7 +1981,17 @@
                         console.error('Error adding student:', e);
                     }
                 });
+
+                // Handle form reset - reset last scanned RFID
+                addStudentForm.addEventListener('reset', () => {
+                    lastScannedRfid = null;
+                });
             }
+
+            // Cleanup RFID scanning on page unload
+            window.addEventListener('beforeunload', () => {
+                stopRfidScanning();
+            });
             
             // Handle edit student form submission
             const editStudentForm = document.getElementById('edit-student-form');
