@@ -1680,17 +1680,6 @@ def _maybe_record_violation(frame, detections, admin_user):
                             image_cid = f"violation_proof_{int(now_ts)}"
                             print(f"DEBUG: Image CID generated: {image_cid}")
                         
-                        # Read logo and convert to base64
-                        import base64
-                        logo_base64 = None
-                        logo_path = os.path.join(app.root_path, 'static', 'images', 'dress_logo.png')
-                        if os.path.exists(logo_path):
-                            try:
-                                with open(logo_path, 'rb') as logo_file:
-                                    logo_base64 = base64.b64encode(logo_file.read()).decode('utf-8')
-                            except Exception as logo_err:
-                                print(f"DEBUG: Could not read logo: {logo_err}")
-                        
                         # Generate email body using HTML template
                         html_body = generate_violation_email_body(
                             student_name=student_name,
@@ -1699,7 +1688,8 @@ def _maybe_record_violation(frame, detections, admin_user):
                             offense_line=offense_line,
                             violation_history=violation_text,
                             image_cid=image_cid,
-                            logo_base64=logo_base64
+                            logo_base64=None,
+                            logo_cid=None
                         )
                         
                         # Create plain text fallback
@@ -1761,6 +1751,7 @@ This is an automated notification. Please do not reply to this email."""
                                     print(f"DEBUG: Proof image attached with CID: {image_cid}")
                                 except Exception as attach_err:
                                     print(f"DEBUG: Error attaching image: {attach_err}")
+                            
                             
                             print(f"DEBUG: Attempting to send email to {student_email}...")
                             # Flask-Mail requires application context, especially when called from background threads

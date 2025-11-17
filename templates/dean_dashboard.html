@@ -580,7 +580,7 @@
             if (btn) {
                 const originalText = btn.innerHTML;
                 btn.disabled = true;
-                btn.innerHTML = '<span style="margin-right: 0.5rem;">⏳</span>Generating...';
+                btn.innerHTML = '<span class="btn-icon">⏳</span>Generating...';
                 setTimeout(() => {
                     btn.disabled = false;
                     btn.innerHTML = originalText;
@@ -859,7 +859,7 @@
                 <button class="nav-item" data-target="add-students-section">Students</button>
                 <button class="nav-item" data-target="notifications-section">
                     Notifications
-                    <span id="notification-dot" class="notification-dot" style="display: none;">•</span>
+                    <span id="notification-dot" class="notification-dot hidden">•</span>
                 </button>
                 <button class="nav-item" data-target="settings-section">Settings</button>
             </nav>
@@ -1079,15 +1079,15 @@
             <div class="card card-margin-top">
                 <div class="card-header card-header-accent">
                     <div class="card-header-flex">
-                        <span style="font-size: 1.25rem;">📄</span>
+                        <span class="card-icon">📄</span>
                         <h3 class="card-header-title">Generate Report</h3>
                     </div>
                 </div>
-                <div class="card-body" style="padding: 1.5rem;">
-                    <div style="display: flex; align-items: center; gap: 1rem; flex-wrap: wrap;">
-                        <div style="display: flex; flex-direction: column; gap: 0.5rem;">
-                            <label for="report-month" style="font-size: 0.875rem; font-weight: 600; color: #374151;">Month</label>
-                            <select id="report-month" class="form-control" style="min-width: 150px;">
+                <div class="card-body card-body--compact">
+                    <div class="filter-row">
+                        <div class="filter-column">
+                            <label for="report-month" class="filter-label">Month</label>
+                            <select id="report-month" class="form-control filter-select-sm">
                                 <option value="1">January</option>
                                 <option value="2">February</option>
                                 <option value="3">March</option>
@@ -1102,13 +1102,13 @@
                                 <option value="12">December</option>
                             </select>
                         </div>
-                        <div style="display: flex; flex-direction: column; gap: 0.5rem;">
-                            <label for="report-year" style="font-size: 0.875rem; font-weight: 600; color: #374151;">Year</label>
-                            <select id="report-year" class="form-control" style="min-width: 120px;">
+                        <div class="filter-column">
+                            <label for="report-year" class="filter-label">Year</label>
+                            <select id="report-year" class="form-control filter-select-year">
                             </select>
                         </div>
-                        <div style="display: flex; align-items: flex-end; margin-left: auto;">
-                            <button class="btn btn-primary" id="generate-report-btn" onclick="generateMonthlyReport()" style="padding: 0.625rem 2rem; font-weight: 600;">
+                        <div class="flex-align-end">
+                            <button class="btn btn-primary btn-wide" id="generate-report-btn" onclick="generateMonthlyReport()">
                                 Generate
                             </button>
                         </div>
@@ -1155,7 +1155,7 @@
                             <span>Page <span id="students-page">1</span></span>
                             <button class="btn btn-secondary" onclick="nextStudentsPage()">Next</button>
                             <span id="students-count-display">Showing 0-0 of 0</span>
-                            <button class="btn btn-primary" id="show-add-student-btn" onclick="toggleAddStudentForm()">Add Student</button>
+                            <button class="btn btn-primary" id="show-add-student-btn" onclick="toggleAddStudentForm('open')">Add Student</button>
                         </div>
                     </div>
                 </div>
@@ -1176,7 +1176,7 @@
                             </thead>
                             <tbody id="students-table-body">
                                 <tr>
-                                    <td colspan="8" style="text-align: center; padding: 2rem; color: #6b7280;">Loading students...</td>
+                                    <td colspan="8" class="table-empty-message">Loading students...</td>
                                 </tr>
                             </tbody>
                         </table>
@@ -1184,72 +1184,9 @@
                 </div>
             </div>
 
-            <div class="card section-hidden" id="add-student-form-card">
-                <div class="card-header">
-                    <div style="display: flex; justify-content: space-between; align-items: center;">
-                        <h3>Add New Student</h3>
-                        <button class="btn btn-secondary" onclick="toggleAddStudentForm()">Cancel</button>
-                    </div>
-                </div>
-                <div class="card-body">
-                    <form id="add-student-form">
-                        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 1rem; margin-bottom: 1rem;">
-                            <div class="form-group">
-                                <label for="student_id">Student ID <span style="color: red;">*</span></label>
-                                <input type="text" id="student_id" name="student_id" class="form-control" required>
-                            </div>
-                            <div class="form-group">
-                                <label for="rfid_uid">RFID UID <span style="color: red;">*</span></label>
-                                <input type="text" id="rfid_uid" name="rfid_uid" class="form-control" required>
-                            </div>
-                            <div class="form-group">
-                                <label for="name">Full Name <span style="color: red;">*</span></label>
-                                <input type="text" id="name" name="name" class="form-control" required>
-                            </div>
-                            <div class="form-group">
-                                <label for="email">Email <span style="color: red;">*</span></label>
-                                <input type="email" id="email" name="email" class="form-control" required>
-                            </div>
-                            <div class="form-group">
-                                <label for="gender">Gender <span style="color: red;">*</span></label>
-                                <select id="gender" name="gender" class="form-control" required>
-                                    <option value="">Select Gender</option>
-                                    <option value="male">Male</option>
-                                    <option value="female">Female</option>
-                                </select>
-                            </div>
-                            <div class="form-group">
-                                <label for="year_level">Year Level <span style="color: red;">*</span></label>
-                                <select id="year_level" name="year_level" class="form-control" required>
-                                    <option value="">Select Year Level</option>
-                                    <option value="1">1</option>
-                                    <option value="2">2</option>
-                                    <option value="3">3</option>
-                                    <option value="4">4</option>
-                                </select>
-                            </div>
-                            <div class="form-group">
-                                <label for="program">Program <span style="color: red;">*</span></label>
-                                <select id="program-select" name="program" class="form-control" required>
-                                    <option value="">Select Program</option>
-                                </select>
-                            </div>
-                            <div class="form-group">
-                                <label for="college">College</label>
-                                <input type="text" id="college" name="college" class="form-control" readonly style="background-color: #f3f4f6;">
-                            </div>
-                        </div>
-                        <div style="display: flex; gap: 1rem; margin-top: 1rem;">
-                            <button type="submit" class="btn btn-primary">Add Student</button>
-                            <button type="reset" class="btn btn-secondary">Clear Form</button>
-                        </div>
-                    </form>
-                </div>
-            </div>
-
             <div class="card section-hidden" id="edit-student-form-card">
                 <div class="card-header">
-                    <div style="display: flex; justify-content: space-between; align-items: center;">
+                    <div class="filter-row justify-between">
                         <h3>Edit Student</h3>
                         <button class="btn btn-secondary" onclick="toggleEditStudentForm()">Cancel</button>
                     </div>
@@ -1257,21 +1194,21 @@
                 <div class="card-body">
                     <form id="edit-student-form">
                         <input type="hidden" id="edit-student_id" name="student_id">
-                        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 1rem; margin-bottom: 1rem;">
+                        <div class="form-grid">
                             <div class="form-group">
-                                <label for="edit-rfid_uid">RFID UID <span style="color: red;">*</span></label>
+                                <label for="edit-rfid_uid">RFID UID <span class="text-danger">*</span></label>
                                 <input type="text" id="edit-rfid_uid" name="rfid_uid" class="form-control" required>
                             </div>
                             <div class="form-group">
-                                <label for="edit-name">Full Name <span style="color: red;">*</span></label>
+                                <label for="edit-name">Full Name <span class="text-danger">*</span></label>
                                 <input type="text" id="edit-name" name="name" class="form-control" required>
                             </div>
                             <div class="form-group">
-                                <label for="edit-email">Email <span style="color: red;">*</span></label>
+                                <label for="edit-email">Email <span class="text-danger">*</span></label>
                                 <input type="email" id="edit-email" name="email" class="form-control" required>
                             </div>
                             <div class="form-group">
-                                <label for="edit-gender">Gender <span style="color: red;">*</span></label>
+                                <label for="edit-gender">Gender <span class="text-danger">*</span></label>
                                 <select id="edit-gender" name="gender" class="form-control" required>
                                     <option value="">Select Gender</option>
                                     <option value="male">Male</option>
@@ -1279,7 +1216,7 @@
                                 </select>
                             </div>
                             <div class="form-group">
-                                <label for="edit-year_level">Year Level <span style="color: red;">*</span></label>
+                                <label for="edit-year_level">Year Level <span class="text-danger">*</span></label>
                                 <select id="edit-year_level" name="year_level" class="form-control" required>
                                     <option value="">Select Year Level</option>
                                     <option value="1">1</option>
@@ -1289,20 +1226,80 @@
                                 </select>
                             </div>
                             <div class="form-group">
-                                <label for="edit-program">Program <span style="color: red;">*</span></label>
+                                <label for="edit-program">Program <span class="text-danger">*</span></label>
                                 <select id="edit-program" name="program" class="form-control" required>
                                     <option value="">Select Program</option>
                                 </select>
                             </div>
                             <div class="form-group">
                                 <label for="edit-college">College</label>
-                                <input type="text" id="edit-college" name="college" class="form-control" readonly style="background-color: #f3f4f6;">
+                                <input type="text" id="edit-college" name="college" class="form-control input-readonly" readonly>
                             </div>
                         </div>
-                        <div style="display: flex; gap: 1rem; margin-top: 1rem;">
+                        <div class="form-actions">
                             <button type="submit" class="btn btn-primary">Update Student</button>
                         </div>
                     </form>
+                </div>
+            </div>
+
+            <div id="add-student-modal" class="modal-overlay">
+                <div class="modal-content add-student-modal" id="add-student-form-card">
+                    <button class="modal-close-btn" onclick="toggleAddStudentForm('close')">&times;</button>
+                    <div class="modal-header">
+                        <h3 class="modal-title">Add New Student</h3>
+                    </div>
+                    <div class="modal-body">
+                        <form id="add-student-form">
+                            <div class="form-grid-sm">
+                                <div class="form-group">
+                                <label for="student_id">Student ID <span class="text-danger">*</span></label>
+                                    <input type="text" id="student_id" name="student_id" class="form-control" required>
+                                </div>
+                                <div class="form-group">
+                                <label for="rfid_uid">RFID UID <span class="text-danger">*</span></label>
+                                    <input type="text" id="rfid_uid" name="rfid_uid" class="form-control" required>
+                                </div>
+                                <div class="form-group">
+                                <label for="name">Full Name <span class="text-danger">*</span></label>
+                                    <input type="text" id="name" name="name" class="form-control" required>
+                                </div>
+                                <div class="form-group">
+                                <label for="email">Email <span class="text-danger">*</span></label>
+                                    <input type="email" id="email" name="email" class="form-control" required>
+                                </div>
+                                <div class="form-group">
+                                <label for="gender">Gender <span class="text-danger">*</span></label>
+                                    <select id="gender" name="gender" class="form-control" required>
+                                        <option value="">Select Gender</option>
+                                        <option value="male">Male</option>
+                                        <option value="female">Female</option>
+                                    </select>
+                                </div>
+                                <div class="form-group">
+                                <label for="year_level">Year Level <span class="text-danger">*</span></label>
+                                    <select id="year_level" name="year_level" class="form-control" required>
+                                        <option value="">Select Year Level</option>
+                                        <option value="1">1</option>
+                                        <option value="2">2</option>
+                                        <option value="3">3</option>
+                                        <option value="4">4</option>
+                                    </select>
+                                </div>
+                                <div class="form-group">
+                                <label for="program">Program <span class="text-danger">*</span></label>
+                                    <select id="program-select" name="program" class="form-control" required>
+                                        <option value="">Select Program</option>
+                                    </select>
+                                </div>
+                            </div>
+                        <div class="form-actions">
+                                <button type="submit" class="btn btn-primary">Add Student</button>
+                                <button type="reset" class="btn btn-secondary">Clear Form</button>
+                                <button type="button" class="btn btn-secondary" onclick="toggleAddStudentForm('close')">Cancel</button>
+                            </div>
+                        </form>
+                    </div>
                 </div>
             </div>
         </div>
@@ -1313,10 +1310,10 @@
                     <h3>Notifications</h3>
                 </div>
                 <div class="card-body">
-                    <div id="alert-message" class="alert" style="display:none; cursor:pointer; padding:12px 14px; border-radius:6px; background:#fff8e1; border:1px solid #ffe082;">
+                    <div id="alert-message" class="alert alert-banner hidden">
                         There are <strong id="alert-count">0</strong> students with more than 3 days pending violation. Click to view.
                     </div>
-                    <div id="alert-students" style="display:none; margin-top:10px;">
+                    <div id="alert-students" class="alert-table-wrapper hidden">
                         <table class="table">
                             <thead>
                                 <tr>
@@ -1333,18 +1330,18 @@
         </div>
         
         <div id="settings-section" class="section-hidden">
-            <div class="card" style="margin-bottom: 1.25rem;">
+            <div class="card section-card">
                 <div class="card-header">
                     <h3><i class="fas fa-user"></i> Change Username</h3>
                 </div>
                 <div class="card-body">
-                    <div style="margin-bottom: 15px;">
-                        <label style="display: block; margin-bottom: 8px; font-weight: 600; color: #333; font-size: 14px;">Current Username:</label>
-                        <div id="current-username-display" style="padding: 10px; background-color: #f8f9fa; border: 1px solid #e0e0e0; border-radius: 6px; font-size: 14px; color: #666; width: 100%; max-width: 400px; box-sizing: border-box;">Loading...</div>
+                    <div class="settings-block">
+                        <label class="settings-label-inline">Current Username:</label>
+                        <div id="current-username-display" class="info-panel">Loading...</div>
                     </div>
-                    <div style="margin-bottom: 15px;">
-                        <label style="display: block; margin-bottom: 8px; font-weight: 600; color: #333; font-size: 14px;">New Username:</label>
-                        <input type="text" id="new-username-input" placeholder="Enter new username" class="form-control" style="width: 100%; max-width: 400px; box-sizing: border-box;">
+                    <div class="settings-block">
+                        <label class="settings-label-inline">New Username:</label>
+                        <input type="text" id="new-username-input" placeholder="Enter new username" class="form-control settings-input">
                     </div>
                     <button id="update-username-btn" class="btn btn-primary">
                         <i class="fas fa-save"></i> Update Username
@@ -1352,22 +1349,22 @@
                 </div>
             </div>
             
-            <div class="card" style="margin-bottom: 1.25rem;">
+            <div class="card section-card">
                 <div class="card-header">
                     <h3><i class="fas fa-lock"></i> Change Password</h3>
                 </div>
                 <div class="card-body">
-                    <div style="margin-bottom: 15px;">
-                        <label style="display: block; margin-bottom: 8px; font-weight: 600; color: #333; font-size: 14px;">Current Password:</label>
-                        <input type="password" id="current-password-input" placeholder="Enter current password" class="form-control" style="width: 100%; max-width: 400px; box-sizing: border-box;">
+                    <div class="settings-block">
+                        <label class="settings-label-inline">Current Password:</label>
+                        <input type="password" id="current-password-input" placeholder="Enter current password" class="form-control settings-input">
                     </div>
-                    <div style="margin-bottom: 15px;">
-                        <label style="display: block; margin-bottom: 8px; font-weight: 600; color: #333; font-size: 14px;">New Password:</label>
-                        <input type="password" id="new-password-input" placeholder="Enter new password (min. 6 characters)" class="form-control" style="width: 100%; max-width: 400px; box-sizing: border-box;">
+                    <div class="settings-block">
+                        <label class="settings-label-inline">New Password:</label>
+                        <input type="password" id="new-password-input" placeholder="Enter new password (min. 6 characters)" class="form-control settings-input">
                     </div>
-                    <div style="margin-bottom: 15px;">
-                        <label style="display: block; margin-bottom: 8px; font-weight: 600; color: #333; font-size: 14px;">Confirm New Password:</label>
-                        <input type="password" id="confirm-password-input" placeholder="Confirm new password" class="form-control" style="width: 100%; max-width: 400px; box-sizing: border-box;">
+                    <div class="settings-block">
+                        <label class="settings-label-inline">Confirm New Password:</label>
+                        <input type="password" id="confirm-password-input" placeholder="Confirm new password" class="form-control settings-input">
                     </div>
                     <button id="update-password-btn" class="btn btn-primary">
                         <i class="fas fa-save"></i> Update Password
@@ -1375,18 +1372,18 @@
                 </div>
             </div>
             
-            <div class="card" style="margin-bottom: 1.25rem;">
+            <div class="card section-card">
                 <div class="card-header">
                     <h3><i class="fas fa-envelope"></i> Change Email</h3>
                 </div>
                 <div class="card-body">
-                    <div style="margin-bottom: 15px;">
-                        <label style="display: block; margin-bottom: 8px; font-weight: 600; color: #333; font-size: 14px;">Current Email:</label>
-                        <div id="current-email-display" style="padding: 10px; background-color: #f8f9fa; border: 1px solid #e0e0e0; border-radius: 6px; font-size: 14px; color: #666; width: 100%; max-width: 400px; box-sizing: border-box;">Loading...</div>
+                    <div class="settings-block">
+                        <label class="settings-label-inline">Current Email:</label>
+                        <div id="current-email-display" class="info-panel">Loading...</div>
                     </div>
-                    <div style="margin-bottom: 15px;">
-                        <label style="display: block; margin-bottom: 8px; font-weight: 600; color: #333; font-size: 14px;">New Email:</label>
-                        <input type="email" id="new-email-input" placeholder="Enter new email address" class="form-control" style="width: 100%; max-width: 400px; box-sizing: border-box;">
+                    <div class="settings-block">
+                        <label class="settings-label-inline">New Email:</label>
+                        <input type="email" id="new-email-input" placeholder="Enter new email address" class="form-control settings-input">
                     </div>
                     <button id="update-email-btn" class="btn btn-primary">
                         <i class="fas fa-save"></i> Update Email
@@ -1420,7 +1417,6 @@
                 if (target === 'add-students-section') { 
                     loadStudents();
                     loadProgramsForAddStudent();
-                    loadCollegeForAddStudent();
                     // Also load programs for edit form
                     loadProgramsForEditStudent();
                 }
@@ -1434,6 +1430,9 @@
                 }
                 if (target === 'settings-section') {
                     loadProfile();
+                }
+                if (target !== 'add-students-section' && typeof window.toggleAddStudentForm === 'function') {
+                    toggleAddStudentForm('close');
                 }
             }
             sideButtons.forEach(btn => {
@@ -1492,21 +1491,6 @@
                     }
                 } catch (e) {
                     console.error('Error loading programs:', e);
-                }
-            }
-            
-            async function loadCollegeForAddStudent() {
-                try {
-                    const res = await fetch('/dean/college');
-                    const data = await res.json();
-                    if (data.success && data.college) {
-                        const collegeInput = document.getElementById('college');
-                        if (collegeInput) {
-                            collegeInput.value = data.college;
-                        }
-                    }
-                } catch (e) {
-                    console.error('Error loading college:', e);
                 }
             }
             
@@ -1621,24 +1605,31 @@
                 lastScannedRfid = null;
             }
 
-            window.toggleAddStudentForm = function() {
-                const formCard = document.getElementById('add-student-form-card');
-                const listCard = document.getElementById('students-list-card');
-                if (formCard && listCard) {
-                    const isFormVisible = !formCard.classList.contains('section-hidden');
-                    if (isFormVisible) {
-                        // Hide form, show list
-                        formCard.classList.add('section-hidden');
-                        listCard.classList.remove('section-hidden');
-                        stopRfidScanning(); // Stop scanning when form is hidden
-                    } else {
-                        // Show form, hide list
-                        formCard.classList.remove('section-hidden');
-                        listCard.classList.add('section-hidden');
-                        startRfidScanning(); // Start scanning when form is shown
-                    }
+            window.toggleAddStudentForm = function(action) {
+                const modal = document.getElementById('add-student-modal');
+                if (!modal) return;
+                let shouldOpen;
+                if (action === 'open') shouldOpen = true;
+                else if (action === 'close') shouldOpen = false;
+                else shouldOpen = !modal.classList.contains('show');
+
+                if (shouldOpen) {
+                    modal.classList.add('show');
+                    startRfidScanning();
+                } else {
+                    modal.classList.remove('show');
+                    stopRfidScanning();
                 }
             };
+
+            const addStudentModal = document.getElementById('add-student-modal');
+            if (addStudentModal) {
+                addStudentModal.addEventListener('click', (e) => {
+                    if (e.target === addStudentModal) {
+                        toggleAddStudentForm('close');
+                    }
+                });
+            }
             
             // Load students list
             async function loadStudents() {
@@ -1648,7 +1639,7 @@
                     if (!data.success) {
                         const tbody = document.getElementById('students-table-body');
                         if (tbody) {
-                            tbody.innerHTML = '<tr><td colspan="8" style="text-align: center; padding: 2rem; color: #ef4444;">Error loading students.</td></tr>';
+                            tbody.innerHTML = '<tr><td colspan="8" class="table-empty-message table-empty-message--error">Error loading students.</td></tr>';
                         }
                         return;
                     }
@@ -1664,7 +1655,7 @@
                     console.error('Error loading students:', e);
                     const tbody = document.getElementById('students-table-body');
                     if (tbody) {
-                        tbody.innerHTML = '<tr><td colspan="8" style="text-align: center; padding: 2rem; color: #ef4444;">Error loading students. Please try again.</td></tr>';
+                        tbody.innerHTML = '<tr><td colspan="8" class="table-empty-message table-empty-message--error">Error loading students. Please try again.</td></tr>';
                     }
                 }
             }
@@ -1751,7 +1742,7 @@
                 document.getElementById('students-page').textContent = studentsPage;
                 
                 if (paginatedData.length === 0) {
-                    tbody.innerHTML = '<tr><td colspan="8" style="text-align: center; padding: 2rem; color: #6b7280;">No students found.</td></tr>';
+                    tbody.innerHTML = '<tr><td colspan="8" class="table-empty-message">No students found.</td></tr>';
                     return;
                 }
                 
@@ -1767,8 +1758,8 @@
                         <td>${s.program || ''}</td>
                         <td>${s.rfid_uid || ''}</td>
                         <td>
-                            <button class="btn btn-secondary" style="padding: 0.25rem 0.5rem; font-size: 0.875rem; margin-right: 0.25rem;" onclick="editStudent('${s.student_id}')">Edit</button>
-                            <button class="btn btn-secondary" style="padding: 0.25rem 0.5rem; font-size: 0.875rem; background-color: #f25a04; border-color: #f25a04; color: #ffffff;" onclick="deleteStudent('${s.student_id}', '${(s.name || '').replace(/'/g, "\\'")}')">Delete</button>
+                            <button class="btn btn-secondary table-action-btn" onclick="editStudent('${s.student_id}')">Edit</button>
+                            <button class="btn btn-secondary table-action-btn table-action-btn--danger" onclick="deleteStudent('${s.student_id}', '${(s.name || '').replace(/'/g, "\\'")}')">Delete</button>
                         </td>
                     `;
                     tbody.appendChild(tr);
@@ -2067,7 +2058,7 @@
             const list = document.getElementById('ov-top-programs');
             list.innerHTML = '';
             if (topPrograms.length === 0) {
-                list.innerHTML = '<li class="top-list-item"><span style="color: #9ca3af; font-style: italic;">No data available</span></li>';
+                list.innerHTML = '<li class="top-list-item"><span class="text-muted-italic">No data available</span></li>';
             } else {
                 topPrograms.forEach((p, idx)=>{
                     const li = document.createElement('li');
