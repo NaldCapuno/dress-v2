@@ -471,7 +471,7 @@ def rfid_event_handler():
                             compliant_monitor_frame_counter = 0  # Reset compliant monitoring counter
                             # Reset tracker for new RFID scan
                             tracker = BotSORT()
-                            print("DEBUG: Tracker reset for new RFID scan - All flags reset")
+                            # print("DEBUG: Tracker reset for new RFID scan - All flags reset")
                         else:
                             print(f"DEBUG: Same RFID card still present - UID: {incoming_uid}")
                         # Perform DB lookup and log
@@ -511,19 +511,18 @@ def rfid_event_handler():
                                 # New card - always enable detection (flags were reset above)
                                 detection_enabled = True
                                 print(f"RFID Card detected: {event['uid']} - Student found: {rfid_last_student.get('name', 'Unknown')} - Detection ENABLED (new card)")
-                                print(f"DEBUG: detection_enabled={detection_enabled}, rfid_current_uid_violated={rfid_current_uid_violated}, rfid_current_uid_compliant={rfid_current_uid_compliant}")
+                                # print(f"DEBUG: detection_enabled={detection_enabled}, rfid_current_uid_violated={rfid_current_uid_violated}, rfid_current_uid_compliant={rfid_current_uid_compliant}")
                             # Same card - only disable if violation today OR if compliant detected
                             elif rfid_current_uid_compliant:
-                                # Same card, but compliant already detected - keep detection disabled
-                                detection_enabled = False
-                                print(f"RFID Card detected: {event['uid']} - Student found: {rfid_last_student.get('name', 'Unknown')} - Detection DISABLED (student is compliant)")
-                                print(f"DEBUG: detection_enabled={detection_enabled}, rfid_current_uid_violated={rfid_current_uid_violated}, rfid_current_uid_compliant={rfid_current_uid_compliant}")
+                                # Same card, but compliant already detected - keep detection paused via compliant flag
+                                print(f"RFID Card detected: {event['uid']} - Student found: {rfid_last_student.get('name', 'Unknown')} - Detection remains paused (student is compliant)")
+                                # print(f"DEBUG: detection_enabled={detection_enabled}, rfid_current_uid_violated={rfid_current_uid_violated}, rfid_current_uid_compliant={rfid_current_uid_compliant}")
                             else:
                                 # Same card, no violation today, and not compliant - enable detection
                                 # This allows re-detection if the same card is scanned again (unless violation today)
                                 detection_enabled = True
                                 print(f"RFID Card detected: {event['uid']} - Student found: {rfid_last_student.get('name', 'Unknown')} - Detection ENABLED (same card, no violation today)")
-                                print(f"DEBUG: detection_enabled={detection_enabled}, has_violation_today={has_violation_today}, rfid_current_uid_violated={rfid_current_uid_violated}, rfid_current_uid_compliant={rfid_current_uid_compliant}")
+                                # print(f"DEBUG: detection_enabled={detection_enabled}, has_violation_today={has_violation_today}, rfid_current_uid_violated={rfid_current_uid_violated}, rfid_current_uid_compliant={rfid_current_uid_compliant}")
                         # Capture a clean snapshot on each RFID scan (no overlays/bounding boxes) - only once per UID
                         try:
                             snapshot = None
@@ -746,9 +745,12 @@ def detect_dress_code(person_crop, gender: str = 'male'):
                     class_id = int(box.cls[0])
                     confidence = float(box.conf[0])
                     
-                    if confidence > 0.70:  # High threshold for dress detection
-                        # Get class name from model
-                        class_name = dress_model.names[class_id]
+                    # Apply per-class confidence thresholds (shoes/doll shoes at 0.50, others at 0.70)
+                    class_name = dress_model.names[class_id]
+                    normalized_class = class_name.lower().replace(' ', '_')
+                    threshold = 0.50 if normalized_class in ['shoes', 'doll_shoes'] else 0.70
+                    
+                    if confidence >= threshold:
                         dress_detections.append({
                             'class': class_name,
                             'confidence': round(confidence, 2)
@@ -1295,7 +1297,7 @@ def _maybe_record_violation(frame, detections, admin_user):
         # Only process if RFID card is present
         with rfid_lock:
             if not rfid_present:
-                print("DEBUG: RFID not present, skipping violation check")
+                # print("DEBUG: RFID not present, skipping violation check")
                 return None
                 
             # Check if student already has a violation today (daily limit check)
@@ -1352,18 +1354,16 @@ def _maybe_record_violation(frame, detections, admin_user):
                     student_id = rfid_last_student.get('student_id') if rfid_last_student else 'Unknown'
                     print(f"DEBUG: [COMPLIANT] Detection #{rfid_consecutive_compliant} for student {student_id}")
                     print(f"DEBUG: [COMPLIANT] Compliant items: {', '.join(compliant_items_list) if compliant_items_list else 'None'}")
-                    print(f"DEBUG: [COMPLIANT] Counter: {rfid_consecutive_compliant}/2 (need 2 consecutive for auto-stop)")
+                    print(f"DEBUG: [COMPLIANT] Counter: {rfid_consecutive_compliant}/10 (need 10 consecutive for auto-stop)")
                     
-                    # Stop detection after 2 consecutive compliant detections (to avoid false positives)
-                    if rfid_consecutive_compliant >= 2 and not rfid_current_uid_compliant:
+                    # Stop detection after 3 consecutive compliant detections (to avoid false positives)
+                    if rfid_consecutive_compliant >= 10 and not rfid_current_uid_compliant:
                         # Only set flags once per detection event
                         rfid_current_uid_compliant = True
-                        with rfid_lock:
-                            detection_enabled = False
-                        print(f"DEBUG: [COMPLIANT] ✓ Student {student_id} reached 2 consecutive COMPLIANT detections - DETECTION STOPPED")
+                        print(f"DEBUG: [COMPLIANT] ✓ Student {student_id} reached 10 consecutive COMPLIANT detections - DETECTION PAUSED")
                         print(f"DEBUG: [COMPLIANT] Flags: rfid_current_uid_compliant={rfid_current_uid_compliant}, detection_enabled={detection_enabled}")
                     else:
-                        remaining = 2 - rfid_consecutive_compliant
+                        remaining = 10 - rfid_consecutive_compliant
                         print(f"DEBUG: [COMPLIANT] Need {remaining} more consecutive compliant detection(s) to stop")
                 else:
                     # Reset compliant counter if status is not COMPLIANT
