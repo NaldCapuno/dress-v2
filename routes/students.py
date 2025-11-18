@@ -256,20 +256,19 @@ def dean_add_student():
         if not data:
             return jsonify({'success': False, 'error': 'No data provided'}), 400
         
-        # Validate required fields
-        required_fields = ['student_id', 'rfid_uid', 'name', 'email', 'gender', 'year_level', 'program', 'college']
+        # Validate required fields (college is automatically set from dean's session)
+        required_fields = ['student_id', 'rfid_uid', 'name', 'email', 'gender', 'year_level', 'program']
         for field in required_fields:
             if not data.get(field):
                 return jsonify({'success': False, 'error': f'Missing required field: {field}'}), 400
         
-        # Ensure the student is being added to the dean's college
+        # Get dean's college and automatically set it for the student
         dean_college = admin.get('college')
-        if dean_college and data.get('college') != dean_college:
-            return jsonify({'success': False, 'error': 'You can only add students to your own college'}), 403
+        if not dean_college:
+            return jsonify({'success': False, 'error': 'Dean college not found. Please contact administrator.'}), 400
         
-        # Use dean's college if not provided
-        if not data.get('college') and dean_college:
-            data['college'] = dean_college
+        # Always use the dean's college (ignore any college value sent from frontend)
+        data['college'] = dean_college
         
         conn = get_connection() if get_connection else None
         if conn is None:

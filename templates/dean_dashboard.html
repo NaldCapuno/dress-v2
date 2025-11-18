@@ -1934,6 +1934,7 @@
                     e.preventDefault();
                     
                     const formData = new FormData(addStudentForm);
+                    // college is automatically set from the logged-in dean's college on the backend
                     const data = {
                         student_id: formData.get('student_id'),
                         rfid_uid: formData.get('rfid_uid'),
@@ -1941,8 +1942,7 @@
                         email: formData.get('email'),
                         gender: formData.get('gender'),
                         year_level: parseInt(formData.get('year_level')),
-                        program: formData.get('program'),
-                        college: formData.get('college')
+                        program: formData.get('program')
                     };
                     
                     try {

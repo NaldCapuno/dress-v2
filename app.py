@@ -377,7 +377,7 @@ def update_rfid_enabled_based_on_schedule():
 
 def rfid_event_handler():
     """Handle RFID events in background thread"""
-    global rfid_last_uid, rfid_present, detection_enabled, rfid_lock, rfid_last_student, rfid_consecutive_non_compliant, rfid_last_compliance_status, rfid_last_violation_ts, camera, rfid_enabled, tracker, test_mode, test_mode_lock
+    global rfid_last_uid, rfid_present, detection_enabled, rfid_lock, rfid_last_student, rfid_consecutive_non_compliant, rfid_consecutive_compliant, rfid_last_compliance_status, rfid_last_violation_ts, camera, rfid_enabled, tracker, test_mode, test_mode_lock, rfid_current_uid_violated, rfid_current_uid_compliant, rfid_current_uid_snapshot_saved, rfid_last_violation_uid, compliant_monitor_frame_counter
     
     while True:
         try:
@@ -436,35 +436,25 @@ def rfid_event_handler():
                 if event['type'] == 'uid':
                     with rfid_lock:
                         incoming_uid = event['uid']
-                        is_same_uid = (rfid_present and rfid_last_uid == incoming_uid)
                         old_uid = rfid_last_uid
+                        # Check if this is a new card (different UID or no previous UID)
+                        # IMPORTANT: Check BEFORE updating rfid_last_uid to compare with old value
+                        is_same_uid = (rfid_present and rfid_last_uid is not None and rfid_last_uid == incoming_uid)
                         
-                        # Safety check: if we have a different UID or no previous UID, treat as new card
-                        if rfid_last_uid is not None and rfid_last_uid != incoming_uid:
-                            # Different card detected - reset everything first
-                            debug_rfid(f"Different RFID card detected - Old UID: {rfid_last_uid}, New UID: {incoming_uid}")
+                        # If this is a NEW card (different UID or no previous UID), reset all counters
+                        # Also check if UID actually changed (safety check)
+                        uid_changed = (old_uid is None or old_uid != incoming_uid)
+                        if not is_same_uid or uid_changed:
+                            if not is_same_uid:
+                                debug_rfid(f"New RFID card detected - Old UID: {old_uid}, New UID: {incoming_uid}")
+                            else:
+                                debug_rfid(f"UID changed detected (safety check) - Old UID: {old_uid}, New UID: {incoming_uid}")
+                            # Reset all counters and flags for new card - MUST reset compliant flag to enable detection
                             rfid_current_uid_checks = 0
                             rfid_current_uid_violated = False
-                            rfid_current_uid_compliant = False
+                            rfid_current_uid_compliant = False  # CRITICAL: Reset compliant flag for new card
                             rfid_consecutive_non_compliant = 0
-                            rfid_consecutive_compliant = 0
-                            rfid_last_compliance_status = None
-                            rfid_current_uid_snapshot_saved = False
-                            rfid_last_violation_ts = 0
-                            rfid_last_violation_uid = None
-                            tracker = BotSORT()
-                        
-                        rfid_last_uid = incoming_uid
-                        rfid_present = True
-                        
-                        # Only reset per-scan counters on NEW UID (or after removal), not on repeated same-UID events
-                        if not is_same_uid:
-                            debug_rfid(f"New RFID card detected - Old UID: {old_uid}, New UID: {incoming_uid}")
-                            rfid_current_uid_checks = 0
-                            rfid_current_uid_violated = False
-                            rfid_current_uid_compliant = False
-                            rfid_consecutive_non_compliant = 0
-                            rfid_consecutive_compliant = 0
+                            rfid_consecutive_compliant = 0  # Reset compliant count for new card
                             rfid_last_compliance_status = None
                             rfid_current_uid_snapshot_saved = False
                             rfid_last_violation_ts = 0
@@ -472,9 +462,25 @@ def rfid_event_handler():
                             compliant_monitor_frame_counter = 0  # Reset compliant monitoring counter
                             # Reset tracker for new RFID scan
                             tracker = BotSORT()
-                            debug_rfid("Tracker reset for new RFID scan - All flags reset")
+                            # Clear detection queue to prevent old frames from being processed for new card
+                            if detection_queue is not None:
+                                try:
+                                    # Drain the queue by getting all items
+                                    while True:
+                                        try:
+                                            detection_queue.get_nowait()
+                                            detection_queue.task_done()
+                                        except queue.Empty:
+                                            break
+                                except Exception as e:
+                                    debug_rfid(f"Error clearing detection queue: {e}")
+                            debug_rfid("Tracker reset for new RFID scan - All flags and counters reset (including compliant count)")
                         else:
                             debug_rfid(f"Same RFID card still present - UID: {incoming_uid}")
+                        
+                        # Update UID and present flag after reset logic
+                        rfid_last_uid = incoming_uid
+                        rfid_present = True
                         # Perform DB lookup and log
                         try:
                             student = None
@@ -487,6 +493,18 @@ def rfid_event_handler():
                             rfid_last_student = student
                         except Exception as e:
                             print(f"RFID DB handling error: {e}")
+                    
+                    # Capture a clean snapshot on each RFID scan (no overlays/bounding boxes) - only once per UID
+                    # This should happen for both cases: when student is found and when not found
+                    snapshot = None
+                    with frame_lock:
+                        if current_frame is not None:
+                            snapshot = current_frame.copy()
+                    save_snapshot = False
+                    with rfid_lock:
+                        if not rfid_current_uid_snapshot_saved:
+                            save_snapshot = True
+                            rfid_current_uid_snapshot_saved = True
                     
                     # Only enable detection and capture images if RFID has a record in database
                     # Only disable detection if student already has a violation recorded today (not based on session flag)
@@ -501,97 +519,99 @@ def rfid_event_handler():
                                 debug_violation(f"Error checking violation today: {e}")
                         
                         with rfid_lock:
+                            # Check if UID changed (for detection enabling logic)
+                            uid_changed_for_detection = (old_uid is None or old_uid != incoming_uid)
+                            
                             # If student already has violation today, mark as violated and disable detection
                             if has_violation_today:
                                 rfid_current_uid_violated = True
-                                # The flag will be reset in the /rfid/status endpoint after frontend reads it
+                                rfid_current_uid_compliant = False  # Reset compliant flag
                                 detection_enabled = False
                                 print(f"RFID Card detected: {event['uid']} - Student found: {rfid_last_student.get('name', 'Unknown')} - Detection DISABLED (student already has violation today)")
-                            # Enable detection for new UID
-                            elif not is_same_uid:
-                                # New card - always enable detection (flags were reset above)
+                            # Enable detection for new UID (use uid_changed check for safety)
+                            elif not is_same_uid or uid_changed_for_detection:
+                                # New card - always enable detection (flags were reset above, including rfid_current_uid_compliant)
+                                # CRITICAL: Explicitly reset ALL flags to ensure clean state for new card
+                                rfid_current_uid_violated = False
+                                rfid_current_uid_compliant = False  # MUST be False to allow detection
                                 detection_enabled = True
                                 print(f"RFID Card detected: {event['uid']} - Student found: {rfid_last_student.get('name', 'Unknown')} - Detection ENABLED (new card)")
-                                debug_rfid(f"detection_enabled={detection_enabled}, rfid_current_uid_violated={rfid_current_uid_violated}, rfid_current_uid_compliant={rfid_current_uid_compliant}")
+                                debug_rfid(f"NEW CARD - detection_enabled={detection_enabled}, rfid_current_uid_violated={rfid_current_uid_violated}, rfid_current_uid_compliant={rfid_current_uid_compliant}, is_same_uid={is_same_uid}")
                             # Same card - only disable if violation today OR if compliant detected
                             elif rfid_current_uid_compliant:
                                 # Same card, but compliant already detected - keep detection paused via compliant flag
+                                # Don't change detection_enabled here - let it stay as is
                                 print(f"RFID Card detected: {event['uid']} - Student found: {rfid_last_student.get('name', 'Unknown')} - Detection remains paused (student is compliant)")
-                                debug_rfid(f"detection_enabled={detection_enabled}, rfid_current_uid_violated={rfid_current_uid_violated}, rfid_current_uid_compliant={rfid_current_uid_compliant}")
+                                debug_rfid(f"SAME CARD COMPLIANT - detection_enabled={detection_enabled}, rfid_current_uid_violated={rfid_current_uid_violated}, rfid_current_uid_compliant={rfid_current_uid_compliant}")
                             else:
                                 # Same card, no violation today, and not compliant - enable detection
                                 # This allows re-detection if the same card is scanned again (unless violation today)
+                                rfid_current_uid_compliant = False  # Ensure it's False
                                 detection_enabled = True
                                 print(f"RFID Card detected: {event['uid']} - Student found: {rfid_last_student.get('name', 'Unknown')} - Detection ENABLED (same card, no violation today)")
-                                debug_rfid(f"detection_enabled={detection_enabled}, has_violation_today={has_violation_today}, rfid_current_uid_violated={rfid_current_uid_violated}, rfid_current_uid_compliant={rfid_current_uid_compliant}")
-                        # Capture a clean snapshot on each RFID scan (no overlays/bounding boxes) - only once per UID
-                        try:
-                            snapshot = None
-                            with frame_lock:
-                                if current_frame is not None:
-                                    snapshot = current_frame.copy()
-                            save_snapshot = False
-                            with rfid_lock:
-                                if not rfid_current_uid_snapshot_saved:
-                                    save_snapshot = True
-                                    rfid_current_uid_snapshot_saved = True
-                            if snapshot is not None and save_snapshot:
-                                ts = int(time.time())
-                                sid = (rfid_last_student or {}).get('student_id', 'unknown')
-                                snap_name = f"scan_{ts}_{sid}.jpg"
-                                os.makedirs(RESULT_FOLDER, exist_ok=True)
-                                snap_path = os.path.join(RESULT_FOLDER, snap_name)
-                                cv2.imwrite(snap_path, snapshot)
-                                debug_rfid(f"Saved clean RFID snapshot (non-violation): {snap_path}")
+                                debug_rfid(f"SAME CARD - detection_enabled={detection_enabled}, has_violation_today={has_violation_today}, rfid_current_uid_violated={rfid_current_uid_violated}, rfid_current_uid_compliant={rfid_current_uid_compliant}")
+                    
+                    # Save snapshot if we have one and haven't saved it yet
+                    try:
+                        if snapshot is not None and save_snapshot:
+                            ts = int(time.time())
+                            sid = (rfid_last_student or {}).get('student_id', 'unknown')
+                            snap_name = f"scan_{ts}_{sid}.jpg"
+                            os.makedirs(RESULT_FOLDER, exist_ok=True)
+                            snap_path = os.path.join(RESULT_FOLDER, snap_name)
+                            cv2.imwrite(snap_path, snapshot)
+                            debug_rfid(f"Saved clean RFID snapshot (non-violation): {snap_path}")
 
-                                # Create a duplicate with dress code bounding boxes (no labels/text)
-                                try:
-                                    boxed = snapshot.copy()
-                                    # Run dress model directly on the full snapshot
-                                    results = dress_model(snapshot)
-                                    for r in results:
-                                        boxes = r.boxes
-                                        if boxes is None:
+                            # Create a duplicate with dress code bounding boxes (no labels/text)
+                            try:
+                                boxed = snapshot.copy()
+                                # Run dress model directly on the full snapshot
+                                results = dress_model(snapshot)
+                                for r in results:
+                                    boxes = r.boxes
+                                    if boxes is None:
+                                        continue
+                                    for box in boxes:
+                                        conf = float(box.conf[0]) if hasattr(box, 'conf') else 0.0
+                                        if conf < 0.50:
                                             continue
-                                        for box in boxes:
-                                            conf = float(box.conf[0]) if hasattr(box, 'conf') else 0.0
-                                            if conf < 0.50:
-                                                continue
-                                            x1, y1, x2, y2 = box.xyxy[0].cpu().numpy()
-                                            # Use a constant blue box for dress items to distinguish from violations
-                                            cv2.rectangle(boxed, (int(x1), int(y1)), (int(x2), int(y2)), (255, 0, 0), 2)
-                                            # Label with class name and confidence
-                                            try:
-                                                class_id = int(box.cls[0]) if hasattr(box, 'cls') else None
-                                                class_name = dress_model.names[class_id] if class_id is not None else 'item'
-                                            except Exception:
-                                                class_name = 'item'
-                                            label_text = f"{class_name} {conf*100:.0f}%"
-                                            label_scale = 0.4
-                                            label_thickness = 1
-                                            (tw, th), _ = cv2.getTextSize(label_text, cv2.FONT_HERSHEY_SIMPLEX, label_scale, label_thickness)
-                                            pad = 3
-                                            bx1, by1 = int(x1), int(y1)
-                                            # Draw filled background above the box if room, otherwise inside
-                                            rect_top = by1 - th - pad*2 if by1 - th - pad*2 > 0 else by1 + pad
-                                            rect_bottom = rect_top + th + pad*2
-                                            cv2.rectangle(boxed, (bx1, rect_top), (bx1 + tw + pad*2, rect_bottom), (255, 0, 0), -1)
-                                            cv2.putText(boxed, label_text, (bx1 + pad, rect_bottom - pad), cv2.FONT_HERSHEY_SIMPLEX, label_scale, (255, 255, 255), label_thickness)
-                                    boxed_name = f"scan_{ts}_{sid}_dress.jpg"
-                                    boxed_path = os.path.join(RESULT_FOLDER, boxed_name)
-                                    cv2.imwrite(boxed_path, boxed)
-                                    debug_rfid(f"Saved dress-boxed RFID snapshot: {boxed_path}")
-                                except Exception as e:
-                                    debug_rfid(f"Error creating dress-boxed RFID snapshot: {e}")
-                            else:
-                                debug_rfid("No current_frame to save RFID snapshot")
-                        except Exception as e:
-                            debug_rfid(f"Error saving RFID snapshot: {e}")
-                    else:
-                        print(f"RFID Card detected: {event['uid']} - No student record found in database - Detection DISABLED")
-                        # Disable detection if no student record found
+                                        x1, y1, x2, y2 = box.xyxy[0].cpu().numpy()
+                                        # Use a constant blue box for dress items to distinguish from violations
+                                        cv2.rectangle(boxed, (int(x1), int(y1)), (int(x2), int(y2)), (255, 0, 0), 2)
+                                        # Label with class name and confidence
+                                        try:
+                                            class_id = int(box.cls[0]) if hasattr(box, 'cls') else None
+                                            class_name = dress_model.names[class_id] if class_id is not None else 'item'
+                                        except Exception:
+                                            class_name = 'item'
+                                        label_text = f"{class_name} {conf*100:.0f}%"
+                                        label_scale = 0.4
+                                        label_thickness = 1
+                                        (tw, th), _ = cv2.getTextSize(label_text, cv2.FONT_HERSHEY_SIMPLEX, label_scale, label_thickness)
+                                        pad = 3
+                                        bx1, by1 = int(x1), int(y1)
+                                        # Draw filled background above the box if room, otherwise inside
+                                        rect_top = by1 - th - pad*2 if by1 - th - pad*2 > 0 else by1 + pad
+                                        rect_bottom = rect_top + th + pad*2
+                                        cv2.rectangle(boxed, (bx1, rect_top), (bx1 + tw + pad*2, rect_bottom), (255, 0, 0), -1)
+                                        cv2.putText(boxed, label_text, (bx1 + pad, rect_bottom - pad), cv2.FONT_HERSHEY_SIMPLEX, label_scale, (255, 255, 255), label_thickness)
+                                boxed_name = f"scan_{ts}_{sid}_dress.jpg"
+                                boxed_path = os.path.join(RESULT_FOLDER, boxed_name)
+                                cv2.imwrite(boxed_path, boxed)
+                                debug_rfid(f"Saved dress-boxed RFID snapshot: {boxed_path}")
+                            except Exception as e:
+                                debug_rfid(f"Error creating dress-boxed RFID snapshot: {e}")
+                        elif snapshot is None and save_snapshot:
+                            debug_rfid("No current_frame to save RFID snapshot")
+                    except Exception as e:
+                        debug_rfid(f"Error saving RFID snapshot: {e}")
+                    
+                    if rfid_last_student is None:
+                        # No student found - disable detection
                         with rfid_lock:
                             detection_enabled = False
+                            rfid_current_uid_compliant = False
+                            print(f"RFID Card detected: {event['uid']} - No student found in database - Detection DISABLED")
                 else:
                     # Event received but not a 'uid' event (shouldn't happen, but handle it)
                     with rfid_lock:
@@ -1796,31 +1816,33 @@ def detection_worker():
                 
                 frame, detection_enabled_flag = frame_data
                 
-                # Note: Camera can work anytime, but detections/violations are only processed during scheduled hours
-                # This allows camera feed to work but prevents violations from being recorded outside schedule
-                # Exception: Test mode works outside scheduled hours
-                if detection_enabled_flag and frame is not None:
-                    # Check test mode first - test mode works outside scheduled hours
-                    with test_mode_lock:
-                        test_mode_active = test_mode
-                    
-                    # Only process detections if system is scheduled to be active OR test mode is active
-                    if not test_mode_active and not is_system_scheduled_active():
-                        # Skip detection processing if outside scheduled hours (but camera feed still works)
-                        detection_queue.task_done()
-                        continue
-                    # Perform detection on the frame
-                    detections = detect_persons_frame_with_dress(frame.copy())
-                    
-                    # Store latest detection results
-                    with detection_results_lock:
-                        latest_detections = detections
-                        latest_detection_frame = frame.copy()
-                    
-                    # Attempt to record violation using the frame
-                    _maybe_record_violation(frame.copy(), detections, None)
-                
-                detection_queue.task_done()
+                # Always call task_done() to prevent queue from getting stuck
+                try:
+                    # Note: Camera can work anytime, but detections/violations are only processed during scheduled hours
+                    # This allows camera feed to work but prevents violations from being recorded outside schedule
+                    # Exception: Test mode works outside scheduled hours
+                    if detection_enabled_flag and frame is not None:
+                        # Check test mode first - test mode works outside scheduled hours
+                        with test_mode_lock:
+                            test_mode_active = test_mode
+                        
+                        # Only process detections if system is scheduled to be active OR test mode is active
+                        if not test_mode_active and not is_system_scheduled_active():
+                            # Skip detection processing if outside scheduled hours (but camera feed still works)
+                            continue
+                        # Perform detection on the frame
+                        detections = detect_persons_frame_with_dress(frame.copy())
+                        
+                        # Store latest detection results
+                        with detection_results_lock:
+                            latest_detections = detections
+                            latest_detection_frame = frame.copy()
+                        
+                        # Attempt to record violation using the frame
+                        _maybe_record_violation(frame.copy(), detections, None)
+                finally:
+                    # Always mark task as done, even if there was an error
+                    detection_queue.task_done()
             except queue.Empty:
                 # No frame to process, continue
                 continue
@@ -1880,12 +1902,30 @@ def generate_frames():
                     try:
                         detection_queue.put_nowait((frame.copy(), True))
                     except queue.Full:
-                        pass
+                        # Queue is full - try to clear one old item to make room
+                        try:
+                            old_frame = detection_queue.get_nowait()
+                            detection_queue.task_done()
+                            detection_queue.put_nowait((frame.copy(), True))
+                        except (queue.Empty, queue.Full):
+                            # If we can't clear or add, just skip this frame
+                            pass
                 elif not detection_enabled_for_frame and not should_monitor_compliant:
                     # Clear detection results when detection is disabled (but not during compliant monitoring)
                     with detection_results_lock:
                         latest_detections = None
                         latest_detection_frame = None
+                    # Also clear the queue to prevent processing old frames
+                    if detection_queue is not None:
+                        try:
+                            while True:
+                                try:
+                                    detection_queue.get_nowait()
+                                    detection_queue.task_done()
+                                except queue.Empty:
+                                    break
+                        except Exception:
+                            pass
                 
                 # Get latest detection results (non-blocking)
                 detections_to_draw = None
