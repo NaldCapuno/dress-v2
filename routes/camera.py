@@ -6,6 +6,7 @@ Handles camera control, video feed, and detection toggling.
 from flask import Blueprint, request, jsonify, Response, session
 import base64
 import cv2
+from src.debug_utils import debug_print, debug_camera
 
 camera_bp = Blueprint('camera', __name__)
 
@@ -50,7 +51,7 @@ def start_camera():
                         
                         # Update RFID enabled status based on schedule (will enable if within schedule)
                         update_rfid_enabled_based_on_schedule()
-                        print(f"DEBUG: RFID enabled status updated based on schedule, rfid_enabled: {app_module.rfid_enabled}")
+                        debug_camera(f"RFID enabled status updated based on schedule, rfid_enabled: {app_module.rfid_enabled}")
                         print("RFID monitoring started with camera")
                     except Exception as e:
                         print(f"Warning: Could not start RFID monitoring: {e}")
@@ -97,7 +98,7 @@ def change_camera():
                     
                     # Update RFID enabled status based on schedule (will enable if within schedule)
                     update_rfid_enabled_based_on_schedule()
-                    print(f"DEBUG: RFID enabled status updated via camera switch, rfid_enabled: {app_module.rfid_enabled}")
+                    debug_camera(f"RFID enabled status updated via camera switch, rfid_enabled: {app_module.rfid_enabled}")
                     print("RFID monitoring started with camera switch")
                 except Exception as e:
                     print(f"Warning: Could not start RFID monitoring during camera switch: {e}")
@@ -129,7 +130,7 @@ def stop_camera():
                     # Disable RFID processing first
                     app_module.rfid_enabled = False
                     set_rfid_enabled(False)  # Disable RFID polling
-                    print(f"DEBUG: RFID enabled set to False, rfid_enabled: {app_module.rfid_enabled}")
+                    debug_camera(f"RFID enabled set to False, rfid_enabled: {app_module.rfid_enabled}")
                     
                     stop_rfid_monitoring()
                     

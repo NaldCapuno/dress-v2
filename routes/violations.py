@@ -8,6 +8,7 @@ from io import BytesIO
 from datetime import datetime, timezone
 import time
 import re
+from src.debug_utils import debug_print, debug_email, debug_database
 
 violations_bp = Blueprint('violations', __name__)
 
@@ -1846,7 +1847,7 @@ def send_followup_emails():
                     """
                 )
                 violations = cur.fetchall() or []
-                print(f"DEBUG: Found {len(violations)} violations needing follow-up emails")
+                debug_email(f"Found {len(violations)} violations needing follow-up emails")
             except Exception as e:
                 # If column doesn't exist, check if it's a column error
                 error_str = str(e).lower()
@@ -1879,7 +1880,7 @@ def send_followup_emails():
                     violations = []
         
         if not violations:
-            print("DEBUG: No violations found that need follow-up emails (all are either resolved, less than 3 days old, or already sent)")
+            debug_email("No violations found that need follow-up emails (all are either resolved, less than 3 days old, or already sent)")
             return jsonify({'success': True, 'message': 'No violations require follow-up emails', 'sent': 0})
         
         sent_count = 0
@@ -2021,17 +2022,6 @@ def send_followup_emails():
                     if os.path.exists(proof_path):
                         image_cid = f"violation_proof_{violation_id}"
                 
-                # Read logo and convert to base64
-                import base64
-                logo_base64 = None
-                logo_path = os.path.join(app.root_path, 'static', 'images', 'dress_logo.png')
-                if os.path.exists(logo_path):
-                    try:
-                        with open(logo_path, 'rb') as logo_file:
-                            logo_base64 = base64.b64encode(logo_file.read()).decode('utf-8')
-                    except Exception as logo_err:
-                        print(f"Warning: Could not read logo: {logo_err}")
-                
                 # Generate email body
                 html_body = generate_followup_email_body(
                     student_name=student_name,
@@ -2041,7 +2031,8 @@ def send_followup_emails():
                     offense_line=offense_line,
                     violation_history=violation_text,
                     image_cid=image_cid,
-                    logo_base64=logo_base64
+                    logo_base64=None,
+                    logo_cid=None
                 )
                 
                 # Create plain text fallback
@@ -2100,6 +2091,7 @@ This is an automated notification. Please do not reply to this email."""
                                 )
                         except Exception as attach_err:
                             print(f"Warning: Could not attach image for violation {violation_id}: {attach_err}")
+                    
                     
                     mail.send(msg)
                     

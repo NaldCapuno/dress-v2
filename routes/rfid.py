@@ -4,6 +4,7 @@ Handles RFID status and reading endpoints.
 """
 
 from flask import Blueprint, request, jsonify
+from src.debug_utils import debug_print, debug_rfid
 
 rfid_bp = Blueprint('rfid', __name__)
 
@@ -21,7 +22,7 @@ def rfid_status():
         
         with rfid_lock:
             camera_active = camera is not None and camera.isOpened()
-            print(f"DEBUG: RFID status check - rfid_enabled: {rfid_enabled}, rfid_present: {rfid_present}, test_mode: {test_mode_active}")
+            debug_rfid(f"RFID status check - rfid_enabled: {rfid_enabled}, rfid_present: {rfid_present}, test_mode: {test_mode_active}")
             
             # If RFID is disabled or test mode is active, return inactive status
             if not rfid_enabled or not camera_active or test_mode_active:
@@ -34,7 +35,7 @@ def rfid_status():
                     'enabled': False,
                     'camera_active': camera_active,
                 }
-                print("DEBUG: RFID disabled or camera inactive, returning inactive status")
+                debug_rfid("RFID disabled or camera inactive, returning inactive status")
             else:
                 # RFID is enabled, get actual status
                 status = get_rfid_status()
@@ -47,10 +48,10 @@ def rfid_status():
                     'camera_active': camera_active,
                     'last_time': status.get('last_time', 0),  # Include timestamp from scanner
                 })
-                print(f"DEBUG: RFID enabled, returning status: {status}")
+                debug_rfid(f"RFID enabled, returning status: {status}")
         return jsonify({'success': True, 'status': status})
     except Exception as e:
-        print(f"DEBUG: RFID status error: {e}")
+        debug_rfid(f"RFID status error: {e}")
         return jsonify({'success': False, 'message': f'Error getting RFID status: {str(e)}'}), 500
 
 
