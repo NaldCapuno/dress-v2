@@ -744,7 +744,13 @@
 
         // RFID Functions
         function updateRfidDisplay(uid, student, lastTimestamp) {
+            console.log('updateRfidDisplay called:', { uid, student: !!student, lastTimestamp });
             const display = document.getElementById('rfidDataDisplay');
+            if (!display) {
+                console.error('RFID display element not found');
+                return;
+            }
+            
             const uidElement = document.getElementById('rfidUid');
             const nameEl = document.getElementById('studentName');
             const idEl = document.getElementById('studentId');
@@ -753,8 +759,12 @@
             const collegeEl = document.getElementById('studentCollege');
             const delayEl = document.getElementById('rfidDisplayDelay');
             
-            if (uid) {
-                uidElement.textContent = uid;
+            // Show display if we have a UID or student data
+            if (uid || student) {
+                console.log('Showing RFID display');
+                if (uidElement) {
+                    uidElement.textContent = uid || 'N/A';
+                }
                 display.style.display = 'block';
 
                 // Always recalculate delay to show actual elapsed time since card scan
@@ -773,27 +783,32 @@
                 
                 // Update stored UID when it changes
                 if (uid !== currentRfidDisplay.uid) {
-                    currentRfidDisplay = { uid, delayText };
+                    currentRfidDisplay = { uid: uid || null, delayText };
                 } else {
                     // Same UID, just update the delay text
                     currentRfidDisplay.delayText = delayText;
                 }
                 
-                delayEl.textContent = delayText;
+                if (delayEl) {
+                    delayEl.textContent = delayText;
+                }
 
                 if (student) {
-                    nameEl.textContent = student.name || '-';
-                    idEl.textContent = student.student_id || '-';
-                    genderEl.textContent = student.gender || '-';
-                    programEl.textContent = student.program || '-';
-                    collegeEl.textContent = student.college || '-';
+                    if (nameEl) nameEl.textContent = student.name || '-';
+                    if (idEl) idEl.textContent = student.student_id || '-';
+                    if (genderEl) genderEl.textContent = student.gender || '-';
+                    if (programEl) programEl.textContent = student.program || '-';
+                    if (collegeEl) collegeEl.textContent = student.college || '-';
                 } else {
-                    nameEl.textContent = '-';
-                    idEl.textContent = '-';
-                    genderEl.textContent = '-';
-                    programEl.textContent = '-';
-                    collegeEl.textContent = '-';
+                    if (nameEl) nameEl.textContent = '-';
+                    if (idEl) idEl.textContent = '-';
+                    if (genderEl) genderEl.textContent = '-';
+                    if (programEl) programEl.textContent = '-';
+                    if (collegeEl) collegeEl.textContent = '-';
                 }
+            } else {
+                // No UID or student data, hide display
+                display.style.display = 'none';
             }
         }
 
@@ -852,16 +867,18 @@
         // Helper function to update RFID status based on schedule
         function checkScheduleStatusForRFID(rfidOverviewEl) {
             if (!rfidOverviewEl) return;
-            if (!navigator.onLine) {
-                handleNetworkFetchFailure('checking schedule status', new Error('Offline'));
-                return;
-            }
+            // Always try to fetch from localhost, even if navigator.onLine is false
             if (scheduleRequestInFlight) {
                 return;
             }
             scheduleRequestInFlight = true;
             fetchWithTimeout('/api/settings/schedule/check')
-            .then(response => response.json())
+            .then(response => {
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}`);
+                }
+                return response.json();
+            })
             .then(data => {
                 scheduleRequestInFlight = false;
                 updateNetworkStatusBanner(false);
@@ -883,22 +900,25 @@
             })
             .catch(error => {
                 scheduleRequestInFlight = false;
-                handleNetworkFetchFailure('checking schedule status', error);
+                // Don't show error for localhost endpoints when offline
+                console.warn('Schedule status check failed:', error);
             });
         }
         
         // Check database status
         function checkDatabaseStatus() {
-            if (!navigator.onLine) {
-                handleNetworkFetchFailure('checking database status', new Error('Offline'));
-                return;
-            }
+            // Always try to fetch from localhost, even if navigator.onLine is false
             if (dbRequestInFlight) {
                 return;
             }
             dbRequestInFlight = true;
             fetchWithTimeout('/api/database/status')
-            .then(response => response.json())
+            .then(response => {
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}`);
+                }
+                return response.json();
+            })
             .then(data => {
                 dbRequestInFlight = false;
                 updateNetworkStatusBanner(false);
@@ -926,22 +946,25 @@
             })
             .catch(error => {
                 dbRequestInFlight = false;
-                handleNetworkFetchFailure('checking database status', error);
+                // Don't show error for localhost endpoints when offline
+                console.warn('Database status check failed:', error);
             });
         }
         
         // Check schedule status
         function checkScheduleStatus() {
-            if (!navigator.onLine) {
-                handleNetworkFetchFailure('checking system schedule', new Error('Offline'));
-                return;
-            }
+            // Always try to fetch from localhost, even if navigator.onLine is false
             if (scheduleRequestInFlight) {
                 return;
             }
             scheduleRequestInFlight = true;
             fetchWithTimeout('/api/settings/schedule/check')
-            .then(response => response.json())
+            .then(response => {
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}`);
+                }
+                return response.json();
+            })
             .then(data => {
                 scheduleRequestInFlight = false;
                 updateNetworkStatusBanner(false);
@@ -1005,22 +1028,26 @@
             })
             .catch(error => {
                 scheduleRequestInFlight = false;
-                handleNetworkFetchFailure('checking system schedule', error);
+                // Don't show error for localhost endpoints when offline
+                console.warn('Schedule status check failed:', error);
             });
         }
 
         // RFID Functions
         function checkRfidStatus() {
-            if (!navigator.onLine) {
-                handleNetworkFetchFailure('checking RFID status', new Error('Offline'));
-                return;
-            }
+            // Always try to fetch from localhost, even if navigator.onLine is false
+            // The RFID endpoint is local and should work regardless of internet connectivity
             if (rfidRequestInFlight) {
                 return;
             }
             rfidRequestInFlight = true;
             fetchWithTimeout('/rfid/status')
-            .then(response => response.json())
+            .then(response => {
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}`);
+                }
+                return response.json();
+            })
             .then(data => {
                 rfidRequestInFlight = false;
                 updateNetworkStatusBanner(false);
@@ -1054,6 +1081,7 @@
                             checkScheduleStatusForRFID(rfidOverview);
                             
                             // Update RFID display with student data when present
+                            console.log('RFID status update:', { uid: status.last_uid, student: status.student, time: status.last_time });
                             updateRfidDisplay(status.last_uid, status.student || null, status.last_time);
                         } else {
                             rfidStatus.innerHTML = '<i class="fas fa-clock"></i>RFID: Waiting';
@@ -1072,7 +1100,14 @@
             })
             .catch(error => {
                     rfidRequestInFlight = false;
-                    handleNetworkFetchFailure('checking RFID status', error);
+                    // Only show network banner if it's a real network error (not just offline internet)
+                    // Localhost requests should still work even without internet
+                    if (error.name === 'AbortError' || error.message.includes('Failed to fetch') || error.message.includes('ERR_CONNECTION')) {
+                        // This might be a localhost connection issue, don't show banner
+                        console.warn('RFID status check failed (may be server restart):', error);
+                    } else {
+                        handleNetworkFetchFailure('checking RFID status', error);
+                    }
             });
         }
         
