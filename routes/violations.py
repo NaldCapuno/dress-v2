@@ -8,6 +8,7 @@ from io import BytesIO
 from datetime import datetime, timezone
 import time
 import re
+from src.debug_utils import debug_print, debug_email, debug_database
 
 violations_bp = Blueprint('violations', __name__)
 
@@ -1846,7 +1847,7 @@ def send_followup_emails():
                     """
                 )
                 violations = cur.fetchall() or []
-                print(f"DEBUG: Found {len(violations)} violations needing follow-up emails")
+                debug_email(f"Found {len(violations)} violations needing follow-up emails")
             except Exception as e:
                 # If column doesn't exist, check if it's a column error
                 error_str = str(e).lower()
@@ -1879,7 +1880,7 @@ def send_followup_emails():
                     violations = []
         
         if not violations:
-            print("DEBUG: No violations found that need follow-up emails (all are either resolved, less than 3 days old, or already sent)")
+            debug_email("No violations found that need follow-up emails (all are either resolved, less than 3 days old, or already sent)")
             return jsonify({'success': True, 'message': 'No violations require follow-up emails', 'sent': 0})
         
         sent_count = 0

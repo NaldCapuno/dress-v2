@@ -22,6 +22,7 @@ from datetime import datetime
 from src.botsort_tracker import BotSORT
 from src.email_templates import generate_violation_email_body
 from werkzeug.security import check_password_hash
+from src.debug_utils import debug_rfid, debug_violation, debug_email, debug_compliance, debug_database, debug_camera, debug_sync, debug_print
 
 # Diagnostic: Print Python path for debugging
 import sys
@@ -441,7 +442,7 @@ def rfid_event_handler():
                         # Safety check: if we have a different UID or no previous UID, treat as new card
                         if rfid_last_uid is not None and rfid_last_uid != incoming_uid:
                             # Different card detected - reset everything first
-                            print(f"DEBUG: Different RFID card detected - Old UID: {rfid_last_uid}, New UID: {incoming_uid}")
+                            debug_rfid(f"Different RFID card detected - Old UID: {rfid_last_uid}, New UID: {incoming_uid}")
                             rfid_current_uid_checks = 0
                             rfid_current_uid_violated = False
                             rfid_current_uid_compliant = False
@@ -458,7 +459,7 @@ def rfid_event_handler():
                         
                         # Only reset per-scan counters on NEW UID (or after removal), not on repeated same-UID events
                         if not is_same_uid:
-                            print(f"DEBUG: New RFID card detected - Old UID: {old_uid}, New UID: {incoming_uid}")
+                            debug_rfid(f"New RFID card detected - Old UID: {old_uid}, New UID: {incoming_uid}")
                             rfid_current_uid_checks = 0
                             rfid_current_uid_violated = False
                             rfid_current_uid_compliant = False
@@ -471,9 +472,9 @@ def rfid_event_handler():
                             compliant_monitor_frame_counter = 0  # Reset compliant monitoring counter
                             # Reset tracker for new RFID scan
                             tracker = BotSORT()
-                            # print("DEBUG: Tracker reset for new RFID scan - All flags reset")
+                            debug_rfid("Tracker reset for new RFID scan - All flags reset")
                         else:
-                            print(f"DEBUG: Same RFID card still present - UID: {incoming_uid}")
+                            debug_rfid(f"Same RFID card still present - UID: {incoming_uid}")
                         # Perform DB lookup and log
                         try:
                             student = None
@@ -497,7 +498,7 @@ def rfid_event_handler():
                             try:
                                 has_violation_today = has_student_violation_today(student_id)
                             except Exception as e:
-                                print(f"DEBUG: Error checking violation today: {e}")
+                                debug_violation(f"Error checking violation today: {e}")
                         
                         with rfid_lock:
                             # If student already has violation today, mark as violated and disable detection
@@ -511,18 +512,18 @@ def rfid_event_handler():
                                 # New card - always enable detection (flags were reset above)
                                 detection_enabled = True
                                 print(f"RFID Card detected: {event['uid']} - Student found: {rfid_last_student.get('name', 'Unknown')} - Detection ENABLED (new card)")
-                                # print(f"DEBUG: detection_enabled={detection_enabled}, rfid_current_uid_violated={rfid_current_uid_violated}, rfid_current_uid_compliant={rfid_current_uid_compliant}")
+                                debug_rfid(f"detection_enabled={detection_enabled}, rfid_current_uid_violated={rfid_current_uid_violated}, rfid_current_uid_compliant={rfid_current_uid_compliant}")
                             # Same card - only disable if violation today OR if compliant detected
                             elif rfid_current_uid_compliant:
                                 # Same card, but compliant already detected - keep detection paused via compliant flag
                                 print(f"RFID Card detected: {event['uid']} - Student found: {rfid_last_student.get('name', 'Unknown')} - Detection remains paused (student is compliant)")
-                                # print(f"DEBUG: detection_enabled={detection_enabled}, rfid_current_uid_violated={rfid_current_uid_violated}, rfid_current_uid_compliant={rfid_current_uid_compliant}")
+                                debug_rfid(f"detection_enabled={detection_enabled}, rfid_current_uid_violated={rfid_current_uid_violated}, rfid_current_uid_compliant={rfid_current_uid_compliant}")
                             else:
                                 # Same card, no violation today, and not compliant - enable detection
                                 # This allows re-detection if the same card is scanned again (unless violation today)
                                 detection_enabled = True
                                 print(f"RFID Card detected: {event['uid']} - Student found: {rfid_last_student.get('name', 'Unknown')} - Detection ENABLED (same card, no violation today)")
-                                # print(f"DEBUG: detection_enabled={detection_enabled}, has_violation_today={has_violation_today}, rfid_current_uid_violated={rfid_current_uid_violated}, rfid_current_uid_compliant={rfid_current_uid_compliant}")
+                                debug_rfid(f"detection_enabled={detection_enabled}, has_violation_today={has_violation_today}, rfid_current_uid_violated={rfid_current_uid_violated}, rfid_current_uid_compliant={rfid_current_uid_compliant}")
                         # Capture a clean snapshot on each RFID scan (no overlays/bounding boxes) - only once per UID
                         try:
                             snapshot = None
@@ -541,7 +542,7 @@ def rfid_event_handler():
                                 os.makedirs(RESULT_FOLDER, exist_ok=True)
                                 snap_path = os.path.join(RESULT_FOLDER, snap_name)
                                 cv2.imwrite(snap_path, snapshot)
-                                print(f"DEBUG: Saved clean RFID snapshot (non-violation): {snap_path}")
+                                debug_rfid(f"Saved clean RFID snapshot (non-violation): {snap_path}")
 
                                 # Create a duplicate with dress code bounding boxes (no labels/text)
                                 try:
@@ -579,13 +580,13 @@ def rfid_event_handler():
                                     boxed_name = f"scan_{ts}_{sid}_dress.jpg"
                                     boxed_path = os.path.join(RESULT_FOLDER, boxed_name)
                                     cv2.imwrite(boxed_path, boxed)
-                                    print(f"DEBUG: Saved dress-boxed RFID snapshot: {boxed_path}")
+                                    debug_rfid(f"Saved dress-boxed RFID snapshot: {boxed_path}")
                                 except Exception as e:
-                                    print(f"DEBUG: Error creating dress-boxed RFID snapshot: {e}")
+                                    debug_rfid(f"Error creating dress-boxed RFID snapshot: {e}")
                             else:
-                                print("DEBUG: No current_frame to save RFID snapshot")
+                                debug_rfid("No current_frame to save RFID snapshot")
                         except Exception as e:
-                            print(f"DEBUG: Error saving RFID snapshot: {e}")
+                            debug_rfid(f"Error saving RFID snapshot: {e}")
                     else:
                         print(f"RFID Card detected: {event['uid']} - No student record found in database - Detection DISABLED")
                         # Disable detection if no student record found
@@ -1235,7 +1236,7 @@ def _maybe_record_violation(frame, detections, admin_user):
     
     try:
         if not rfid_last_student:
-            print("DEBUG: No RFID student found, skipping violation check")
+            debug_violation("No RFID student found, skipping violation check")
             return None
             
         # Determine if any detection for this frame indicates NON-COMPLIANT or PARTIALLY COMPLIANT
@@ -1288,16 +1289,16 @@ def _maybe_record_violation(frame, detections, admin_user):
                     if val.get('present'):
                         compliant_items_list.append(val.get('name') or key)
         
-        print(f"DEBUG: Frame analysis - Non-compliant: {non_compliant}, Partially compliant: {partially_compliant}, Status: {current_compliance_status}, Detections: {len(detections)}")
+        debug_compliance(f"Frame analysis - Non-compliant: {non_compliant}, Partially compliant: {partially_compliant}, Status: {current_compliance_status}, Detections: {len(detections)}")
         if current_compliance_status == 'COMPLIANT':
-            print(f"DEBUG: COMPLIANT items detected: {', '.join(compliant_items_list) if compliant_items_list else 'None'}")
+            debug_compliance(f"COMPLIANT items detected: {', '.join(compliant_items_list) if compliant_items_list else 'None'}")
         elif current_compliance_status in ['NON-COMPLIANT', 'PARTIALLY COMPLIANT']:
-            print(f"DEBUG: Violation items missing: {', '.join(violation_details) if violation_details else 'None'}")
+            debug_compliance(f"Violation items missing: {', '.join(violation_details) if violation_details else 'None'}")
         
         # Only process if RFID card is present
         with rfid_lock:
             if not rfid_present:
-                # print("DEBUG: RFID not present, skipping violation check")
+                debug_violation("RFID not present, skipping violation check")
                 return None
                 
             # Check if student already has a violation today (daily limit check)
@@ -1305,7 +1306,7 @@ def _maybe_record_violation(frame, detections, admin_user):
             student_id = (rfid_last_student or {}).get('student_id')
             if has_student_violation_today and student_id:
                 if has_student_violation_today(student_id):
-                    print(f"DEBUG: Daily limit reached - violation already recorded today for student {student_id}")
+                    debug_violation(f"Daily limit reached - violation already recorded today for student {student_id}")
                     # Keep violation flag True to prevent detection
                     with rfid_lock:
                         rfid_current_uid_violated = True  # Keep it True to prevent detection
@@ -1320,10 +1321,10 @@ def _maybe_record_violation(frame, detections, admin_user):
                 # Reset counter only if we went from violation to compliant (or no detection)
                 if was_violation and not is_violation:
                     rfid_consecutive_non_compliant = 0
-                    print(f"DEBUG: Compliance status changed from violation ({rfid_last_compliance_status}) to {current_compliance_status}, resetting counter")
+                    debug_compliance(f"Compliance status changed from violation ({rfid_last_compliance_status}) to {current_compliance_status}, resetting counter")
                 elif not was_violation and is_violation:
                     # Starting a new violation sequence
-                    print(f"DEBUG: Compliance status changed from {rfid_last_compliance_status} to violation ({current_compliance_status}), starting violation sequence")
+                    debug_compliance(f"Compliance status changed from {rfid_last_compliance_status} to violation ({current_compliance_status}), starting violation sequence")
             
             # Update last compliance status
             rfid_last_compliance_status = current_compliance_status
@@ -1333,16 +1334,16 @@ def _maybe_record_violation(frame, detections, admin_user):
                 # If person was previously marked as compliant, don't record violations or re-enable detection
                 # This prevents false positives when detection was stopped after 2 compliant detections
                 if rfid_current_uid_compliant:
-                    print(f"DEBUG: Violation detected but person was previously COMPLIANT - ignoring to prevent false positives (Status: {current_compliance_status})")
+                    debug_compliance(f"Violation detected but person was previously COMPLIANT - ignoring to prevent false positives (Status: {current_compliance_status})")
                     return None  # Exit early, don't process or record this violation
                 
                 rfid_consecutive_non_compliant += 1
-                print(f"DEBUG: Violation detection #{rfid_consecutive_non_compliant} for student {rfid_last_student.get('student_id')} (Status: {current_compliance_status})")
+                debug_violation(f"Violation detection #{rfid_consecutive_non_compliant} for student {rfid_last_student.get('student_id')} (Status: {current_compliance_status})")
             else:
                 # Only reset counter if fully compliant or no detections
                 if current_compliance_status == 'NO_DETECTION':
                     # Don't reset counter on no detection - might be temporary
-                    print(f"DEBUG: No detections for student {rfid_last_student.get('student_id')}, keeping counter at {rfid_consecutive_non_compliant}")
+                    debug_compliance(f"No detections for student {rfid_last_student.get('student_id')}, keeping counter at {rfid_consecutive_non_compliant}")
                 elif current_compliance_status == 'COMPLIANT':
                     # Reset violation counter when fully compliant
                     rfid_consecutive_non_compliant = 0
@@ -1352,19 +1353,19 @@ def _maybe_record_violation(frame, detections, admin_user):
                     # Increment compliant counter
                     rfid_consecutive_compliant += 1
                     student_id = rfid_last_student.get('student_id') if rfid_last_student else 'Unknown'
-                    print(f"DEBUG: [COMPLIANT] Detection #{rfid_consecutive_compliant} for student {student_id}")
-                    print(f"DEBUG: [COMPLIANT] Compliant items: {', '.join(compliant_items_list) if compliant_items_list else 'None'}")
-                    print(f"DEBUG: [COMPLIANT] Counter: {rfid_consecutive_compliant}/10 (need 10 consecutive for auto-stop)")
+                    debug_compliance(f"[COMPLIANT] Detection #{rfid_consecutive_compliant} for student {student_id}")
+                    debug_compliance(f"[COMPLIANT] Compliant items: {', '.join(compliant_items_list) if compliant_items_list else 'None'}")
+                    debug_compliance(f"[COMPLIANT] Counter: {rfid_consecutive_compliant}/10 (need 10 consecutive for auto-stop)")
                     
                     # Stop detection after 3 consecutive compliant detections (to avoid false positives)
                     if rfid_consecutive_compliant >= 10 and not rfid_current_uid_compliant:
                         # Only set flags once per detection event
                         rfid_current_uid_compliant = True
-                        print(f"DEBUG: [COMPLIANT] ✓ Student {student_id} reached 10 consecutive COMPLIANT detections - DETECTION PAUSED")
-                        print(f"DEBUG: [COMPLIANT] Flags: rfid_current_uid_compliant={rfid_current_uid_compliant}, detection_enabled={detection_enabled}")
+                        debug_compliance(f"[COMPLIANT] ✓ Student {student_id} reached 10 consecutive COMPLIANT detections - DETECTION PAUSED")
+                        debug_compliance(f"[COMPLIANT] Flags: rfid_current_uid_compliant={rfid_current_uid_compliant}, detection_enabled={detection_enabled}")
                     else:
                         remaining = 10 - rfid_consecutive_compliant
-                        print(f"DEBUG: [COMPLIANT] Need {remaining} more consecutive compliant detection(s) to stop")
+                        debug_compliance(f"[COMPLIANT] Need {remaining} more consecutive compliant detection(s) to stop")
                 else:
                     # Reset compliant counter if status is not COMPLIANT
                     rfid_consecutive_compliant = 0
@@ -1372,7 +1373,7 @@ def _maybe_record_violation(frame, detections, admin_user):
             
             # Only proceed if we have 3 consecutive violation detections (non-compliant or partially compliant)
             if rfid_consecutive_non_compliant < 3:
-                print(f"DEBUG: Need {3 - rfid_consecutive_non_compliant} more consecutive violation detections")
+                debug_violation(f"Need {3 - rfid_consecutive_non_compliant} more consecutive violation detections")
                 return None
 
         # Daily limit: only one recorded violation per student per day
@@ -1390,27 +1391,27 @@ def _maybe_record_violation(frame, detections, admin_user):
         is_throttled = False
         if is_same_card and now_ts - rfid_last_violation_ts < 10:
             is_throttled = True
-            print(f"DEBUG: Throttled - same card scanned within {now_ts - rfid_last_violation_ts:.1f}s (violation NOT recorded)")
+            debug_violation(f"Throttled - same card scanned within {now_ts - rfid_last_violation_ts:.1f}s (violation NOT recorded)")
         
         # If daily limit reached or throttled, don't record
         if has_violation_today or is_throttled:
             return None
 
-        print(f"DEBUG: Recording violation for student {rfid_last_student.get('student_id')} after {rfid_consecutive_non_compliant} consecutive detections")
-        print(f"DEBUG: Admin user: {admin_user is not None}")
+        debug_violation(f"Recording violation for student {rfid_last_student.get('student_id')} after {rfid_consecutive_non_compliant} consecutive detections")
+        debug_violation(f"Admin user: {admin_user is not None}")
 
         # Save enhanced proof image with annotations
         proof_name = f"violation_{int(now_ts)}_{rfid_last_student.get('student_id', 'unknown')}.jpg"
         proof_path = os.path.join(VIOLATION_FOLDER, proof_name)
-        print(f"DEBUG: Proof image path: {proof_path}")
+        debug_violation(f"Proof image path: {proof_path}")
         
         try:
             os.makedirs(VIOLATION_FOLDER, exist_ok=True)
-            print(f"DEBUG: Created/verified violation folder: {VIOLATION_FOLDER}")
+            debug_violation(f"Created/verified violation folder: {VIOLATION_FOLDER}")
             
             # Create an enhanced proof image with violation details
             proof_frame = frame.copy()
-            print(f"DEBUG: Created proof frame copy, shape: {proof_frame.shape}")
+            debug_violation(f"Created proof frame copy, shape: {proof_frame.shape}")
             
             # Build violation type text for image annotation
             noncompliant = ", ".join(violation_details) if violation_details else "non-compliant items"
@@ -1422,7 +1423,7 @@ def _maybe_record_violation(frame, detections, admin_user):
             student_text = f"Student ID: {rfid_last_student.get('student_id', 'Unknown')}"
             rfid_text = f"RFID: {rfid_last_uid}"
 
-            print(f"DEBUG: Adding text overlays to proof image")
+            debug_violation("Adding text overlays to proof image")
 
             # Prepare wrapping
             margin_left = 20
@@ -1484,7 +1485,7 @@ def _maybe_record_violation(frame, detections, admin_user):
                            cv2.FONT_HERSHEY_SIMPLEX, info_scale, (255, 255, 255), thickness)
                 y += cv2.getTextSize(ln, cv2.FONT_HERSHEY_SIMPLEX, info_scale, thickness)[0][1] + line_spacing
             
-            print(f"DEBUG: Added text overlays, now adding bounding boxes")
+            debug_violation("Added text overlays, now adding bounding boxes")
             
             # Draw bounding boxes and violation details on detected persons
             for det in detections or []:
@@ -1512,22 +1513,22 @@ def _maybe_record_violation(frame, detections, admin_user):
                     
                     # Removed per-person non-compliant text near the bounding box as requested
             
-            print(f"DEBUG: Added bounding boxes, attempting to save image")
+            debug_violation("Added bounding boxes, attempting to save image")
             
             # Save the enhanced proof image
             success = cv2.imwrite(proof_path, proof_frame)
-            print(f"DEBUG: cv2.imwrite returned: {success}")
-            print(f"DEBUG: Proof image saved: {proof_path}")
+            debug_violation(f"cv2.imwrite returned: {success}")
+            debug_violation(f"Proof image saved: {proof_path}")
             
             # Verify file was created
             if os.path.exists(proof_path):
                 file_size = os.path.getsize(proof_path)
-                print(f"DEBUG: File exists, size: {file_size} bytes")
+                debug_violation(f"File exists, size: {file_size} bytes")
             else:
-                print(f"DEBUG: ERROR - File was not created!")
+                debug_violation("ERROR - File was not created!")
             
         except Exception as e:
-            print(f"DEBUG: Error saving proof image: {e}")
+            debug_violation(f"Error saving proof image: {e}")
             import traceback
             traceback.print_exc()
             proof_path = None
@@ -1544,16 +1545,16 @@ def _maybe_record_violation(frame, detections, admin_user):
             _get_v_cnt = None
         if _get_v_cnt and student_id:
             previous_violation_count = int(_get_v_cnt(student_id) or 0)
-            print(f"DEBUG: Previous violation count for student {student_id}: {previous_violation_count}")
+            debug_database(f"Previous violation count for student {student_id}: {previous_violation_count}")
 
         # Store relative path in DB; serve via /results/violations/<filename>
         rel_path = os.path.join(VIOLATION_SUBDIR, proof_name) if proof_path else None
-        print(f"DEBUG: Database path: {rel_path}")
+        debug_database(f"Database path: {rel_path}")
 
         if insert_violation:
-            print(f"DEBUG: Attempting database insertion...")
+            debug_database("Attempting database insertion...")
             vid = insert_violation(rfid_last_student.get('student_id'), violation_type, rel_path)
-            print(f"DEBUG: Database insertion returned: {vid}")
+            debug_database(f"Database insertion returned: {vid}")
             if vid:
                 rfid_last_violation_ts = now_ts
                 rfid_last_violation_uid = rfid_last_uid  # Track which UID had the violation for throttle check
@@ -1562,7 +1563,7 @@ def _maybe_record_violation(frame, detections, admin_user):
                     rfid_current_uid_violated = True
                     # Violation is recorded
                     print(f"✓ VIOLATION RECORDED: Violation recorded for student {rfid_last_student.get('student_id')}")
-                    print(f"DEBUG: Violation recorded in database, UID tracked: {rfid_last_violation_uid}")
+                    debug_database(f"Violation recorded in database, UID tracked: {rfid_last_violation_uid}")
                 
                 # Create violation summary for logging
                 violation_summary = {
@@ -1585,18 +1586,18 @@ def _maybe_record_violation(frame, detections, admin_user):
                 print(f"  - Proof Image: {proof_name}")
                 print(f"  - Consecutive Non-Compliant Detections: {rfid_consecutive_non_compliant}")
                 # Attempt to send email notification to student (with strike count)
-                print(f"DEBUG: Starting email notification process...")
+                debug_email("Starting email notification process...")
                 try:
                     student_email = (rfid_last_student or {}).get('email')
                     student_name = (rfid_last_student or {}).get('name', 'Student')
                     student_id = (rfid_last_student or {}).get('student_id')
-                    print(f"DEBUG: Initial email check - email: {student_email}, student_id: {student_id}")
+                    debug_email(f"Initial email check - email: {student_email}, student_id: {student_id}")
                     if not student_email and (rfid_last_student or {}).get('student_id'):
-                        print(f"DEBUG: No email found in rfid_last_student, attempting lookup by student_id...")
+                        debug_email("No email found in rfid_last_student, attempting lookup by student_id...")
                         try:
                             from src.config import find_student_by_id as _find_student_by_id
                         except Exception as import_err:
-                            print(f"DEBUG: Failed to import find_student_by_id: {import_err}")
+                            debug_email(f"Failed to import find_student_by_id: {import_err}")
                             _find_student_by_id = None
                         if _find_student_by_id:
                             stu = _find_student_by_id(student_id)
@@ -1604,18 +1605,18 @@ def _maybe_record_violation(frame, detections, admin_user):
                                 student_email = stu.get('email') or student_email
                                 student_name = stu.get('name') or student_name
                                 student_id = stu.get('student_id') or student_id
-                                print(f"DEBUG: Found student via lookup - email: {student_email}")
+                                debug_email(f"Found student via lookup - email: {student_email}")
                             else:
-                                print(f"DEBUG: Student lookup returned None for student_id: {student_id}")
+                                debug_email(f"Student lookup returned None for student_id: {student_id}")
                         else:
-                            print(f"DEBUG: find_student_by_id function not available")
+                            debug_email("find_student_by_id function not available")
                     if student_email:
-                        print(f"DEBUG: Student email found: {student_email}, proceeding with email composition...")
+                        debug_email(f"Student email found: {student_email}, proceeding with email composition...")
                         # Determine strike number based on previous violations + 1 (the one we just inserted)
                         # Cap at 3
                         strike_num = previous_violation_count + 1
                         strike_num = max(1, min(3, strike_num))
-                        print(f"DEBUG: Strike number calculated: {strike_num} (previous violations: {previous_violation_count})")
+                        debug_email(f"Strike number calculated: {strike_num} (previous violations: {previous_violation_count})")
                         
                         try:
                             from src.config import get_student_violations as _get_v_list
@@ -1678,7 +1679,7 @@ def _maybe_record_violation(frame, detections, admin_user):
                         if proof_path and os.path.exists(proof_path):
                             # Generate a unique Content-ID for the inline image
                             image_cid = f"violation_proof_{int(now_ts)}"
-                            print(f"DEBUG: Image CID generated: {image_cid}")
+                            debug_email(f"Image CID generated: {image_cid}")
                         
                         # Generate email body using HTML template
                         html_body = generate_violation_email_body(
@@ -1725,10 +1726,10 @@ Palawan State University
 This is an automated notification. Please do not reply to this email."""
                         
                         try:
-                            print(f"DEBUG: Creating email message...")
-                            print(f"DEBUG: Mail config - Server: {app.config.get('MAIL_SERVER')}, Username: {app.config.get('MAIL_USERNAME')}")
-                            print(f"DEBUG: Sender: {app.config.get('MAIL_DEFAULT_SENDER', app.config.get('MAIL_USERNAME'))}")
-                            print(f"DEBUG: Recipient: {student_email}")
+                            debug_email("Creating email message...")
+                            debug_email(f"Mail config - Server: {app.config.get('MAIL_SERVER')}, Username: {app.config.get('MAIL_USERNAME')}")
+                            debug_email(f"Sender: {app.config.get('MAIL_DEFAULT_SENDER', app.config.get('MAIL_USERNAME'))}")
+                            debug_email(f"Recipient: {student_email}")
                             msg = Message(
                                 subject=subject, 
                                 recipients=[student_email], 
@@ -1748,12 +1749,12 @@ This is an automated notification. Please do not reply to this email."""
                                             disposition='inline',
                                             headers={'Content-ID': f'<{image_cid}>'}
                                         )
-                                    print(f"DEBUG: Proof image attached with CID: {image_cid}")
+                                    debug_email(f"Proof image attached with CID: {image_cid}")
                                 except Exception as attach_err:
-                                    print(f"DEBUG: Error attaching image: {attach_err}")
+                                    debug_email(f"Error attaching image: {attach_err}")
                             
                             
-                            print(f"DEBUG: Attempting to send email to {student_email}...")
+                            debug_email(f"Attempting to send email to {student_email}...")
                             # Flask-Mail requires application context, especially when called from background threads
                             with app.app_context():
                                 mail.send(msg)
@@ -1765,7 +1766,7 @@ This is an automated notification. Please do not reply to this email."""
                             print(f"✗ TRACEBACK:\n{traceback.format_exc()}")
                     else:
                         print(f"⚠ WARNING: No student email available; skipping email notification")
-                        print(f"⚠ DEBUG: student_email was: {student_email}, student_id was: {student_id}")
+                        debug_email(f"⚠ student_email was: {student_email}, student_id was: {student_id}")
                 except Exception as _e:
                     print(f"✗ CRITICAL ERROR in email notification process: {type(_e).__name__}: {_e}")
                     import traceback
@@ -1773,9 +1774,9 @@ This is an automated notification. Please do not reply to this email."""
                 
                 return vid
             else:
-                print(f"DEBUG: Database insertion failed - no violation ID returned")
+                debug_database("Database insertion failed - no violation ID returned")
         else:
-            print(f"DEBUG: insert_violation function not available")
+            debug_database("insert_violation function not available")
         return None
     except Exception as e:
         print(f"Violation record error: {e}")
@@ -2029,7 +2030,7 @@ def auto_sync_to_aiven():
             aiven_available = is_aiven_available(force_check=False)
             if not aiven_available:
                 # Aiven is not available, log and wait
-                print(f"DEBUG: Auto-sync skipped - Aiven not available (will retry in 60s)")
+                debug_sync("Auto-sync skipped - Aiven not available (will retry in 60s)")
                 time.sleep(60)
                 continue
             
@@ -2142,7 +2143,7 @@ def auto_sync_to_aiven():
             else:
                 # Aiven is available but not enough time has passed
                 remaining = sync_interval - time_since_last_sync
-                print(f"DEBUG: Auto-sync waiting - {remaining:.0f}s until next sync (Aiven available)")
+                debug_sync(f"Auto-sync waiting - {remaining:.0f}s until next sync (Aiven available)")
             
         except Exception as e:
             print(f"Error in auto-sync to Aiven checker: {e}")
