@@ -161,6 +161,42 @@ LOCK TABLES `violations` WRITE;
 /*!40000 ALTER TABLE `violations` DISABLE KEYS */;
 /*!40000 ALTER TABLE `violations` ENABLE KEYS */;
 UNLOCK TABLES;
+
+--
+-- Table structure for table `email_outbox`
+--
+
+DROP TABLE IF EXISTS `email_outbox`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `email_outbox` (
+  `email_id` int NOT NULL AUTO_INCREMENT,
+  `recipient` varchar(255) NOT NULL,
+  `subject` varchar(255) NOT NULL,
+  `body_html` longtext,
+  `body_plain` longtext,
+  `violation_id` int DEFAULT NULL,
+  `attachment_path` varchar(255) DEFAULT NULL,
+  `attachment_cid` varchar(255) DEFAULT NULL,
+  `status` enum('pending','sending','sent','failed') NOT NULL DEFAULT 'pending',
+  `attempt_count` int NOT NULL DEFAULT 0,
+  `last_attempt_at` timestamp NULL DEFAULT NULL,
+  `last_error` text,
+  `created_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`email_id`),
+  KEY `violation_id` (`violation_id`),
+  CONSTRAINT `email_outbox_ibfk_1` FOREIGN KEY (`violation_id`) REFERENCES `violations` (`violation_id`) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Dumping data for table `email_outbox`
+--
+
+LOCK TABLES `email_outbox` WRITE;
+/*!40000 ALTER TABLE `email_outbox` DISABLE KEYS */;
+/*!40000 ALTER TABLE `email_outbox` ENABLE KEYS */;
+UNLOCK TABLES;
 /*!40103 SET TIME_ZONE=@OLD_TIME_ZONE */;
 
 /*!40101 SET SQL_MODE=@OLD_SQL_MODE */;

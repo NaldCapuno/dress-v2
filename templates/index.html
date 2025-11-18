@@ -8,9 +8,36 @@
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
     <link href="{{ url_for('static', filename='css/style.css') }}" rel="stylesheet">
     <script src="{{ url_for('static', filename='js/toast.js') }}"></script>
+    <style>
+        .network-status-banner {
+            display: none;
+            align-items: center;
+            gap: 12px;
+            background: #ffb74d;
+            color: #1f1f1f;
+            padding: 12px 16px;
+            border-radius: 10px;
+            margin-bottom: 20px;
+            box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+        }
+        .network-status-banner i {
+            font-size: 18px;
+        }
+        .network-status-banner button {
+            margin-left: auto;
+        }
+    </style>
 </head>
 <body>
     <div class="container">
+        <div id="network-status-banner" class="network-status-banner">
+            <i class="fas fa-wifi-slash"></i>
+            <div id="network-status-text">Network connection lost. Dashboard updates paused.</div>
+            <button id="network-retry-btn" class="btn btn-secondary btn-sm">
+                <i class="fas fa-sync-alt"></i> Retry
+            </button>
+        </div>
         <!-- Floating Menu Button Container -->
         <div id="floating-menu" class="floating-menu">
             <!-- Settings Button -->
@@ -433,6 +460,7 @@
                     const videoFeed = document.getElementById('videoFeed');
                     videoFeed.src = '/video_feed?' + new Date().getTime();
                     videoFeed.style.display = 'block';
+                    videoFeed.dataset.cameraActive = 'true';
                     
                     // Force 4:3 aspect ratio
                     forceVideoContainerSize();
@@ -500,6 +528,7 @@
                     const videoFeed = document.getElementById('videoFeed');
                     videoFeed.src = '/video_feed?' + new Date().getTime();
                     videoFeed.style.display = 'block';
+                    videoFeed.dataset.cameraActive = 'true';
                     
                     // Force 4:3 aspect ratio
                     forceVideoContainerSize();
@@ -561,6 +590,7 @@
                     const videoFeed = document.getElementById('videoFeed');
                     videoFeed.src = '';
                     videoFeed.style.display = 'none';
+                    videoFeed.dataset.cameraActive = 'false';
                     
                     // Show camera off overlay
                     const overlay = document.getElementById('cameraOffOverlay');
@@ -815,14 +845,26 @@
             // Check database status every 10 seconds
             setInterval(checkDatabaseStatus, 10000);
             checkDatabaseStatus(); // Check immediately on load
+            
+            setupVideoFeedWatchdog();
         });
         
         // Helper function to update RFID status based on schedule
         function checkScheduleStatusForRFID(rfidOverviewEl) {
             if (!rfidOverviewEl) return;
-            fetch('/api/settings/schedule/check')
+            if (!navigator.onLine) {
+                handleNetworkFetchFailure('checking schedule status', new Error('Offline'));
+                return;
+            }
+            if (scheduleRequestInFlight) {
+                return;
+            }
+            scheduleRequestInFlight = true;
+            fetchWithTimeout('/api/settings/schedule/check')
             .then(response => response.json())
             .then(data => {
+                scheduleRequestInFlight = false;
+                updateNetworkStatusBanner(false);
                 if (data.success && !data.active) {
                     // Outside scheduled hours
                     const currentText = rfidOverviewEl.textContent;
@@ -840,15 +882,26 @@
                 }
             })
             .catch(error => {
-                console.error('Error checking schedule status for RFID:', error);
+                scheduleRequestInFlight = false;
+                handleNetworkFetchFailure('checking schedule status', error);
             });
         }
         
         // Check database status
         function checkDatabaseStatus() {
-            fetch('/api/database/status')
+            if (!navigator.onLine) {
+                handleNetworkFetchFailure('checking database status', new Error('Offline'));
+                return;
+            }
+            if (dbRequestInFlight) {
+                return;
+            }
+            dbRequestInFlight = true;
+            fetchWithTimeout('/api/database/status')
             .then(response => response.json())
             .then(data => {
+                dbRequestInFlight = false;
+                updateNetworkStatusBanner(false);
                 if (data.success) {
                     const dbStatusEl = document.getElementById('database-status');
                     if (dbStatusEl) {
@@ -872,15 +925,26 @@
                 }
             })
             .catch(error => {
-                console.error('Error checking database status:', error);
+                dbRequestInFlight = false;
+                handleNetworkFetchFailure('checking database status', error);
             });
         }
         
         // Check schedule status
         function checkScheduleStatus() {
-            fetch('/api/settings/schedule/check')
+            if (!navigator.onLine) {
+                handleNetworkFetchFailure('checking system schedule', new Error('Offline'));
+                return;
+            }
+            if (scheduleRequestInFlight) {
+                return;
+            }
+            scheduleRequestInFlight = true;
+            fetchWithTimeout('/api/settings/schedule/check')
             .then(response => response.json())
             .then(data => {
+                scheduleRequestInFlight = false;
+                updateNetworkStatusBanner(false);
                 if (data.success) {
                     const scheduleStatusEl = document.getElementById('schedule-status');
                     const scheduleWarningEl = document.getElementById('scheduleWarningStatus');
@@ -940,15 +1004,26 @@
                 }
             })
             .catch(error => {
-                console.error('Error checking schedule status:', error);
+                scheduleRequestInFlight = false;
+                handleNetworkFetchFailure('checking system schedule', error);
             });
         }
 
         // RFID Functions
         function checkRfidStatus() {
-            fetch('/rfid/status')
+            if (!navigator.onLine) {
+                handleNetworkFetchFailure('checking RFID status', new Error('Offline'));
+                return;
+            }
+            if (rfidRequestInFlight) {
+                return;
+            }
+            rfidRequestInFlight = true;
+            fetchWithTimeout('/rfid/status')
             .then(response => response.json())
             .then(data => {
+                rfidRequestInFlight = false;
+                updateNetworkStatusBanner(false);
                 if (data.success) {
                         const status = data.status;
                         const rfidStatus = document.getElementById('rfidStatus');
@@ -996,12 +1071,169 @@
                 }
             })
             .catch(error => {
-                    console.error('Error checking RFID status:', error);
+                    rfidRequestInFlight = false;
+                    handleNetworkFetchFailure('checking RFID status', error);
             });
         }
         
         // Floating menu hover functionality
+        const FETCH_TIMEOUT_MS = 7000;
+        const VIDEO_FEED_RETRY_DELAY = 2000;
+        const VIDEO_FEED_HEARTBEAT_INTERVAL = 6000;
+        let networkOffline = !navigator.onLine;
+        let rfidRequestInFlight = false;
+        let scheduleRequestInFlight = false;
+        let dbRequestInFlight = false;
+        let videoFeedErrorCount = 0;
+        let videoFeedRecoveryTimer = null;
+        let videoFeedHeartbeatTimer = null;
+
+        function updateNetworkStatusBanner(isOffline, message) {
+            const banner = document.getElementById('network-status-banner');
+            const textEl = document.getElementById('network-status-text');
+            if (!banner || !textEl) {
+                return;
+            }
+            networkOffline = isOffline;
+            if (isOffline) {
+                if (message) {
+                    textEl.textContent = message;
+                }
+                banner.style.display = 'flex';
+            } else {
+                banner.style.display = 'none';
+            }
+        }
+
+        function handleNetworkFetchFailure(context, error) {
+            console.error(`Error ${context}:`, error);
+            if (!navigator.onLine) {
+                updateNetworkStatusBanner(true, `${context} paused while network is offline. Reconnect to resume.`);
+            }
+        }
+
+        window.addEventListener('online', () => {
+            updateNetworkStatusBanner(false);
+            checkRfidStatus();
+            checkScheduleStatus();
+            checkDatabaseStatus();
+            restartVideoFeedStream(true);
+        });
+
+        window.addEventListener('offline', () => {
+            updateNetworkStatusBanner(true, 'Network connection lost. Dashboard updates paused.');
+        });
+
+        function fetchWithTimeout(url, options = {}, timeout = FETCH_TIMEOUT_MS) {
+            const controller = new AbortController();
+            const timer = setTimeout(() => controller.abort(), timeout);
+            const opts = { ...options, signal: controller.signal };
+            return fetch(url, opts).finally(() => clearTimeout(timer));
+        }
+
+        function restartVideoFeedStream(force = false) {
+            const videoFeed = document.getElementById('videoFeed');
+            if (!videoFeed) {
+                return;
+            }
+            if (videoFeed.style.display === 'none') {
+                return;
+            }
+            if (videoFeed.dataset.cameraActive === 'false') {
+                return;
+            }
+            if (!videoFeed.dataset.baseSrc) {
+                const currentSrc = videoFeed.getAttribute('src') || '/video_feed';
+                videoFeed.dataset.baseSrc = currentSrc.split('?')[0] || '/video_feed';
+            }
+            const baseSrc = videoFeed.dataset.baseSrc || '/video_feed';
+            videoFeed.src = `${baseSrc}?t=${Date.now()}`;
+            videoFeed.style.display = 'block';
+            videoFeedErrorCount = 0;
+            if (force) {
+                checkRfidStatus();
+            }
+        }
+        // Expose immediately for debugging
+        window.restartVideoFeedStream = restartVideoFeedStream;
+
+        function handleVideoFeedError() {
+            if (videoFeedRecoveryTimer) {
+                return;
+            }
+            videoFeedErrorCount += 1;
+            const delay = VIDEO_FEED_RETRY_DELAY * Math.min(videoFeedErrorCount, 5);
+            videoFeedRecoveryTimer = setTimeout(() => {
+                videoFeedRecoveryTimer = null;
+                if (navigator.onLine) {
+                    restartVideoFeedStream(false);
+                }
+            }, delay);
+        }
+
+        function setupVideoFeedWatchdog() {
+            const videoFeed = document.getElementById('videoFeed');
+            if (!videoFeed) {
+                return;
+            }
+            if (!videoFeed.dataset.baseSrc) {
+                const currentSrc = videoFeed.getAttribute('src') || '/video_feed';
+                videoFeed.dataset.baseSrc = currentSrc.split('?')[0] || '/video_feed';
+            }
+            videoFeed.addEventListener('error', handleVideoFeedError);
+            videoFeed.addEventListener('load', () => {
+                videoFeedErrorCount = 0;
+                videoFeed.dataset.lastLoadedTs = Date.now().toString();
+                if (videoFeedRecoveryTimer) {
+                    clearTimeout(videoFeedRecoveryTimer);
+                    videoFeedRecoveryTimer = null;
+                }
+            });
+
+            if (!videoFeedHeartbeatTimer) {
+                videoFeedHeartbeatTimer = setInterval(() => {
+                    if (!navigator.onLine) {
+                        return;
+                    }
+                    if (!videoFeed.dataset.baseSrc || videoFeed.style.display === 'none') {
+                        return;
+                    }
+                    const lastLoaded = parseInt(videoFeed.dataset.lastLoadedTs || '0', 10);
+                    if (!lastLoaded || (Date.now() - lastLoaded) > VIDEO_FEED_HEARTBEAT_INTERVAL * 2) {
+                        restartVideoFeedStream(false);
+                    }
+                }, VIDEO_FEED_HEARTBEAT_INTERVAL);
+            }
+        }
+
+        // Expose checkRfidStatus for debugging (restartVideoFeedStream already exposed above)
+        window.checkRfidStatus = checkRfidStatus;
+
         document.addEventListener('DOMContentLoaded', () => {
+            const networkRetryBtn = document.getElementById('network-retry-btn');
+            if (networkRetryBtn) {
+                networkRetryBtn.addEventListener('click', () => {
+                    if (navigator.onLine) {
+                        updateNetworkStatusBanner(false);
+                        checkRfidStatus();
+                        checkScheduleStatus();
+                        checkDatabaseStatus();
+                        restartVideoFeedStream(true);
+                    } else {
+                        updateNetworkStatusBanner(true, 'Network connection lost. Dashboard updates paused.');
+                    }
+                });
+            }
+            
+            if (networkOffline) {
+                updateNetworkStatusBanner(true, 'Network connection lost. Dashboard updates paused.');
+            }
+            const videoFeedEl = document.getElementById('videoFeed');
+            if (videoFeedEl && !videoFeedEl.dataset.baseSrc) {
+                const currentSrc = videoFeedEl.getAttribute('src') || '/video_feed';
+                videoFeedEl.dataset.baseSrc = currentSrc.split('?')[0] || '/video_feed';
+                videoFeedEl.dataset.cameraActive = videoFeedEl.style.display !== 'none' ? 'true' : 'false';
+            }
             const floatingMenu = document.getElementById('floating-menu');
             const menuToggleBtn = document.getElementById('menu-toggle-btn');
             const settingsBtn = document.getElementById('settings-btn');
