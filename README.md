@@ -158,6 +158,7 @@ dress-v2/
 ├── LICENSE                     # License file
 ├── README.md                   # This file
 ├── docs/                        # Documentation folder
+│   ├── USER_GUIDE.md           # User guide for all roles
 │   ├── SYSTEM_NOTES.md         # Comprehensive system notes
 │   ├── DEPLOYMENT_GUIDE.md     # Deployment guide
 │   ├── DATABASE_SYNC_NOTES.md  # Database sync documentation
@@ -274,6 +275,13 @@ Options:
 - Verify violations have `status = 'pending'`
 - Check logs for scheduler errors
 - Ensure `followup_sent` column exists in violations table
+
+## Documentation
+
+- **[User Guide](docs/USER_GUIDE.md)**: Comprehensive guide for all user roles (Security, Dean, OSAS, Guidance)
+- **[System Notes](docs/SYSTEM_NOTES.md)**: Technical documentation and system architecture
+- **[Deployment Guide](docs/DEPLOYMENT_GUIDE.md)**: Step-by-step deployment instructions
+- **[Database Sync Notes](docs/DATABASE_SYNC_NOTES.md)**: Database backup and sync documentation
 
 ## License
 
