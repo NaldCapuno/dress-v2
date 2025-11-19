@@ -147,7 +147,7 @@ The system uses **PC/SC-compatible USB RFID readers** (e.g., ACR122U). When the 
 - Use active USB extension cable (up to 5 meters / 16 feet)
 - Connect RFID reader at entrance to server via USB cable
 - **Limitations:** USB 2.0 max length ~5 meters, USB 3.0 ~3 meters
-- **Cost:** Low ($10-30)
+- **Cost:** Low
 - **Best For:** Short distances (< 5 meters)
 
 **Architecture:**
@@ -164,7 +164,7 @@ The system uses **PC/SC-compatible USB RFID readers** (e.g., ACR122U). When the 
 - Connect RFID reader to extender at entrance
 - Connect extender to server via Ethernet cable (up to 100 meters / 328 feet)
 - **Limitations:** Requires power at entrance for extender device
-- **Cost:** Medium ($50-150)
+- **Cost:** Medium
 - **Best For:** Medium distances (5-100 meters)
 
 **Architecture:**
@@ -188,7 +188,7 @@ The system uses **PC/SC-compatible USB RFID readers** (e.g., ACR122U). When the 
 - Reader connects to network via Ethernet/WiFi
 - Server communicates with reader over network
 - **Limitations:** Requires compatible network-enabled reader (may need code modifications)
-- **Cost:** High ($200-500+)
+- **Cost:** High
 - **Best For:** Long distances, multiple entrances
 
 **Architecture:**
@@ -208,7 +208,7 @@ The system uses **PC/SC-compatible USB RFID readers** (e.g., ACR122U). When the 
 - RFID reader connected to entrance computer
 - Entrance computer communicates with main server over network
 - **Limitations:** Requires additional computer, network communication layer
-- **Cost:** Medium-High ($100-300)
+- **Cost:** Medium-High
 - **Best For:** Multiple entrances, complex setups
 
 **Architecture:**
@@ -229,7 +229,7 @@ The system uses **PC/SC-compatible USB RFID readers** (e.g., ACR122U). When the 
 - Multiple RFID readers connected to hub
 - Hub connected to server via active USB extension
 - **Limitations:** USB hub adds complexity, distance still limited
-- **Cost:** Medium ($50-100)
+- **Cost:** Medium
 - **Best For:** Multiple readers at same entrance
 
 **Architecture:**
@@ -453,25 +453,6 @@ The system uses:
 - Use IP cameras for multiple entry points (better scalability)
 - Consider dedicated GPU for AI inference (optional, for faster processing)
 - SSD storage for database (faster violation recording)
-
----
-
-## Cost Estimation
-
-### Basic Setup (Single Entry)
-- Computer: $500-1000
-- Camera: $50-200
-- RFID Reader: $100-300
-- UPS: $100-200
-- **Total:** ~$750-1700
-
-### Professional Setup (Multiple Entries)
-- Server Computer: $1000-2000
-- IP Cameras (per entrance): $200-500 each
-- RFID Readers: $100-300 each
-- Network Infrastructure: $200-500
-- UPS: $200-400
-- **Total:** ~$2000-5000+ (depends on number of entrances)
 
 ---
 

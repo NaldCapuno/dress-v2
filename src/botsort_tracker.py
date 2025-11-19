@@ -362,7 +362,7 @@ class Track:
 # =============================================================================
 
 class BotSORT:
-    """Rewritten Bot-SORT tracker using only Kalman filter, Mahalanobis distance, and cosine similarity"""
+    """Rewritten Bot-SORT tracker using Kalman filter, Mahalanobis distance, cosine similarity, and IoU"""
     
     def __init__(self, track_thresh=0.5, match_thresh=5.0, frame_rate=30, 
                  mahalanobis_thresh=2.0, cosine_thresh=0.01):
