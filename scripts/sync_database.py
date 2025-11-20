@@ -119,7 +119,9 @@ def get_dest_info(direction):
 
 def sync_schema(source_conn, dest_conn, direction):
     """Sync database schema (structure only) from source to destination."""
-    print(f"\n📋 Syncing schema...")
+    source_info = get_source_info(direction)
+    dest_info = get_dest_info(direction)
+    print(f"\n📋 Syncing schema from {source_info['name']} to {dest_info['name']}...")
     
     source_cursor = source_conn.cursor()
     dest_cursor = dest_conn.cursor()
@@ -160,8 +162,15 @@ def sync_schema(source_conn, dest_conn, direction):
             source_cursor.execute(f"SHOW CREATE TABLE `{table}`")
             create_stmt = source_cursor.fetchone()[1]
             
+            # Normalize CREATE statement: replace double quotes with backticks for MySQL compatibility
+            # This handles cases where source database uses ANSI_QUOTES mode or was exported from other DBs
+            # MySQL uses backticks for identifiers, not double quotes
+            # Note: CREATE TABLE statements typically don't contain string literals with double quotes,
+            # so replacing all double quotes with backticks is safe here
+            normalized_stmt = create_stmt.replace('"', '`')
+            
             # Create table in destination
-            dest_cursor.execute(create_stmt)
+            dest_cursor.execute(normalized_stmt)
             dest_conn.commit()
             
             print(f"    ✓ Table '{table}' synced")
@@ -237,9 +246,14 @@ def get_table_dependency_order(cursor, tables):
     return ordered
 
 
-def sync_data(source_conn, dest_conn, tables=None):
+def sync_data(source_conn, dest_conn, tables=None, direction=None):
     """Sync data from source to destination. If tables is None, sync all tables."""
-    print(f"\n📊 Syncing data...")
+    if direction:
+        source_info = get_source_info(direction)
+        dest_info = get_dest_info(direction)
+        print(f"\n📊 Syncing data from {source_info['name']} to {dest_info['name']}...")
+    else:
+        print(f"\n📊 Syncing data...")
     
     source_cursor = source_conn.cursor()
     dest_cursor = dest_conn.cursor()
@@ -447,20 +461,50 @@ def main():
         print("\n🔌 Connecting to databases...")
         source_conn = get_source_connection(direction)
         dest_conn = get_dest_connection(direction)
-        print("✅ Connected successfully")
+        
+        # Verify connections are correct by checking host info
+        source_info = get_source_info(direction)
+        dest_info = get_dest_info(direction)
+        
+        # Double-check connections by querying database names
+        source_cursor = source_conn.cursor()
+        dest_cursor = dest_conn.cursor()
+        source_cursor.execute("SELECT DATABASE()")
+        source_db = source_cursor.fetchone()[0]
+        dest_cursor.execute("SELECT DATABASE()")
+        dest_db = dest_cursor.fetchone()[0]
+        source_cursor.close()
+        dest_cursor.close()
+        
+        print(f"✅ Connected successfully")
+        print(f"📤 Source: {source_info['name']} ({source_info['host']}:{source_info['port']}) - Database: {source_db}")
+        print(f"📥 Destination: {dest_info['name']} ({dest_info['host']}:{dest_info['port']}) - Database: {dest_db}")
+        print(f"🔄 Sync Direction: {source_info['name']} → {dest_info['name']}")
+        
+        # Warn if auto-sync might interfere
+        if direction == 'aiven-to-local':
+            print(f"\n⚠️  WARNING: Auto-sync runs every 5 minutes and syncs Local → Aiven.")
+            print(f"   If auto-sync runs after this sync, it will overwrite Aiven with Local data.")
+            print(f"   Consider temporarily disabling auto-sync if you want to keep Aiven data.")
     except Exception as e:
         print(f"❌ Error connecting to database: {e}")
         sys.exit(1)
     
     try:
         # Always sync schema first
+        print(f"\n{'='*60}")
+        print(f"Starting schema sync: {source_info['name']} → {dest_info['name']}")
+        print(f"{'='*60}")
         if not sync_schema(source_conn, dest_conn, direction):
             print("\n❌ Schema sync failed. Aborting.")
             sys.exit(1)
         
         # Sync data if requested
         if sync_data_flag:
-            if not sync_data(source_conn, dest_conn, tables):
+            print(f"\n{'='*60}")
+            print(f"Starting data sync: {source_info['name']} → {dest_info['name']}")
+            print(f"{'='*60}")
+            if not sync_data(source_conn, dest_conn, tables, direction):
                 print("\n❌ Data sync failed.")
                 sys.exit(1)
         
