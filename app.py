@@ -2293,6 +2293,7 @@ def auto_sync_to_aiven():
                     aiven_cursor.execute("SET FOREIGN_KEY_CHECKS = 0")
                     
                     synced_count = 0
+                    failed_tables = []
                     for table in tables:
                         try:
                             # Get data from local
@@ -2309,16 +2310,46 @@ def auto_sync_to_aiven():
                             # Clear Aiven table
                             aiven_cursor.execute(f"TRUNCATE TABLE `{table}`")
                             
-                            # Insert data
+                            # Insert data row by row for better error reporting
                             placeholders = ', '.join(['%s'] * len(columns))
                             columns_str = ', '.join([f"`{col}`" for col in columns])
                             insert_query = f"INSERT INTO `{table}` ({columns_str}) VALUES ({placeholders})"
                             
-                            aiven_cursor.executemany(insert_query, rows)
-                            aiven_conn.commit()
-                            synced_count += 1
+                            inserted_rows = 0
+                            failed_rows = 0
+                            for row_num, row in enumerate(rows, start=1):
+                                try:
+                                    aiven_cursor.execute(insert_query, row)
+                                    inserted_rows += 1
+                                except Exception as row_error:
+                                    failed_rows += 1
+                                    # Extract row identifier if possible (usually first column is ID)
+                                    row_id = row[0] if row else f"row_{row_num}"
+                                    error_msg = str(row_error)
+                                    # Check if it's a data truncation error
+                                    if "Data truncated" in error_msg or "1265" in error_msg:
+                                        # Try to extract column name from error
+                                        if "column" in error_msg.lower():
+                                            print(f"  ⚠ Table {table}, row {row_num} (ID: {row_id}): {error_msg}")
+                                        else:
+                                            print(f"  ⚠ Table {table}, row {row_num} (ID: {row_id}): Data truncation error - {error_msg}")
+                                    else:
+                                        print(f"  ⚠ Table {table}, row {row_num} (ID: {row_id}): {error_msg}")
+                            
+                            if inserted_rows > 0:
+                                aiven_conn.commit()
+                                synced_count += 1
+                                if failed_rows > 0:
+                                    print(f"  ⚠ Table {table}: Synced {inserted_rows} rows, {failed_rows} rows failed")
+                            else:
+                                failed_tables.append(table)
+                                print(f"  ❌ Table {table}: All {len(rows)} rows failed to sync")
+                                
                         except Exception as e:
-                            print(f"  ⚠ Error syncing table {table}: {e}")
+                            failed_tables.append(table)
+                            print(f"  ❌ Error syncing table {table}: {e}")
+                            import traceback
+                            traceback.print_exc()
                     
                     # Re-enable foreign key checks
                     aiven_cursor.execute("SET FOREIGN_KEY_CHECKS = 1")
@@ -2328,7 +2359,10 @@ def auto_sync_to_aiven():
                     aiven_conn.close()
                     
                     last_sync_time = current_time
-                    print(f"✅ Auto-sync to Aiven (backup) completed! Synced {synced_count} tables.")
+                    if failed_tables:
+                        print(f"⚠️ Auto-sync to Aiven (backup) completed with errors! Synced {synced_count} tables, {len(failed_tables)} tables failed: {', '.join(failed_tables)}")
+                    else:
+                        print(f"✅ Auto-sync to Aiven (backup) completed! Synced {synced_count} tables.")
                 
                 except Exception as e:
                     print(f"⚠️ Auto-sync to Aiven failed: {e}")
