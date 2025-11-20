@@ -12,7 +12,9 @@ A web application for automated dress code monitoring and violation tracking usi
 - **PDF Reports**: Generate violation reports with analytics and statistics
 - **Student Database**: Manage student information and records
 - **Email Notifications**: Automatic email notifications for violations and follow-up reminders
+- **Email Queuing**: Offline email queuing system - emails are queued when offline and sent automatically when connectivity returns
 - **Database Backup**: Automatic backup sync to Aiven cloud database (optional)
+- **Offline Operation**: System works fully offline - violations recorded, emails queued, dashboard functional
 - **Test Mode**: Test detections outside scheduled hours for system validation
 
 ## Installation
@@ -91,13 +93,18 @@ Configure when the system should be active:
 ### Database Configuration
 - **Primary Database**: Local MySQL (always used for all operations)
 - **Backup Database**: Aiven (optional, synced automatically every 5 minutes when available)
-- See [DATABASE_SYNC_NOTES.md](https://github.com/NaldCapuno/dress-v2/blob/main/DATABASE_SYNC_NOTES.md) for detailed database sync information
+- See [docs/DATABASE_SYNC_NOTES.md](docs/DATABASE_SYNC_NOTES.md) for detailed database sync information
 
 ### Email Configuration
 - Configure SMTP settings in `.env` file
 - System sends:
-  - Initial violation notifications
+  - Initial violation notifications (queued if offline)
   - Follow-up emails (after 3 days for unresolved violations)
+- **Email Queuing System**: 
+  - Emails are queued in `email_outbox` table when violation detected
+  - Background worker processes queued emails every 15 seconds
+  - Automatically retries failed emails after 10 seconds
+  - Sends all queued emails when connectivity returns
 - Follow-up emails are sent automatically via background scheduler
 
 ## User Roles
@@ -122,8 +129,9 @@ Configure when the system should be active:
 - Strike system (1st, 2nd, 3rd offense tracking)
 
 ### Email Notifications
-- **Initial Notification**: Sent immediately when violation is detected
+- **Initial Notification**: Queued immediately when violation is detected (sent when online)
 - **Follow-up Notification**: Sent automatically after 3 days if violation is still pending
+- **Offline Support**: Emails are queued when offline and sent automatically when connectivity returns
 - Includes violation details, strike count, and proof images
 - Duplicate prevention ensures emails are only sent once
 
@@ -131,7 +139,7 @@ Configure when the system should be active:
 - Automatic backup to Aiven cloud database (if configured)
 - Syncs every 5 minutes when Aiven is available
 - System continues normally even if backup is unavailable
-- See `DATABASE_SYNC_NOTES.md` for details
+- See `docs/DATABASE_SYNC_NOTES.md` for details
 
 ## Requirements
 
@@ -149,7 +157,13 @@ dress-v2/
 ├── requirements.txt            # Python dependencies
 ├── LICENSE                     # License file
 ├── README.md                   # This file
-├── DATABASE_SYNC_NOTES.md      # Database sync documentation
+├── docs/                        # Documentation folder
+│   ├── USER_GUIDE.md           # User guide for all roles
+│   ├── SYSTEM_NOTES.md         # Comprehensive system notes
+│   ├── DEPLOYMENT_GUIDE.md     # Deployment guide
+│   ├── DATABASE_SYNC_NOTES.md  # Database sync documentation
+│   ├── DEBUG_README.md         # Debug utilities guide
+│   └── DEBUG_REFACTOR_SUMMARY.md # Debug refactoring summary
 ├── .env                        # Environment variables (create this)
 │
 ├── routes/                     # Route blueprints
@@ -212,10 +226,12 @@ dress-v2/
 The application runs several background threads:
 
 1. **Schedule Checker**: Manages RFID enabled/disabled based on schedule (checks every 10 seconds)
-2. **Follow-up Email Scheduler**: Sends follow-up emails for 3+ day old violations (checks daily)
-3. **Database Backup Sync**: Syncs local database to Aiven backup (every 5 minutes when available)
-4. **Detection Worker**: Processes frames for dress code detection asynchronously
-5. **RFID Event Handler**: Handles RFID card detection and student lookup
+2. **Email Outbox Worker**: Processes queued emails and retries failed sends (checks every 15 seconds, retries after 10 seconds)
+3. **Follow-up Email Scheduler**: Sends follow-up emails for 3+ day old violations (checks daily)
+4. **Database Backup Sync**: Syncs local database to Aiven backup (every 5 minutes when available)
+5. **Detection Worker**: Processes frames for dress code detection asynchronously
+6. **RFID Event Handler**: Handles RFID card detection and student lookup
+7. **Violation Recording**: Asynchronous violation recording (prevents blocking)
 
 ## Manual Database Sync
 
@@ -246,6 +262,8 @@ Options:
 - Verify SMTP settings in `.env` file
 - Check email credentials (use app password for Gmail)
 - Check logs for email errors
+- **If offline**: Emails are queued in `email_outbox` table and will send when connectivity returns
+- Check `email_outbox` table status: `SELECT * FROM email_outbox WHERE status != 'sent'`
 
 ### Database Connection Issues
 - Verify database credentials in `.env` file
@@ -257,6 +275,13 @@ Options:
 - Verify violations have `status = 'pending'`
 - Check logs for scheduler errors
 - Ensure `followup_sent` column exists in violations table
+
+## Documentation
+
+- **[User Guide](docs/USER_GUIDE.md)**: Comprehensive guide for all user roles (Security, Dean, OSAS, Guidance)
+- **[System Notes](docs/SYSTEM_NOTES.md)**: Technical documentation and system architecture
+- **[Deployment Guide](docs/DEPLOYMENT_GUIDE.md)**: Step-by-step deployment instructions
+- **[Database Sync Notes](docs/DATABASE_SYNC_NOTES.md)**: Database backup and sync documentation
 
 ## License
 

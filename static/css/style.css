@@ -1036,6 +1036,7 @@ select.form-control {
     object-fit: cover;
     display: block;
     border-radius: var(--radius-xl);
+    pointer-events: none;
 }
 
 .webcam-controls {

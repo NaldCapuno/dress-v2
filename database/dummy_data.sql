@@ -21,8 +21,6 @@ INSERT INTO `students` (`student_id`, `rfid_uid`, `name`, `gender`, `year_level`
   ('2025-1-0020', '3BA8104F', 'Erika Santos', 'female', 1, 'Bachelor of Science in Computer Science', 'College of Sciences', 'erika.santos@student.edu'),
   ('2025-1-0021', '2B7EDE4E', 'Leo Ramirez', 'male', 2, 'Bachelor of Science in Biology', 'College of Sciences', 'leo.ramirez@student.edu'),
   ('2025-1-0022', '7B7EFE4E', 'Paolo Cruz', 'male', 3, 'Bachelor of Science in Computer Science', 'College of Sciences', 'paolo.cruz@student.edu'),
-  ('2025-1-0023', 'AB39E94E', 'Hannah Tan', 'female', 4, 'Bachelor of Science in Information Technology', 'College of Sciences', 'hannah.tan@student.edu'),
-  ('2022-8-0125', '2BE7064F', 'Ronald Jason Capuno', 'male', 4, 'Bachelor of Science in Computer Science', 'College of Sciences', '202280125@psu.palawan.edu.ph'),
   ('2022-1-0025', 'SCIU2025', 'Karl Dizon', 'male', 3, 'Bachelor of Science in Computer Science', 'College of Sciences', 'karl.dizon@student.edu'),
   ('2025-1-0026', 'SCIU2026', 'Lara Go', 'female', 1, 'Bachelor of Science in Environmental Science', 'College of Sciences', 'lara.go@student.edu'),
   ('2025-1-0027', 'SCIU2027', 'Mark Co', 'male', 4, 'Bachelor of Science in Information Technology', 'College of Sciences', 'mark.co@student.edu'),
@@ -31,7 +29,7 @@ INSERT INTO `students` (`student_id`, `rfid_uid`, `name`, `gender`, `year_level`
 -- Insert dummy violations (using 'non-compliant' and multiple items)
 -- Note: Violations are gender-specific (male: polo_shirt, pants, shoes; female: blouse, skirt, doll_shoes)
 INSERT INTO `violations` (`student_id`, `violation_type`, `timestamp`, `image_proof`, `status`) VALUES
-  -- Female students (Alexandra Reyes, Patricia Dela Cruz, Beatriz Mendoza, Diana Villanueva, Isabella Cruz, Sofia Ramirez, Kimberly Ong, Christine Tan, Monica Alvarez, Erika Santos, Hannah Tan, Lara Go, Nina Sy)
+  -- Female students (Alexandra Reyes, Patricia Dela Cruz, Beatriz Mendoza, Diana Villanueva, Isabella Cruz, Sofia Ramirez, Kimberly Ong, Christine Tan, Monica Alvarez, Erika Santos, Lara Go, Nina Sy)
   ('2020-1-0001', 'non-compliant: blouse and doll_shoes', '2025-10-25 08:00:00', NULL, 'pending'),
   ('2022-3-0003', 'non-compliant: doll_shoes', '2025-10-20 10:00:00', NULL, 'pending'),
   ('2021-2-0006', 'non-compliant: doll_shoes', '2025-09-29 08:20:00', NULL, 'pending'),
@@ -41,7 +39,6 @@ INSERT INTO `violations` (`student_id`, `violation_type`, `timestamp`, `image_pr
   ('2024-3-0015', 'non-compliant: doll_shoes and skirt', '2025-10-28 15:30:00', NULL, 'pending'),
   ('2020-3-0017', 'non-compliant: skirt, blouse, and doll_shoes', '2025-10-19 16:10:00', NULL, 'pending'),
   ('2025-1-0020', 'non-compliant: blouse, doll_shoes, and skirt', '2025-10-01 08:30:00', NULL, 'pending'),
-  ('2025-1-0023', 'non-compliant: blouse and skirt', '2025-10-01 08:45:00', NULL, 'pending'),
   ('2025-1-0026', 'non-compliant: blouse and skirt', '2025-09-28 09:10:00', NULL, 'pending'),
   ('2025-1-0028', 'non-compliant: skirt, blouse, and doll_shoes', '2025-09-28 09:20:00', NULL, 'pending'),
   ('2023-4-0008', 'non-compliant: skirt', '2025-10-24 07:50:00', NULL, 'pending'),
@@ -58,13 +55,12 @@ INSERT INTO `violations` (`student_id`, `violation_type`, `timestamp`, `image_pr
   ('2020-3-0017', 'non-compliant: skirt', '2025-11-21 09:15:00', NULL, 'pending'),
   ('2025-1-0020', 'non-compliant: blouse and skirt', '2025-11-23 09:00:00', NULL, 'pending'),
   ('2025-1-0020', 'non-compliant: doll_shoes', '2025-11-26 08:20:00', NULL, 'pending'),
-  ('2025-1-0023', 'non-compliant: blouse', '2025-11-28 08:30:00', NULL, 'pending'),
   ('2025-1-0026', 'non-compliant: blouse and skirt', '2025-12-01 08:40:00', NULL, 'pending'),
   ('2025-1-0028', 'non-compliant: blouse', '2025-12-04 09:50:00', NULL, 'pending'),
   ('2025-1-0028', 'non-compliant: skirt and doll_shoes', '2025-12-06 08:35:00', NULL, 'pending'),
   ('2023-4-0008', 'non-compliant: blouse and doll_shoes', '2025-11-11 09:05:00', NULL, 'pending'),
   ('2021-2-0006', 'non-compliant: skirt', '2025-12-12 08:20:00', NULL, 'pending'),
-  -- Male students (Miguel Santos, Joshua Lim, Rafael Garcia, Carlo Navarro, Gabriel Perez, Luis Fernandez, Nathaniel Chua, Jerome Bautista, Andre Rodriguez, Leo Ramirez, Paolo Cruz, Ronald Jason Capuno, Karl Dizon, Mark Co)
+  -- Male students (Miguel Santos, Joshua Lim, Rafael Garcia, Carlo Navarro, Gabriel Perez, Luis Fernandez, Nathaniel Chua, Jerome Bautista, Andre Rodriguez, Leo Ramirez, Paolo Cruz, Karl Dizon, Mark Co)
   ('2021-2-0002', 'non-compliant: pants and shoes', '2025-10-30 09:15:00', NULL, 'pending'),
   ('2023-4-0004', 'non-compliant: polo_shirt and pants', '2025-09-28 14:15:00', NULL, 'resolved'),
   ('2020-1-0005', 'non-compliant: polo_shirt and shoes', '2025-10-22 11:30:00', NULL, 'pending'),
@@ -75,7 +71,6 @@ INSERT INTO `violations` (`student_id`, `violation_type`, `timestamp`, `image_pr
   ('2022-4-0018', 'non-compliant: polo_shirt and shoes', '2025-10-21 08:20:00', NULL, 'pending'),
   ('2025-1-0021', 'non-compliant: pants and shoes', '2025-10-01 08:35:00', NULL, 'pending'),
   ('2025-1-0022', 'non-compliant: shoes', '2025-10-01 08:40:00', NULL, 'pending'),
-  ('2022-8-0125', 'non-compliant: polo_shirt and pants', '2025-09-28 09:00:00', NULL, 'pending'),
   ('2022-1-0025', 'non-compliant: shoes and polo_shirt', '2025-09-28 09:05:00', NULL, 'pending'),
   ('2025-1-0027', 'non-compliant: pants', '2025-09-28 09:15:00', NULL, 'pending'),
   ('2021-2-0002', 'non-compliant: polo_shirt', '2025-11-02 08:45:00', NULL, 'pending'),

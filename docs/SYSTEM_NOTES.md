@@ -84,6 +84,13 @@
    - Schedule settings
    - Auto-sync enabled/disabled flag
 
+6. **`email_outbox`**
+   - Email queue for offline operation
+   - Stores emails that need to be sent
+   - Status: `pending`, `sending`, `sent`, `failed`
+   - Tracks attempt count, last attempt time, and error messages
+   - Links to violations via `violation_id` foreign key
+
 ---
 
 ## Detection System
@@ -130,6 +137,12 @@ The system checks for:
 - `rfid_consecutive_compliant`: Counter for compliance
 - `rfid_current_uid_violated`: Flag if violation recorded
 - `rfid_current_uid_compliant`: Flag if compliant detected
+
+**Asynchronous Recording:**
+- Violation recording happens in a background thread (`threading.Thread`)
+- Prevents blocking the detection worker
+- Email queuing is non-blocking (only queues, never sends synchronously)
+- System continues operating even if violation recording fails
 
 ---
 
@@ -211,17 +224,32 @@ Controls when RFID and detection systems are active.
 - **Input**: Frame queue from camera feed
 - **Output**: Detection results stored in shared state
 
-### 4. Follow-up Email Scheduler (`followup_email_scheduler()`)
+### 4. Email Outbox Worker (`email_outbox_worker()`)
+- **Frequency**: Checks every 15 seconds
+- **Purpose**: Process queued emails and retry failed sends
+- **Batch Size**: Processes up to 5 emails per cycle
+- **Retry Delay**: 10 seconds for failed emails
+- **Status Management**: Updates email status in `email_outbox` table
+- **Error Handling**: Logs errors and marks emails as failed
+- **Location**: `app.py` line ~306
+
+### 5. Follow-up Email Scheduler (`followup_email_scheduler()`)
 - **Frequency**: Daily (24 hours)
 - **Purpose**: Send follow-up emails for old violations
 - **Criteria**: Violations 3+ days old, status='pending', followup_sent=0
 - **Duplicate Prevention**: Sets `followup_sent=1` before sending
 
-### 5. Auto-Sync Thread (`auto_sync_to_aiven()`)
+### 6. Auto-Sync Thread (`auto_sync_to_aiven()`)
 - **Frequency**: Checks every 60 seconds, syncs every 5 minutes
 - **Purpose**: Backup local database to Aiven
 - **Conditions**: Only syncs when Aiven available and auto-sync enabled
 - **Debug Logging**: Comprehensive logging for troubleshooting
+
+### 7. Violation Recording Thread
+- **Type**: Spawned per violation (background thread)
+- **Purpose**: Record violation asynchronously without blocking detection
+- **Actions**: Database insert, email queuing
+- **Location**: `app.py` `_maybe_record_violation()` function
 
 ---
 
@@ -267,13 +295,39 @@ Controls when RFID and detection systems are active.
 
 ## Email System
 
+### Email Queuing & Offline Support
+
+The system includes a robust email queuing mechanism that ensures emails are sent even when the system is offline:
+
+#### Email Outbox Table (`email_outbox`)
+- Stores all emails that need to be sent
+- Tracks status: `pending`, `sending`, `sent`, `failed`
+- Records attempt count and last error for debugging
+- Links to violations via `violation_id` foreign key
+
+#### Email Queuing Process
+1. **Violation Detected**: Email details are queued in `email_outbox` table
+2. **Asynchronous Queuing**: Violation recording happens in background thread (non-blocking)
+3. **Background Worker**: `email_outbox_worker()` processes queued emails every 15 seconds
+4. **Retry Logic**: Failed emails are retried after 10 seconds
+5. **Automatic Recovery**: When connectivity returns, all queued emails are sent automatically
+
+#### Email Outbox Worker (`email_outbox_worker()`)
+- **Frequency**: Checks every 15 seconds
+- **Batch Size**: Processes up to 5 emails per cycle
+- **Retry Delay**: 10 seconds for failed emails
+- **Status Management**: Updates email status (`pending` → `sending` → `sent`/`failed`)
+- **Error Handling**: Logs errors and marks emails as failed with error message
+
 ### Email Types
 
 #### 1. Initial Violation Notification
 - **Trigger**: When violation is recorded
+- **Process**: Queued in `email_outbox` table (not sent immediately)
 - **Recipient**: Student email from database
 - **Content**: Violation details, strike count, proof image
 - **Template**: `generate_violation_email_body()`
+- **Offline Behavior**: Queued and sent when connectivity returns
 
 #### 2. Follow-up Notification
 - **Trigger**: Automatic (3+ days after violation, if still pending)
@@ -285,6 +339,14 @@ Controls when RFID and detection systems are active.
 - **SMTP**: Configured via `.env` file
 - **Library**: Flask-Mail
 - **Templates**: HTML email templates in `src/email_templates.py`
+- **Offline Support**: Emails queued when offline, sent automatically when online
+
+### Email Outbox Functions (`src/config.py`)
+- `enqueue_email_outbox()`: Queue email for sending
+- `get_due_email_outbox_entries()`: Get emails ready to send (pending or failed after retry delay)
+- `mark_email_outbox_attempting()`: Mark email as being sent
+- `mark_email_outbox_sent()`: Mark email as successfully sent
+- `mark_email_outbox_failed()`: Mark email as failed with error message
 
 ---
 
@@ -442,6 +504,12 @@ DB_SSL_DISABLED=false
 - Queue-based frame processing
 - Latest results cached for display
 
+### Asynchronous Violation Recording
+- Violation recording happens in separate thread
+- Detection worker never blocks on database operations
+- Email queuing is non-blocking (only queues, never sends synchronously)
+- System remains responsive even during violation recording
+
 ### Database Optimization
 - Connection pooling via `get_connection()`
 - Local database for all operations (fast)
@@ -470,6 +538,21 @@ DB_SSL_DISABLED=false
 - Handles unregistered cards gracefully
 - Continues operation if RFID unavailable
 - Logs all RFID events
+
+### Network/Email Errors
+- **Offline Operation**: System works fully offline
+- **Email Queuing**: Emails queued when offline, sent when online
+- **Retry Logic**: Failed emails retried automatically after 10 seconds
+- **Error Logging**: Email errors stored in `email_outbox.last_error`
+- **Non-Blocking**: Email failures don't block violation recording
+
+### Frontend Resilience
+- **Network Detection**: Detects online/offline status
+- **Timeout Handling**: All fetch requests have 7-second timeout
+- **Request Deduplication**: Prevents concurrent identical requests
+- **Error Recovery**: Automatically retries failed requests
+- **Video Feed Recovery**: Auto-restarts video feed on errors or network reconnection
+- **Localhost Endpoints**: Local endpoints (`/rfid/status`, `/api/settings/schedule/check`) work offline
 
 ---
 
@@ -542,7 +625,27 @@ DB_SSL_DISABLED=false
 2. **Schedule Dependency**: Detection disabled outside scheduled hours (unless test mode)
 3. **RFID Required**: Violations only recorded when valid RFID card present
 4. **3-Strike Rule**: Requires 3 consecutive violations before recording
-5. **Aiven Dependency**: Backup sync requires Aiven availability
+5. **Aiven Dependency**: Backup sync requires Aiven availability (optional, system works without it)
+
+## Offline Operation
+
+### What Works Offline
+- ✅ Violation detection and recording
+- ✅ RFID scanning and student identification
+- ✅ Camera feed display
+- ✅ Dashboard updates (localhost endpoints)
+- ✅ Database operations (local database)
+- ✅ Email queuing (emails stored for later sending)
+
+### What Gets Queued
+- ⏳ Email notifications (queued in `email_outbox` table)
+- ⏳ Cloud database sync (resumes when online)
+
+### Automatic Recovery
+- Email worker checks every 15 seconds for queued emails
+- Retries failed emails after 10 seconds
+- Sends all queued emails when connectivity returns
+- Frontend automatically detects network reconnection and updates UI
 
 ---
 

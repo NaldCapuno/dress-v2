@@ -175,7 +175,22 @@ LOCAL_DB_NAME=dress
 - **Purpose**: Manages RFID enabled/disabled based on schedule
 - **Location**: `app.py`
 
-### Thread 3: Follow-up Email Scheduler
+### Thread 3: Email Outbox Worker
+- **Function**: `email_outbox_worker()`
+- **Purpose**: Processes queued emails and retries failed sends
+- **Location**: `app.py` line ~306
+- **Timing**: 
+  - Checks every 15 seconds
+  - Processes up to 5 emails per cycle (batch size)
+  - Retries failed emails after 10 seconds
+- **Details**:
+  - Queries `email_outbox` table for `pending` or `failed` emails (after retry delay)
+  - Marks emails as `sending` before attempting send
+  - Updates status to `sent` on success or `failed` on error
+  - Stores error messages in `last_error` field for debugging
+  - Prevents SMTP server overload with batch processing
+
+### Thread 4: Follow-up Email Scheduler
 - **Function**: `followup_email_scheduler()`
 - **Purpose**: Sends follow-up emails for violations that are 3+ days old and still pending
 - **Location**: `app.py` line ~2077
@@ -190,7 +205,49 @@ LOCAL_DB_NAME=dress
 
 ---
 
-## 8. Follow-up Email System
+## 8. Email Outbox System
+
+### Overview
+The email outbox system ensures emails are sent even when the system is offline or when SMTP server is unavailable. All violation emails are queued in the `email_outbox` table and processed by a background worker.
+
+### Email Outbox Table (`email_outbox`)
+- **Purpose**: Queue emails for asynchronous sending
+- **Status Values**: `pending`, `sending`, `sent`, `failed`
+- **Fields**:
+  - `email_id`: Primary key
+  - `recipient`: Email address
+  - `subject`: Email subject
+  - `body_html`, `body_plain`: Email content
+  - `violation_id`: Foreign key to `violations` table
+  - `attachment_path`, `attachment_cid`: Email attachments
+  - `status`: Current status
+  - `attempt_count`: Number of send attempts
+  - `last_attempt_at`: Timestamp of last attempt
+  - `last_error`: Error message if failed
+  - `created_at`: When email was queued
+
+### Email Queuing Process
+1. **Violation Detected**: Email details are queued in `email_outbox` table
+2. **Asynchronous**: Violation recording happens in background thread (non-blocking)
+3. **Worker Processing**: `email_outbox_worker()` checks every 15 seconds
+4. **Batch Processing**: Processes up to 5 emails per cycle
+5. **Retry Logic**: Failed emails retried after 10 seconds
+6. **Status Updates**: Status updated from `pending` → `sending` → `sent`/`failed`
+
+### Functions (`src/config.py`)
+- `enqueue_email_outbox()`: Queue email for sending
+- `get_due_email_outbox_entries()`: Get emails ready to send (pending or failed after retry delay)
+- `mark_email_outbox_attempting()`: Mark email as being sent
+- `mark_email_outbox_sent()`: Mark email as successfully sent
+- `mark_email_outbox_failed()`: Mark email as failed with error message
+
+### Offline Operation
+- **When Offline**: Emails are queued but not sent
+- **When Online**: Worker automatically processes queued emails
+- **Retry**: Failed emails are retried automatically
+- **No Data Loss**: All emails are stored in database until successfully sent
+
+## 9. Follow-up Email System
 
 ### How It Works
 1. Background scheduler checks for violations needing follow-up emails
@@ -220,7 +277,7 @@ LOCAL_DB_NAME=dress
 
 ---
 
-## 9. Error Handling
+## 10. Error Handling
 
 ### Connection Failures
 - Local database failures: System cannot operate (local is primary)
@@ -244,7 +301,7 @@ LOCAL_DB_NAME=dress
 
 ---
 
-## 10. Best Practices
+## 11. Best Practices
 
 ### For Aiven Free Plan
 - Current timings are optimized for free tier
@@ -265,13 +322,21 @@ LOCAL_DB_NAME=dress
 
 ---
 
-## 11. Troubleshooting
+## 12. Troubleshooting
 
 ### Sync Not Happening
 - Check if Aiven is actually available
 - Verify Aiven credentials in `.env` file
 - Check logs for error messages
 - Verify sync thread is running (check app startup logs)
+
+### Emails Not Sending (Email Outbox)
+- Check `email_outbox` table: `SELECT * FROM email_outbox WHERE status != 'sent'`
+- Verify email outbox worker is running (check app startup logs)
+- Check `last_error` field for error messages
+- Verify SMTP settings in `.env` file
+- Check `attempt_count` - if very high, there may be a persistent issue
+- Ensure network connectivity for SMTP server
 
 ### Follow-up Emails Not Sending
 - Check if violations are 3+ days old
@@ -303,5 +368,6 @@ The system provides:
 ✅ **Seamless operation** - No interruption to normal operations
 ✅ **Error handling and recovery** - Continues operation even if backup sync fails
 ✅ **Follow-up email system** - Automatic emails for 3+ day old violations with duplicate prevention
+✅ **Email queuing system** - Emails queued when offline, sent automatically when connectivity returns
 
 All syncing happens automatically in the background - no manual intervention needed!

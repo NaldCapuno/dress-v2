@@ -4,6 +4,7 @@ import cv2
 import numpy as np
 from ultralytics import YOLO
 import os
+import mimetypes
 
 # Load environment variables from .env file
 try:
@@ -72,6 +73,12 @@ try:
         insert_rfid_log,
         insert_violation,
         has_student_violation_today,
+        enqueue_email_outbox,
+        get_due_email_outbox_entries,
+        get_email_outbox_entry,
+        mark_email_outbox_attempting,
+        mark_email_outbox_sent,
+        mark_email_outbox_failed,
     )
 except Exception as e:
     get_connection = None
@@ -79,6 +86,12 @@ except Exception as e:
     insert_rfid_log = None
     insert_violation = None
     has_student_violation_today = None
+    enqueue_email_outbox = None
+    get_due_email_outbox_entries = None
+    get_email_outbox_entry = None
+    mark_email_outbox_attempting = None
+    mark_email_outbox_sent = None
+    mark_email_outbox_failed = None
     print(f"Warning: Database config not available: {e}")
 
 
@@ -181,6 +194,166 @@ ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif', 'bmp'}
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 os.makedirs(RESULT_FOLDER, exist_ok=True)
 os.makedirs(VIOLATION_FOLDER, exist_ok=True)
+
+# Email outbox configuration
+EMAIL_OUTBOX_POLL_SECONDS = int(os.getenv('EMAIL_OUTBOX_POLL_SECONDS', '15'))
+EMAIL_OUTBOX_RETRY_DELAY_SECONDS = int(os.getenv('EMAIL_OUTBOX_RETRY_DELAY_SECONDS', '10'))  # Reduced to 10 seconds for faster retries
+EMAIL_OUTBOX_BATCH_SIZE = int(os.getenv('EMAIL_OUTBOX_BATCH_SIZE', '5'))
+email_outbox_thread = None
+email_outbox_thread_lock = threading.Lock()
+
+
+def _normalize_outbox_attachment_path(path: str | None) -> str | None:
+    """Store attachment paths as project-relative forward-slash paths."""
+    if not path:
+        return None
+    normalized = os.path.normpath(path)
+    if os.path.isabs(normalized):
+        try:
+            normalized = os.path.relpath(normalized, start=os.getcwd())
+        except Exception:
+            pass
+    return normalized.replace('\\', '/')
+
+
+def _resolve_outbox_attachment_path(stored_path: str | None) -> str | None:
+    """Convert stored attachment path back to absolute path."""
+    if not stored_path:
+        return None
+    normalized = os.path.normpath(stored_path)
+    if os.path.isabs(normalized):
+        return normalized
+    return os.path.join(os.getcwd(), normalized)
+
+
+def _guess_mime_type(path: str) -> str:
+    mime, _ = mimetypes.guess_type(path)
+    return mime or 'application/octet-stream'
+
+
+def _send_email_from_outbox_record(record: dict) -> tuple[bool, str | None]:
+    """Send an email using data stored in an outbox record."""
+    if mail is None:
+        return False, "Mail extension is not initialized"
+    recipient = (record or {}).get('recipient')
+    subject = (record or {}).get('subject')
+    html_body = (record or {}).get('body_html')
+    plain_body = (record or {}).get('body_plain')
+    attachment_path = _resolve_outbox_attachment_path((record or {}).get('attachment_path'))
+    attachment_cid = (record or {}).get('attachment_cid')
+    
+    if not recipient or not subject:
+        return False, "Recipient or subject missing"
+    sender = app.config.get('MAIL_DEFAULT_SENDER', app.config.get('MAIL_USERNAME'))
+    if not sender:
+        return False, "MAIL_DEFAULT_SENDER or MAIL_USERNAME is not configured"
+    
+    try:
+        msg = Message(
+            subject=subject,
+            recipients=[recipient],
+            html=html_body if html_body else None,
+            body=plain_body if plain_body else None,
+            sender=sender
+        )
+        
+        if attachment_path and os.path.exists(attachment_path):
+            disposition = 'inline' if attachment_cid else 'attachment'
+            headers = {'Content-ID': f'<{attachment_cid}>'} if attachment_cid else None
+            try:
+                with open(attachment_path, 'rb') as fp:
+                    msg.attach(
+                        filename=os.path.basename(attachment_path),
+                        content_type=_guess_mime_type(attachment_path),
+                        data=fp.read(),
+                        disposition=disposition,
+                        headers=headers
+                    )
+            except Exception as attach_err:
+                debug_email(f"Attachment error for outbox email {record.get('email_id')}: {attach_err}")
+        
+        with app.app_context():
+            mail.send(msg)
+        return True, None
+    except Exception as send_err:
+        return False, f"{type(send_err).__name__}: {send_err}"
+
+
+def _process_outbox_record(record: dict, source: str = 'worker') -> bool:
+    """Attempt to send a specific outbox record."""
+    if not record:
+        return False
+    email_id = record.get('email_id')
+    if not email_id or mark_email_outbox_attempting is None:
+        return False
+    
+    if not mark_email_outbox_attempting(email_id):
+        return False
+    
+    success, error_message = _send_email_from_outbox_record(record)
+    if success:
+        if mark_email_outbox_sent:
+            mark_email_outbox_sent(email_id)
+        debug_email(f"{source} sent email_outbox #{email_id} to {record.get('recipient')}")
+        return True
+    else:
+        if mark_email_outbox_failed:
+            mark_email_outbox_failed(email_id, error_message)
+        debug_email(f"{source} failed email_outbox #{email_id}: {error_message}")
+        return False
+
+
+def email_outbox_worker():
+    """Background worker that retries pending/failed emails when connectivity is available."""
+    if get_due_email_outbox_entries is None:
+        print("Email outbox worker disabled: database helpers unavailable")
+        return
+    print("Email outbox worker started")
+    while True:
+        try:
+            pending = get_due_email_outbox_entries(
+                limit=EMAIL_OUTBOX_BATCH_SIZE,
+                retry_delay_seconds=EMAIL_OUTBOX_RETRY_DELAY_SECONDS
+            ) if get_due_email_outbox_entries else []
+            if not pending:
+                time.sleep(EMAIL_OUTBOX_POLL_SECONDS)
+                continue
+            debug_email(f"Email outbox worker found {len(pending)} email(s) to process")
+            for record in pending:
+                try:
+                    email_id = record.get('email_id')
+                    recipient = record.get('recipient')
+                    status = record.get('status')
+                    debug_email(f"Worker processing email_outbox #{email_id} to {recipient} (status: {status})")
+                    _process_outbox_record(record, source='worker')
+                except Exception as record_err:
+                    debug_email(f"Worker error for email_outbox #{record.get('email_id')}: {record_err}")
+                    import traceback
+                    debug_email(f"Traceback: {traceback.format_exc()}")
+            time.sleep(1)
+        except Exception as worker_err:
+            print(f"Email outbox worker exception: {worker_err}")
+            import traceback
+            traceback.print_exc()
+            time.sleep(EMAIL_OUTBOX_POLL_SECONDS)
+
+
+def ensure_email_outbox_worker():
+    """Start the email outbox worker thread if needed."""
+    global email_outbox_thread
+    if email_outbox_thread is not None and email_outbox_thread.is_alive():
+        return
+    if get_due_email_outbox_entries is None or mark_email_outbox_attempting is None:
+        return
+    with email_outbox_thread_lock:
+        if email_outbox_thread is not None and email_outbox_thread.is_alive():
+            return
+        email_outbox_thread = threading.Thread(
+            target=email_outbox_worker,
+            name="EmailOutboxWorker",
+            daemon=True
+        )
+        email_outbox_thread.start()
 
 # Alerts cache for deans (per college)
 dean_alerts_cache = {}
@@ -1320,17 +1493,7 @@ def _maybe_record_violation(frame, detections, admin_user):
             if not rfid_present:
                 debug_violation("RFID not present, skipping violation check")
                 return None
-                
-            # Check if student already has a violation today (daily limit check)
-            # This check happens early to prevent detection
             student_id = (rfid_last_student or {}).get('student_id')
-            if has_student_violation_today and student_id:
-                if has_student_violation_today(student_id):
-                    debug_violation(f"Daily limit reached - violation already recorded today for student {student_id}")
-                    # Keep violation flag True to prevent detection
-                    with rfid_lock:
-                        rfid_current_uid_violated = True  # Keep it True to prevent detection
-                    # Don't return here - let the function continue to check threshold
             
             # Only reset counter if status changes from violation state (NON-COMPLIANT/PARTIALLY COMPLIANT) to COMPLIANT
             # Don't reset if changing between NON-COMPLIANT and PARTIALLY COMPLIANT (both are violations)
@@ -1745,45 +1908,29 @@ Palawan State University
 
 This is an automated notification. Please do not reply to this email."""
                         
-                        try:
-                            debug_email("Creating email message...")
-                            debug_email(f"Mail config - Server: {app.config.get('MAIL_SERVER')}, Username: {app.config.get('MAIL_USERNAME')}")
-                            debug_email(f"Sender: {app.config.get('MAIL_DEFAULT_SENDER', app.config.get('MAIL_USERNAME'))}")
-                            debug_email(f"Recipient: {student_email}")
-                            msg = Message(
-                                subject=subject, 
-                                recipients=[student_email], 
-                                html=html_body,
-                                body=plain_text_body,
-                                sender=app.config.get('MAIL_DEFAULT_SENDER', app.config.get('MAIL_USERNAME'))
+                        email_support_ready = all([
+                            enqueue_email_outbox,
+                            mark_email_outbox_attempting,
+                            mark_email_outbox_sent,
+                            mark_email_outbox_failed
+                        ])
+                        stored_attachment_path = _normalize_outbox_attachment_path(proof_path) if proof_path else None
+                        if email_support_ready:
+                            outbox_id = enqueue_email_outbox(
+                                recipient=student_email,
+                                subject=subject,
+                                body_html=html_body,
+                                body_plain=plain_text_body,
+                                violation_id=vid,
+                                attachment_path=stored_attachment_path,
+                                attachment_cid=image_cid
                             )
-                            
-                            # Attach proof image as inline attachment if available
-                            if image_cid and proof_path and os.path.exists(proof_path):
-                                try:
-                                    with open(proof_path, 'rb') as img_file:
-                                        msg.attach(
-                                            filename=proof_name,
-                                            content_type='image/jpeg',
-                                            data=img_file.read(),
-                                            disposition='inline',
-                                            headers={'Content-ID': f'<{image_cid}>'}
-                                        )
-                                    debug_email(f"Proof image attached with CID: {image_cid}")
-                                except Exception as attach_err:
-                                    debug_email(f"Error attaching image: {attach_err}")
-                            
-                            
-                            debug_email(f"Attempting to send email to {student_email}...")
-                            # Flask-Mail requires application context, especially when called from background threads
-                            with app.app_context():
-                                mail.send(msg)
-                            print(f"✓ SUCCESS: Violation email sent to {student_email}")
-                        except Exception as _em:
-                            print(f"✗ ERROR: Failed to send violation email to {student_email}")
-                            print(f"✗ ERROR DETAILS: {type(_em).__name__}: {_em}")
-                            import traceback
-                            print(f"✗ TRACEBACK:\n{traceback.format_exc()}")
+                            if outbox_id:
+                                print(f"INFO: Violation email queued for retry (email_outbox #{outbox_id})")
+                            else:
+                                print(f"⚠ WARNING: Failed to enqueue violation email to {student_email} (database error)")
+                        else:
+                            print(f"⚠ WARNING: Email outbox functions not available; violation email not queued for {student_email}")
                     else:
                         print(f"⚠ WARNING: No student email available; skipping email notification")
                         debug_email(f"⚠ student_email was: {student_email}, student_id was: {student_id}")
@@ -1838,8 +1985,15 @@ def detection_worker():
                             latest_detections = detections
                             latest_detection_frame = frame.copy()
                         
-                        # Attempt to record violation using the frame
-                        _maybe_record_violation(frame.copy(), detections, None)
+                        # Attempt to record violation using the frame (async to avoid blocking detection worker)
+                        violation_frame = frame.copy()
+                        violation_detections = detections
+                        threading.Thread(
+                            target=_maybe_record_violation,
+                            args=(violation_frame, violation_detections, None),
+                            daemon=True,
+                            name="ViolationRecorder"
+                        ).start()
                 finally:
                     # Always mark task as done, even if there was an error
                     detection_queue.task_done()
@@ -2225,6 +2379,9 @@ def followup_email_scheduler():
         # Sleep for 24 hours (86400 seconds) before checking again
         # This ensures we check once per day for violations that are 3+ days old
         time.sleep(86400)
+
+
+ensure_email_outbox_worker()
 
 
 if __name__ == '__main__':

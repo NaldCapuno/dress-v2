@@ -52,7 +52,7 @@ Created a centralized debug utility module with:
   - RFID enabled status return message
   - RFID status error handling
 
-### 3. Documentation: `src/DEBUG_README.md`
+### 3. Documentation: `docs/DEBUG_README.md`
 Created comprehensive documentation explaining:
 - How to enable/disable debug mode
 - Available debug functions
@@ -91,7 +91,7 @@ debug_rfid(f"Card detected: {uid}")
 
 ## Files Modified
 - `src/debug_utils.py` (new)
-- `src/DEBUG_README.md` (new)
+- `docs/DEBUG_README.md` (new)
 - `app.py`
 - `routes/violations.py`
 - `routes/camera.py`

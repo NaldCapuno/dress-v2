@@ -16,7 +16,8 @@ import os
 import pymysql
 import threading
 import time
-from typing import Any, Optional
+from datetime import datetime, timedelta
+from typing import Any, Optional, List, Dict
 
 # Load environment variables from .env file
 try:
@@ -372,6 +373,173 @@ def has_student_violation_today(student_id: str) -> bool:
             return int(row.get('cnt') or 0) > 0
     except Exception:
         return False
+    finally:
+        conn.close()
+
+
+def enqueue_email_outbox(
+    recipient: str,
+    subject: str,
+    body_html: Optional[str],
+    body_plain: Optional[str],
+    violation_id: Optional[int] = None,
+    attachment_path: Optional[str] = None,
+    attachment_cid: Optional[str] = None,
+) -> Optional[int]:
+    """Insert an email into the outbox table and return its ID."""
+    if not recipient or not subject:
+        return None
+    conn = get_connection()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO email_outbox (
+                    recipient,
+                    subject,
+                    body_html,
+                    body_plain,
+                    violation_id,
+                    attachment_path,
+                    attachment_cid
+                )
+                VALUES (%s, %s, %s, %s, %s, %s, %s)
+                """,
+                (
+                    recipient,
+                    subject,
+                    body_html,
+                    body_plain,
+                    violation_id,
+                    attachment_path,
+                    attachment_cid,
+                ),
+            )
+            return cur.lastrowid
+    except Exception:
+        return None
+    finally:
+        conn.close()
+
+
+def get_due_email_outbox_entries(
+    limit: int = 5,
+    retry_delay_seconds: int = 60,
+) -> List[Dict[str, Any]]:
+    """Return pending or failed email outbox entries that are ready to retry.
+    
+    Pending emails (never attempted) are picked up immediately.
+    Failed emails are retried after retry_delay_seconds.
+    """
+    conn = get_connection()
+    retry_cutoff = datetime.utcnow() - timedelta(seconds=max(0, retry_delay_seconds))
+    try:
+        with conn.cursor() as cur:
+            # Use NOW() for timezone consistency with MySQL
+            cur.execute(
+                """
+                SELECT email_id, recipient, subject, body_html, body_plain,
+                       violation_id, attachment_path, attachment_cid,
+                       status, attempt_count, last_attempt_at, last_error, created_at
+                FROM email_outbox
+                WHERE status IN ('pending', 'failed')
+                  AND (
+                    status = 'pending' 
+                    OR last_attempt_at IS NULL 
+                    OR last_attempt_at < DATE_SUB(NOW(), INTERVAL %s SECOND)
+                  )
+                ORDER BY status = 'pending' DESC, created_at ASC
+                LIMIT %s
+                """,
+                (retry_delay_seconds, limit),
+            )
+            return cur.fetchall() or []
+    finally:
+        conn.close()
+
+
+def get_email_outbox_entry(email_id: int) -> Optional[Dict[str, Any]]:
+    """Return a single outbox entry by ID."""
+    if not email_id:
+        return None
+    conn = get_connection()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT email_id, recipient, subject, body_html, body_plain,
+                       violation_id, attachment_path, attachment_cid,
+                       status, attempt_count, last_attempt_at, last_error, created_at
+                FROM email_outbox
+                WHERE email_id = %s
+                LIMIT 1
+                """,
+                (email_id,),
+            )
+            return cur.fetchone()
+    finally:
+        conn.close()
+
+
+def mark_email_outbox_attempting(email_id: int) -> bool:
+    """Mark an outbox entry as currently being sent."""
+    if not email_id:
+        return False
+    conn = get_connection()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                UPDATE email_outbox
+                SET status = 'sending',
+                    attempt_count = attempt_count + 1,
+                    last_attempt_at = NOW(),
+                    last_error = NULL
+                WHERE email_id = %s AND status IN ('pending', 'failed')
+                """,
+                (email_id,),
+            )
+            return cur.rowcount == 1
+    finally:
+        conn.close()
+
+
+def mark_email_outbox_sent(email_id: int) -> bool:
+    """Mark an outbox entry as sent."""
+    if not email_id:
+        return False
+    conn = get_connection()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                UPDATE email_outbox
+                SET status = 'sent', last_error = NULL
+                WHERE email_id = %s
+                """,
+                (email_id,),
+            )
+            return cur.rowcount == 1
+    finally:
+        conn.close()
+
+
+def mark_email_outbox_failed(email_id: int, error_message: Optional[str] = None) -> bool:
+    """Mark an outbox entry as failed."""
+    if not email_id:
+        return False
+    conn = get_connection()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                UPDATE email_outbox
+                SET status = 'failed', last_error = %s
+                WHERE email_id = %s
+                """,
+                (error_message[:1000] if error_message else None, email_id),
+            )
+            return cur.rowcount == 1
     finally:
         conn.close()
 
