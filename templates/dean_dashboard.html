@@ -1325,6 +1325,9 @@
                             <tbody id="alert-students-body"></tbody>
                         </table>
                     </div>
+                    <div id="no-notifications-message" class="text-muted" style="text-align: center; padding: 2rem;">
+                        <p>No pending violations requiring attention.</p>
+                    </div>
                 </div>
             </div>
         </div>
@@ -1425,7 +1428,7 @@
                     // Hide notification dot when user views notifications
                     const notificationDot = document.getElementById('notification-dot');
                     if (notificationDot) {
-                        notificationDot.style.display = 'none';
+                        notificationDot.classList.add('hidden');
                     }
                 }
                 if (target === 'settings-section') {
@@ -1449,6 +1452,8 @@
                     window.location.href = '/login';
                 });
             }
+            // Check notification status on page load
+            updateNotificationDot();
             // Load programs for this dean's college
             async function loadProgramsForAddStudent() {
                 try {
@@ -2147,6 +2152,29 @@
             renderTrendLegend(id, labels, [pointColor], mode);
         }
 
+        // Function to update notification dot indicator
+        async function updateNotificationDot() {
+            try {
+                const res = await fetch('/dean/alerts');
+                const data = await res.json();
+                const notificationDot = document.getElementById('notification-dot');
+                
+                if (data && data.success && data.notification_triggered) {
+                    // Show notification dot
+                    if (notificationDot) {
+                        notificationDot.classList.remove('hidden');
+                    }
+                } else {
+                    // Hide notification dot when no notifications
+                    if (notificationDot) {
+                        notificationDot.classList.add('hidden');
+                    }
+                }
+            } catch (e) {
+                console.error('Failed to update notification dot:', e);
+            }
+        }
+
         async function loadNotifications(){
             // Load alert summary
             try {
@@ -2156,16 +2184,22 @@
                 const msg = document.getElementById('alert-message');
                 const countEl = document.getElementById('alert-count');
                 const notificationDot = document.getElementById('notification-dot');
+                const noNotificationsMsg = document.getElementById('no-notifications-message');
                 
-                // Show notification if it was ever triggered (when count >= 10), regardless of current count
+                // Show notification if it was ever triggered (when count >= 1), regardless of current count
                 if (data && data.success && data.notification_triggered) {
                     // Show notification dot
                     if (notificationDot) {
-                        notificationDot.style.display = 'inline';
+                        notificationDot.classList.remove('hidden');
+                    }
+                    
+                    // Hide "no notifications" message
+                    if (noNotificationsMsg) {
+                        noNotificationsMsg.classList.add('hidden');
                     }
                     
                     if (msg) {
-                        msg.style.display = '';
+                        msg.classList.remove('hidden');
                         if (countEl) countEl.textContent = data.num_students;
                         msg.onclick = async () => {
                             const res2 = await fetch('/dean/alerts/students');
@@ -2174,15 +2208,15 @@
                             const body = document.getElementById('alert-students-body');
                             const wrap = document.getElementById('alert-students');
                             if (payload.success && Array.isArray(payload.rows)) {
-                                if (wrap && wrap.style.display === 'none') {
+                                if (wrap && wrap.classList.contains('hidden')) {
                                     // Show the list
                                     body.innerHTML = payload.rows.map(s=>`
                                         <tr><td>${s.student_id||''}</td><td>${s.name||''}</td><td>${s.program||''}</td></tr>
                                     `).join('');
-                                    wrap.style.display = '';
+                                    wrap.classList.remove('hidden');
                                 } else if (wrap) {
                                     // Hide the list
-                                    wrap.style.display = 'none';
+                                    wrap.classList.add('hidden');
                                 }
                             }
                         };
@@ -2190,14 +2224,24 @@
                 } else {
                     // Hide notification dot and message when no notifications
                     if (notificationDot) {
-                        notificationDot.style.display = 'none';
+                        notificationDot.classList.add('hidden');
                     }
                     if (msg) {
-                        msg.style.display = 'none';
+                        msg.classList.add('hidden');
+                    }
+                    // Show "no notifications" message
+                    if (noNotificationsMsg) {
+                        noNotificationsMsg.classList.remove('hidden');
                     }
                 }
             } catch (e) {
                 console.error('alerts fetch failed', e);
+                // Show error or default message on error
+                const noNotificationsMsg = document.getElementById('no-notifications-message');
+                if (noNotificationsMsg) {
+                    noNotificationsMsg.classList.remove('hidden');
+                    noNotificationsMsg.innerHTML = '<p>Unable to load notifications. Please try again later.</p>';
+                }
             }
         }
         
