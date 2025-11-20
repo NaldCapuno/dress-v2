@@ -131,16 +131,34 @@ def sync_schema(source_conn, dest_conn, direction):
         
         print(f"Found {len(tables)} tables: {', '.join(tables)}")
         
-        # For each table, get CREATE TABLE statement and apply to destination
-        for table in tables:
+        # Determine correct order based on foreign key dependencies
+        # For dropping: child tables first, then parent tables (reverse order)
+        # For creating: parent tables first, then child tables (normal order)
+        try:
+            ordered_tables = get_table_dependency_order(source_cursor, tables)
+            print(f"Syncing tables in dependency order:")
+            print(f"  Order: {' → '.join(ordered_tables)}")
+        except Exception as e:
+            print(f"⚠️  Could not determine dependency order: {e}")
+            print(f"Using original order: {', '.join(tables)}")
+            ordered_tables = tables
+        
+        # Disable foreign key checks for dropping tables
+        dest_cursor.execute("SET FOREIGN_KEY_CHECKS = 0")
+        
+        # Step 1: Drop all tables in reverse dependency order (children first)
+        print(f"\n  Dropping existing tables...")
+        for table in reversed(ordered_tables):
+            dest_cursor.execute(f"DROP TABLE IF EXISTS `{table}`")
+        
+        # Step 2: Create tables in dependency order (parents first)
+        print(f"  Creating tables...")
+        for table in ordered_tables:
             print(f"  → Syncing table: {table}")
             
             # Get CREATE TABLE statement
             source_cursor.execute(f"SHOW CREATE TABLE `{table}`")
             create_stmt = source_cursor.fetchone()[1]
-            
-            # Drop table if exists in destination
-            dest_cursor.execute(f"DROP TABLE IF EXISTS `{table}`")
             
             # Create table in destination
             dest_cursor.execute(create_stmt)
@@ -148,11 +166,21 @@ def sync_schema(source_conn, dest_conn, direction):
             
             print(f"    ✓ Table '{table}' synced")
         
+        # Re-enable foreign key checks
+        dest_cursor.execute("SET FOREIGN_KEY_CHECKS = 1")
+        dest_conn.commit()
+        
         print(f"\n✅ Schema sync completed!")
         return True
         
     except Exception as e:
         print(f"\n❌ Error syncing schema: {e}")
+        # Re-enable foreign key checks even on error
+        try:
+            dest_cursor.execute("SET FOREIGN_KEY_CHECKS = 1")
+            dest_conn.commit()
+        except:
+            pass
         dest_conn.rollback()
         return False
     finally:
