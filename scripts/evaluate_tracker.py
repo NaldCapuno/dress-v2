@@ -1,298 +1,279 @@
 """
-Evaluate BOTSORT tracker against ground truth annotations.
-Computes MOTA, MOTP, and ID Switch Count.
+Evaluate BOTSORT tracker against ground truth annotations using motmetrics.
+Computes standard MOT Challenge metrics: MOTA, MOTP, IDF1, IDSW, FP, FN,
+Precision, Recall, and F1-score.
 """
 
-import numpy as np
 import os
 import sys
 import argparse
-from pathlib import Path
-from collections import defaultdict
-import cv2
+import pandas as pd
+import numpy as np
+import motmetrics as mm
 
 
-def load_mot_file(mot_file):
-    """Load MOT format annotations"""
-    annotations = defaultdict(list)
-    
-    if not os.path.exists(mot_file):
-        raise FileNotFoundError(f"MOT file not found: {mot_file}")
-    
-    with open(mot_file, 'r') as f:
-        for line in f:
+def calculate_iou_matrix(gt_boxes, det_boxes, iou_threshold=0.5):
+    """
+    Calculate IoU distance matrix (1 - IoU).
+    Pairs with IoU < threshold get distance = inf (cannot be matched).
+    """
+    if len(gt_boxes) == 0 or len(det_boxes) == 0:
+        return np.array([])
+
+    gt_boxes = np.asarray(gt_boxes, dtype=np.float64)
+    det_boxes = np.asarray(det_boxes, dtype=np.float64)
+
+    iou_matrix = np.zeros((len(gt_boxes), len(det_boxes)), dtype=np.float64)
+
+    for i, gt in enumerate(gt_boxes):
+        x1g, y1g, wg, hg = gt
+        x2g, y2g = x1g + wg, y1g + hg
+        area_g = wg * hg
+
+        if area_g <= 0:
+            continue
+
+        for j, dt in enumerate(det_boxes):
+            x1d, y1d, wd, hd = dt
+            x2d, y2d = x1d + wd, y1d + hd
+            area_d = wd * hd
+
+            if area_d <= 0:
+                iou_matrix[i, j] = np.inf
+                continue
+
+            # Intersection
+            xi1, yi1 = max(x1g, x1d), max(y1g, y1d)
+            xi2, yi2 = min(x2g, x2d), min(y2g, y2d)
+
+            if xi2 > xi1 and yi2 > yi1:
+                inter = (xi2 - xi1) * (yi2 - yi1)
+                union = area_g + area_d - inter
+                iou = inter / union if union > 0 else 0
+            else:
+                iou = 0.0
+
+            if iou < iou_threshold:
+                iou_matrix[i, j] = np.inf
+            else:
+                iou_matrix[i, j] = 1 - iou
+
+    return iou_matrix
+
+
+def load_mot_file(path):
+    """
+    Loads MOT-format file as a DataFrame with:
+    [FrameId, Id, X, Y, Width, Height]
+    """
+    if not os.path.exists(path):
+        raise FileNotFoundError(path)
+
+    data = []
+
+    with open(path, "r") as f:
+        for line_num, line in enumerate(f, 1):
             line = line.strip()
             if not line:
                 continue
-            
+
             parts = line.split(',')
-            if len(parts) >= 6:
-                frame_id = int(float(parts[0]))
-                object_id = int(float(parts[1]))
-                x = float(parts[2])
-                y = float(parts[3])
-                w = float(parts[4])
-                h = float(parts[5])
-                
-                annotations[frame_id].append({
-                    'object_id': object_id,
-                    'bbox': [x, y, w, h],
-                    'frame_id': frame_id
+            if len(parts) < 6:
+                print(f"Skipping line {line_num}: insufficient columns")
+                continue
+
+            try:
+                frame = int(float(parts[0]))
+                oid = int(float(parts[1]))
+                x, y = float(parts[2]), float(parts[3])
+                w, h = float(parts[4]), float(parts[5])
+
+                if w <= 0 or h <= 0:
+                    print(f"Skipping invalid bbox in line {line_num}")
+                    continue
+
+                data.append({
+                    "FrameId": frame,
+                    "Id": oid,
+                    "X": x,
+                    "Y": y,
+                    "Width": w,
+                    "Height": h
                 })
-    
-    return annotations
+            except:
+                print(f"Warning: error parsing line {line_num}")
+                continue
 
-
-def calculate_iou(box1, box2):
-    """Calculate Intersection over Union (IoU) between two boxes"""
-    x1_1, y1_1, w1, h1 = box1
-    x2_1, y2_1 = x1_1 + w1, y1_1 + h1
-    
-    x1_2, y1_2, w2, h2 = box2
-    x2_2, y2_2 = x1_2 + w2, y1_2 + h2
-    
-    # Calculate intersection
-    x1_i = max(x1_1, x1_2)
-    y1_i = max(y1_1, y1_2)
-    x2_i = min(x2_1, x2_2)
-    y2_i = min(y2_1, y2_2)
-    
-    if x2_i <= x1_i or y2_i <= y1_i:
-        return 0.0
-    
-    intersection = (x2_i - x1_i) * (y2_i - y1_i)
-    union = w1 * h1 + w2 * h2 - intersection
-    
-    return intersection / union if union > 0 else 0.0
-
-
-def match_detections_to_ground_truth(gt_boxes, det_boxes, iou_threshold=0.5):
-    """
-    Match detection boxes to ground truth boxes using Hungarian algorithm.
-    Returns: matches, unmatched_gt, unmatched_det
-    """
-    if len(gt_boxes) == 0 or len(det_boxes) == 0:
-        return [], list(range(len(gt_boxes))), list(range(len(det_boxes)))
-    
-    # Calculate IoU matrix
-    iou_matrix = np.zeros((len(det_boxes), len(gt_boxes)))
-    for i, det_box in enumerate(det_boxes):
-        for j, gt_box in enumerate(gt_boxes):
-            iou_matrix[i, j] = calculate_iou(det_box['bbox'], gt_box['bbox'])
-    
-    # Use Hungarian algorithm for optimal matching
-    from scipy.optimize import linear_sum_assignment
-    
-    # Maximize IoU (minimize 1 - IoU)
-    cost_matrix = 1 - iou_matrix
-    row_indices, col_indices = linear_sum_assignment(cost_matrix)
-    
-    matches = []
-    matched_gt = set()
-    matched_det = set()
-    
-    # Filter matches based on IoU threshold
-    for row_idx, col_idx in zip(row_indices, col_indices):
-        if row_idx < len(det_boxes) and col_idx < len(gt_boxes):
-            iou = iou_matrix[row_idx, col_idx]
-            if iou >= iou_threshold:
-                matches.append((row_idx, col_idx, iou))
-                matched_gt.add(col_idx)
-                matched_det.add(row_idx)
-    
-    # Find unmatched
-    unmatched_gt = [i for i in range(len(gt_boxes)) if i not in matched_gt]
-    unmatched_det = [i for i in range(len(det_boxes)) if i not in matched_det]
-    
-    return matches, unmatched_gt, unmatched_det
-
-
-def track_id_consistency_check(gt_annotations, det_annotations, iou_threshold=0.5):
-    """
-    Check ID consistency across frames and count ID switches.
-    Returns: id_switches, track_mapping
-    """
-    # Build track histories
-    gt_tracks = defaultdict(list)  # gt_id -> [(frame_id, bbox_idx), ...]
-    det_tracks = defaultdict(list)  # det_id -> [(frame_id, bbox_idx), ...]
-    
-    for frame_id in sorted(gt_annotations.keys()):
-        for idx, gt_box in enumerate(gt_annotations[frame_id]):
-            gt_tracks[gt_box['object_id']].append((frame_id, idx))
-    
-    for frame_id in sorted(det_annotations.keys()):
-        for idx, det_box in enumerate(det_annotations[frame_id]):
-            det_tracks[det_box['object_id']].append((frame_id, idx))
-    
-    # Match tracks across frames
-    id_switches = 0
-    track_mapping = {}  # gt_id -> det_id mapping
-    
-    # Process frames in order
-    for frame_id in sorted(set(list(gt_annotations.keys()) + list(det_annotations.keys()))):
-        if frame_id not in gt_annotations or frame_id not in det_annotations:
-            continue
-        
-        gt_boxes = gt_annotations[frame_id]
-        det_boxes = det_annotations[frame_id]
-        
-        # Match boxes in this frame
-        matches, _, _ = match_detections_to_ground_truth(gt_boxes, det_boxes, iou_threshold)
-        
-        # Check for ID switches
-        for det_idx, gt_idx, iou in matches:
-            gt_id = gt_boxes[gt_idx]['object_id']
-            det_id = det_boxes[det_idx]['object_id']
-            
-            if gt_id in track_mapping:
-                # Check if ID changed (ID switch)
-                if track_mapping[gt_id] != det_id:
-                    id_switches += 1
-                    # Update mapping
-                    track_mapping[gt_id] = det_id
-            else:
-                # New mapping
-                track_mapping[gt_id] = det_id
-    
-    return id_switches, track_mapping
+    df = pd.DataFrame(data)
+    print(f"Loaded {len(df)} entries from: {path}")
+    return df
 
 
 def evaluate_tracker(gt_file, det_file, iou_threshold=0.5):
-    """
-    Evaluate tracker against ground truth.
-    Returns: MOTA, MOTP, ID Switch Count, and other metrics
-    """
-    print(f"Loading ground truth: {gt_file}")
-    gt_annotations = load_mot_file(gt_file)
+    """ Main evaluation logic using motmetrics. """
+
+    gt_df = load_mot_file(gt_file)
+    det_df = load_mot_file(det_file)
+
+    acc = mm.MOTAccumulator(auto_id=False)
+
+    all_frames = sorted(set(gt_df.FrameId.unique()) |
+                        set(det_df.FrameId.unique()))
+
+    print(f"Evaluating {len(all_frames)} frames...")
+
+    for frame in all_frames:
+        gt_frame = gt_df[gt_df.FrameId == frame]
+        det_frame = det_df[det_df.FrameId == frame]
+
+        gt_boxes = [[r.X, r.Y, r.Width, r.Height] for _, r in gt_frame.iterrows()]
+        det_boxes = [[r.X, r.Y, r.Width, r.Height] for _, r in det_frame.iterrows()]
+
+        gt_ids = list(gt_frame.Id.values)
+        det_ids = list(det_frame.Id.values)
+
+        if gt_boxes and det_boxes:
+            dist = calculate_iou_matrix(gt_boxes, det_boxes, iou_threshold)
+            acc.update(gt_ids, det_ids, dist, frameid=frame)
+        else:
+            acc.update(gt_ids, det_ids, np.array([]), frameid=frame)
+
+    print("Computing MOT metrics...")
+    mh = mm.metrics.create()
+    summary = mh.compute(acc, metrics=mm.metrics.motchallenge_metrics, name="BOTSORT")
+
+    # Convert summary to dictionary, handling NaN values
+    results = {}
+    for metric in summary.columns:
+        value = summary[metric].iloc[0]
+        if pd.isna(value):
+            results[metric] = 0.0
+        elif isinstance(value, (int, float, np.integer, np.floating)):
+            results[metric] = float(value)
+        else:
+            # Try to convert to float if possible
+            try:
+                results[metric] = float(value)
+            except (ValueError, TypeError):
+                results[metric] = str(value)
+
+    # ----------------------------------------------------
+    # ADD CORRECT PRECISION / RECALL / F1 FORMULAS
+    # ----------------------------------------------------
+    # Calculate total GT objects from the dataframe (more reliable)
+    total_gt_objects = len(gt_df)
+    total_det_objects = len(det_df)
     
-    print(f"Loading detection results: {det_file}")
-    det_annotations = load_mot_file(det_file)
+    # Get metrics from motmetrics
+    FN = float(results.get("num_misses", 0))
+    FP = float(results.get("num_false_positives", 0))
     
-    # Statistics
-    total_gt = 0
-    total_det = 0
-    total_matches = 0
-    total_iou = 0.0
-    false_positives = 0
-    false_negatives = 0
+    # True Positives = total GT objects - false negatives (matched objects)
+    TP = total_gt_objects - FN
     
-    # Process each frame
-    all_frame_ids = sorted(set(list(gt_annotations.keys()) + list(det_annotations.keys())))
+    # Ensure TP is not negative (shouldn't happen, but safety check)
+    if TP < 0:
+        print(f"Warning: TP calculated as negative ({TP}). Using motmetrics num_objects if available.")
+        num_objects_mm = float(results.get("num_objects", 0))
+        if num_objects_mm > 0:
+            TP = num_objects_mm - FN
+        else:
+            TP = 0
     
-    print(f"Evaluating {len(all_frame_ids)} frames...")
+    precision = TP / (TP + FP) if (TP + FP) > 0 else 0
+    recall = TP / (TP + FN) if (TP + FN) > 0 else 0
+    f1 = 2 * precision * recall / (precision + recall) if (precision + recall) > 0 else 0
+
+    results["precision"] = precision
+    results["recall"] = recall
+    results["f1"] = f1
     
-    for frame_id in all_frame_ids:
-        gt_boxes = gt_annotations.get(frame_id, [])
-        det_boxes = det_annotations.get(frame_id, [])
-        
-        total_gt += len(gt_boxes)
-        total_det += len(det_boxes)
-        
-        if len(gt_boxes) > 0 and len(det_boxes) > 0:
-            matches, unmatched_gt, unmatched_det = match_detections_to_ground_truth(
-                gt_boxes, det_boxes, iou_threshold
-            )
-            
-            total_matches += len(matches)
-            false_negatives += len(unmatched_gt)
-            false_positives += len(unmatched_det)
-            
-            # Accumulate IoU for matched pairs
-            for det_idx, gt_idx, iou in matches:
-                total_iou += iou
-        elif len(gt_boxes) > 0:
-            false_negatives += len(gt_boxes)
-        elif len(det_boxes) > 0:
-            false_positives += len(det_boxes)
-    
-    # Calculate ID switches
-    print("Checking ID consistency...")
-    id_switches, track_mapping = track_id_consistency_check(gt_annotations, det_annotations, iou_threshold)
-    
-    # Calculate metrics
-    # MOTA = 1 - (FN + FP + IDSW) / GT
-    mota = 1.0 - (false_negatives + false_positives + id_switches) / max(total_gt, 1)
-    
-    # MOTP = Average IoU of matched pairs
-    motp = total_iou / max(total_matches, 1)
-    
-    # Additional metrics
-    precision = total_matches / max(total_det, 1)
-    recall = total_matches / max(total_gt, 1)
-    f1_score = 2 * (precision * recall) / max(precision + recall, 1e-10)
-    
-    return {
-        'MOTA': mota,
-        'MOTP': motp,
-        'ID_Switches': id_switches,
-        'False_Positives': false_positives,
-        'False_Negatives': false_negatives,
-        'Total_Matches': total_matches,
-        'Precision': precision,
-        'Recall': recall,
-        'F1_Score': f1_score,
-        'Total_GT_Objects': total_gt,
-        'Total_Det_Objects': total_det
-    }
+    # Store actual counts
+    results["Total_GT_Objects"] = total_gt_objects
+    results["Total_Det_Objects"] = total_det_objects
+    results["True_Positives"] = TP
+    results["IoU_Threshold"] = iou_threshold
+    results["Num_Frames"] = len(all_frames)
+
+    return results, summary
 
 
-def print_results(results):
-    """Print evaluation results"""
-    print("\n" + "="*60)
-    print("TRACKING EVALUATION RESULTS")
-    print("="*60)
-    print(f"\nMOTA (Multiple Object Tracking Accuracy): {results['MOTA']:.4f} ({results['MOTA']*100:.2f}%)")
-    print(f"MOTP (Multiple Object Tracking Precision):  {results['MOTP']:.4f} ({results['MOTP']*100:.2f}%)")
-    print(f"ID Switch Count:                            {results['ID_Switches']}")
-    print(f"\nDetailed Metrics:")
-    print(f"  False Positives:  {results['False_Positives']}")
-    print(f"  False Negatives: {results['False_Negatives']}")
-    print(f"  Total Matches:   {results['Total_Matches']}")
-    print(f"  Precision:      {results['Precision']:.4f} ({results['Precision']*100:.2f}%)")
-    print(f"  Recall:          {results['Recall']:.4f} ({results['Recall']*100:.2f}%)")
-    print(f"  F1 Score:        {results['F1_Score']:.4f}")
-    print(f"\nTotals:")
-    print(f"  Ground Truth Objects: {results['Total_GT_Objects']}")
-    print(f"  Detected Objects:    {results['Total_Det_Objects']}")
-    print("="*60 + "\n")
+def print_results(results, summary):
+    """ Pretty output formatting """
+
+    print("\n" + "="*70)
+    print("MOT TRACKING EVALUATION RESULTS")
+    print("="*70)
+
+    print(f"\nCore MOT Metrics:")
+    # Ensure all values are numeric
+    mota = float(results.get('mota', 0))
+    motp = float(results.get('motp', 0))
+    idf1 = float(results.get('idf1', 0))
+    
+    # MOTP is average distance (1 - IoU), convert to IoU for clarity
+    avg_iou = 1.0 - motp if motp <= 1.0 else 0.0
+    
+    print(f"  MOTA:          {mota:.4f} ({mota*100:.2f}%)")
+    print(f"  MOTP (distance): {motp:.4f} (avg IoU: {avg_iou:.4f} = {avg_iou*100:.2f}%)")
+    print(f"  IDF1:          {idf1:.4f} ({idf1*100:.2f}%)")
+
+    print("\nCounts:")
+    # Use our calculated values instead of motmetrics num_objects
+    total_gt = int(results.get('Total_GT_Objects', 0))
+    total_det = int(results.get('Total_Det_Objects', 0))
+    TP = int(results.get('True_Positives', 0))
+    FN = float(results.get('num_misses', 0))
+    FP = float(results.get('num_false_positives', 0))
+    IDSW = float(results.get('num_switches', 0))
+    
+    print(f"  Total GT Objects:   {total_gt}")
+    print(f"  Total Det Objects:  {total_det}")
+    print(f"  True Positives (TP): {TP}")
+    print(f"  False Positives (FP): {int(FP)}")
+    print(f"  False Negatives (FN): {int(FN)}")
+    print(f"  ID Switches:         {int(IDSW)}")
+
+    print("\nClassification Metrics:")
+    # Ensure all values are numeric
+    precision = float(results.get('precision', 0))
+    recall = float(results.get('recall', 0))
+    f1 = float(results.get('f1', 0))
+    print(f"  Precision:     {precision:.4f} ({precision*100:.2f}%)")
+    print(f"  Recall:        {recall:.4f} ({recall*100:.2f}%)")
+    print(f"  F1 Score:      {f1:.4f} ({f1*100:.2f}%)")
+
+    print("\nAdditional Info:")
+    print(f"  Frames Evaluated: {int(results.get('Num_Frames', 0))}")
+    print(f"  IoU Threshold:    {float(results.get('IoU_Threshold', 0.5))}")
+    
+    # Show track quality metrics if available
+    # Ensure all values are numeric
+    mt = float(results.get('mostly_tracked', 0))
+    ml = float(results.get('mostly_lost', 0))
+    pt = float(results.get('partially_tracked', 0))
+    frag = float(results.get('frag', 0))
+    
+    if mt > 0 or ml > 0 or pt > 0 or frag > 0:
+        print("\nTrack Quality Metrics:")
+        print(f"  Mostly Tracked (MT):   {int(mt)}")
+        print(f"  Mostly Lost (ML):      {int(ml)}")
+        print(f"  Partially Tracked (PT): {int(pt)}")
+        print(f"  Fragmentation (Frag):   {int(frag)}")
+
+    print("\n" + "="*70)
+    print("Full Metrics Summary (motmetrics):")
+    print(summary.to_string())
+    print("="*70 + "\n")
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description='Evaluate BOTSORT tracker against ground truth')
-    parser.add_argument('gt_file', type=str, help='Path to ground truth MOT file')
-    parser.add_argument('det_file', type=str, help='Path to detection results MOT file')
-    parser.add_argument('--iou_threshold', type=float, default=0.5,
-                       help='IoU threshold for matching (default: 0.5)')
-    parser.add_argument('--output', type=str, default=None,
-                       help='Output file for results (optional)')
-    
+    parser = argparse.ArgumentParser(description="Evaluate BOTSORT Tracker with MOTMetrics")
+    parser.add_argument("gt_file", type=str, help="Ground truth MOT file")
+    parser.add_argument("det_file", type=str, help="Detection MOT file")
+    parser.add_argument("--iou_threshold", type=float, default=0.5,
+                        help="IoU threshold for matching")
     args = parser.parse_args()
-    
-    if not os.path.exists(args.gt_file):
-        print(f"Error: Ground truth file not found: {args.gt_file}")
-        sys.exit(1)
-    
-    if not os.path.exists(args.det_file):
-        print(f"Error: Detection file not found: {args.det_file}")
-        sys.exit(1)
-    
-    try:
-        results = evaluate_tracker(args.gt_file, args.det_file, args.iou_threshold)
-        print_results(results)
-        
-        if args.output:
-            with open(args.output, 'w') as f:
-                f.write("TRACKING EVALUATION RESULTS\n")
-                f.write("="*60 + "\n\n")
-                for key, value in results.items():
-                    if isinstance(value, float):
-                        f.write(f"{key}: {value:.4f}\n")
-                    else:
-                        f.write(f"{key}: {value}\n")
-            print(f"Results saved to: {args.output}")
-    
-    except Exception as e:
-        print(f"Error: {e}")
-        import traceback
-        traceback.print_exc()
-        sys.exit(1)
+
+    results, summary = evaluate_tracker(args.gt_file, args.det_file, args.iou_threshold)
+    print_results(results, summary)
