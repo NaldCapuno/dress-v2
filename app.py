@@ -2208,6 +2208,7 @@ def auto_sync_to_aiven():
     
     last_sync_time = 0
     sync_interval = 300  # Sync every 5 minutes (300 seconds)
+    last_logged_remaining = None  # Track last logged remaining time to avoid spam
     
     while True:
         try:
@@ -2233,7 +2234,8 @@ def auto_sync_to_aiven():
             
             # Check if enough time has passed since last sync
             if time_since_last_sync >= sync_interval:
-                print("🔄 Syncing local database to Aiven (backup)...")
+                sync_start_msg = "Syncing local database to Aiven (backup)..."
+                debug_sync(f"🔄 {sync_start_msg}")
                 
                 try:
                     # Import sync functions
@@ -2293,6 +2295,7 @@ def auto_sync_to_aiven():
                     aiven_cursor.execute("SET FOREIGN_KEY_CHECKS = 0")
                     
                     synced_count = 0
+                    failed_tables = []
                     for table in tables:
                         try:
                             # Get data from local
@@ -2309,16 +2312,46 @@ def auto_sync_to_aiven():
                             # Clear Aiven table
                             aiven_cursor.execute(f"TRUNCATE TABLE `{table}`")
                             
-                            # Insert data
+                            # Insert data row by row for better error reporting
                             placeholders = ', '.join(['%s'] * len(columns))
                             columns_str = ', '.join([f"`{col}`" for col in columns])
                             insert_query = f"INSERT INTO `{table}` ({columns_str}) VALUES ({placeholders})"
                             
-                            aiven_cursor.executemany(insert_query, rows)
-                            aiven_conn.commit()
-                            synced_count += 1
+                            inserted_rows = 0
+                            failed_rows = 0
+                            for row_num, row in enumerate(rows, start=1):
+                                try:
+                                    aiven_cursor.execute(insert_query, row)
+                                    inserted_rows += 1
+                                except Exception as row_error:
+                                    failed_rows += 1
+                                    # Extract row identifier if possible (usually first column is ID)
+                                    row_id = row[0] if row else f"row_{row_num}"
+                                    error_msg = str(row_error)
+                                    # Check if it's a data truncation error
+                                    if "Data truncated" in error_msg or "1265" in error_msg:
+                                        # Try to extract column name from error
+                                        if "column" in error_msg.lower():
+                                            print(f"  ⚠ Table {table}, row {row_num} (ID: {row_id}): {error_msg}")
+                                        else:
+                                            print(f"  ⚠ Table {table}, row {row_num} (ID: {row_id}): Data truncation error - {error_msg}")
+                                    else:
+                                        print(f"  ⚠ Table {table}, row {row_num} (ID: {row_id}): {error_msg}")
+                            
+                            if inserted_rows > 0:
+                                aiven_conn.commit()
+                                synced_count += 1
+                                if failed_rows > 0:
+                                    print(f"  ⚠ Table {table}: Synced {inserted_rows} rows, {failed_rows} rows failed")
+                            else:
+                                failed_tables.append(table)
+                                print(f"  ❌ Table {table}: All {len(rows)} rows failed to sync")
+                                
                         except Exception as e:
-                            print(f"  ⚠ Error syncing table {table}: {e}")
+                            failed_tables.append(table)
+                            print(f"  ❌ Error syncing table {table}: {e}")
+                            import traceback
+                            traceback.print_exc()
                     
                     # Re-enable foreign key checks
                     aiven_cursor.execute("SET FOREIGN_KEY_CHECKS = 1")
@@ -2328,21 +2361,39 @@ def auto_sync_to_aiven():
                     aiven_conn.close()
                     
                     last_sync_time = current_time
-                    print(f"✅ Auto-sync to Aiven (backup) completed! Synced {synced_count} tables.")
+                    last_logged_remaining = None  # Reset after sync so next wait message will be logged
+                    if failed_tables:
+                        error_msg = f"Auto-sync to Aiven (backup) completed with errors! Synced {synced_count} tables, {len(failed_tables)} tables failed: {', '.join(failed_tables)}"
+                        debug_sync(f"❌ {error_msg}")
+                    else:
+                        success_msg = f"Auto-sync to Aiven (backup) completed successfully! Synced {synced_count} tables."
+                        debug_sync(f"✅ {success_msg}")
                 
                 except Exception as e:
-                    print(f"⚠️ Auto-sync to Aiven failed: {e}")
+                    error_msg = f"Auto-sync to Aiven failed: {e}"
+                    debug_sync(f"❌ {error_msg}")
                     import traceback
                     traceback.print_exc()
             else:
                 # Aiven is available but not enough time has passed
                 remaining = sync_interval - time_since_last_sync
-                debug_sync(f"Auto-sync waiting - {remaining:.0f}s until next sync (Aiven available)")
+                # Only log if remaining time changed significantly (to avoid spam)
+                # Log when remaining time crosses minute boundaries or is close to sync time
+                remaining_minutes = int(remaining // 60)
+                should_log = (
+                    last_logged_remaining is None or
+                    int(last_logged_remaining // 60) != remaining_minutes or
+                    remaining <= 60  # Always log when less than 1 minute remaining
+                )
+                if should_log:
+                    debug_sync(f"Auto-sync waiting - {remaining:.0f}s ({remaining_minutes}m) until next sync (Aiven available)")
+                    last_logged_remaining = remaining
             
         except Exception as e:
             print(f"Error in auto-sync to Aiven checker: {e}")
             import traceback
             traceback.print_exc()
+            last_logged_remaining = None  # Reset on error
         
         # Check every 60 seconds
         time.sleep(60)
@@ -2385,69 +2436,78 @@ ensure_email_outbox_worker()
 
 
 if __name__ == '__main__':
+    # Flask's debug reloader runs code twice - once in parent, once in child process
+    # Only start threads in the actual app process (not the reloader parent)
+    # WERKZEUG_RUN_MAIN is set to 'true' in the main process
+    is_main_process = os.environ.get('WERKZEUG_RUN_MAIN') == 'true'
+    
     print("Starting Flask app for person detection with Bot-SORT tracking...")
     print("Camera will auto-start when the app launches")
     print("RFID monitoring will start automatically")
     print("Detection will only work when RFID card is present")
     print("Make sure you have installed: pip install ultralytics opencv-python flask pillow scipy pyscard")
     
-    # Load auto-sync state from database on startup
-    try:
-        conn = get_connection() if get_connection else None
-        if conn:
-            with conn.cursor() as cur:
-                cur.execute(
-                    "SELECT setting_value FROM settings WHERE setting_key = 'auto_sync_enabled'"
-                )
-                result = cur.fetchone()
-                if result and result.get('setting_value'):
-                    enabled = result['setting_value'].lower() in ('1', 'true', 'yes', 'on')
-                    with auto_sync_lock:
-                        auto_sync_enabled = enabled
-                    print(f"✓ Auto-sync state loaded from database: {'enabled' if enabled else 'disabled'}")
-                else:
-                    # Default to enabled if not set, and save to database
-                    with auto_sync_lock:
-                        auto_sync_enabled = True
-                    with conn.cursor() as save_cur:
-                        save_cur.execute(
-                            """
-                            INSERT INTO settings (setting_key, setting_value)
-                            VALUES ('auto_sync_enabled', '1')
-                            ON DUPLICATE KEY UPDATE setting_value = '1'
-                            """
-                        )
-                        conn.commit()
-                    print("✓ Auto-sync state initialized to enabled (default)")
-    except Exception as e:
-        print(f"⚠ Warning: Could not load auto-sync state from database: {e}")
-        # Default to enabled on error
-        with auto_sync_lock:
-            auto_sync_enabled = True
-    
-    # Start follow-up email scheduler in background
-    try:
-        followup_thread = threading.Thread(target=followup_email_scheduler, daemon=True)
-        followup_thread.start()
-        print("✓ Follow-up email scheduler started (checks daily for violations 3+ days old)")
-    except Exception as e:
-        print(f"✗ Warning: Could not start follow-up email scheduler: {e}")
-    
-    # Start schedule RFID checker in background
-    try:
-        schedule_checker_thread = threading.Thread(target=schedule_rfid_checker, daemon=True)
-        schedule_checker_thread.start()
-        print("✓ Schedule RFID checker started (checks every 10 seconds to enable/disable RFID based on schedule)")
-    except Exception as e:
-        print(f"✗ Warning: Could not start schedule RFID checker: {e}")
-    
-    # Start auto-sync checker in background (Local → Aiven backup)
-    try:
-        auto_sync_thread = threading.Thread(target=auto_sync_to_aiven, daemon=True)
-        auto_sync_thread.start()
-        sync_status = "enabled" if auto_sync_enabled else "disabled"
-        print(f"✓ Auto-sync to Aiven (backup) started - Status: {sync_status} (syncs every 5 minutes when Aiven is available and enabled)")
-    except Exception as e:
-        print(f"✗ Warning: Could not start auto-sync to Aiven checker: {e}")
+    # Only initialize threads in the main process (not the reloader parent)
+    if is_main_process:
+        # Load auto-sync state from database on startup
+        try:
+            conn = get_connection() if get_connection else None
+            if conn:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        "SELECT setting_value FROM settings WHERE setting_key = 'auto_sync_enabled'"
+                    )
+                    result = cur.fetchone()
+                    if result and result.get('setting_value'):
+                        enabled = result['setting_value'].lower() in ('1', 'true', 'yes', 'on')
+                        with auto_sync_lock:
+                            auto_sync_enabled = enabled
+                        print(f"✓ Auto-sync state loaded from database: {'enabled' if enabled else 'disabled'}")
+                    else:
+                        # Default to enabled if not set, and save to database
+                        with auto_sync_lock:
+                            auto_sync_enabled = True
+                        with conn.cursor() as save_cur:
+                            save_cur.execute(
+                                """
+                                INSERT INTO settings (setting_key, setting_value)
+                                VALUES ('auto_sync_enabled', '1')
+                                ON DUPLICATE KEY UPDATE setting_value = '1'
+                                """
+                            )
+                            conn.commit()
+                        print("✓ Auto-sync state initialized to enabled (default)")
+        except Exception as e:
+            print(f"⚠ Warning: Could not load auto-sync state from database: {e}")
+            # Default to enabled on error
+            with auto_sync_lock:
+                auto_sync_enabled = True
+        
+        # Start follow-up email scheduler in background
+        try:
+            followup_thread = threading.Thread(target=followup_email_scheduler, daemon=True)
+            followup_thread.start()
+            print("✓ Follow-up email scheduler started (checks daily for violations 3+ days old)")
+        except Exception as e:
+            print(f"✗ Warning: Could not start follow-up email scheduler: {e}")
+        
+        # Start schedule RFID checker in background
+        try:
+            schedule_checker_thread = threading.Thread(target=schedule_rfid_checker, daemon=True)
+            schedule_checker_thread.start()
+            print("✓ Schedule RFID checker started (checks every 10 seconds to enable/disable RFID based on schedule)")
+        except Exception as e:
+            print(f"✗ Warning: Could not start schedule RFID checker: {e}")
+        
+        # Start auto-sync checker in background (Local → Aiven backup)
+        try:
+            auto_sync_thread = threading.Thread(target=auto_sync_to_aiven, daemon=True)
+            auto_sync_thread.start()
+            sync_status = "enabled" if auto_sync_enabled else "disabled"
+            print(f"✓ Auto-sync to Aiven (backup) started - Status: {sync_status} (syncs every 5 minutes when Aiven is available and enabled)")
+        except Exception as e:
+            print(f"✗ Warning: Could not start auto-sync to Aiven checker: {e}")
+    else:
+        print("⚠ Running in Flask reloader parent process - threads will start in main process")
     
     app.run(debug=True, host='0.0.0.0', port=5000)

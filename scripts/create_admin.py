@@ -22,7 +22,7 @@ ALLOWED_COLLEGES = [
     'College of Arts and Humanities',
     'College of Business and Accountancy',
     'College of Criminal Justice Education',
-    'College of Hospitality Management and Tourism',
+    'College of Hospitality and Tourism Management',
     'College of Nursing and Health Sciences',
     'College of Teacher Education'
 ]

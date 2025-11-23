@@ -15,7 +15,7 @@ INSERT INTO `students` (`student_id`, `rfid_uid`, `name`, `gender`, `year_level`
   ('2024-1-0013', 'H8I9J0K1', 'Kimberly Ong', 'female', 1, 'Bachelor of Arts in Communication', 'College of Arts and Humanities', 'kimberly.ong@student.edu'),
   ('2020-2-0014', 'L2M3N4O5', 'Nathaniel Chua', 'male', 2, 'Bachelor of Science in Accountancy', 'College of Business and Accountancy', 'nathaniel.chua@student.edu'),
   ('2024-3-0015', 'P6Q7R8S9', 'Christine Tan', 'female', 3, 'Bachelor of Science in Criminology', 'College of Criminal Justice Education', 'christine.tan@student.edu'),
-  ('2021-4-0016', 'T0U1V2W3', 'Jerome Bautista', 'male', 4, 'Bachelor of Science in Hospitality Management', 'College of Hospitality Management and Tourism', 'jerome.bautista@student.edu'),
+  ('2021-4-0016', 'T0U1V2W3', 'Jerome Bautista', 'male', 4, 'Bachelor of Science in Hospitality Management', 'College of Hospitality and Tourism Management', 'jerome.bautista@student.edu'),
   ('2020-3-0017', 'X4Y5Z6A7', 'Monica Alvarez', 'female', 3, 'Bachelor of Science in Nursing', 'College of Nursing and Health Sciences', 'monica.alvarez@student.edu'),
   ('2022-4-0018', 'B8C9D0E1', 'Andre Rodriguez', 'male', 4, 'Bachelor of Secondary Education', 'College of Teacher Education', 'andre.rodriguez@student.edu'),
   ('2025-1-0020', '3BA8104F', 'Erika Santos', 'female', 1, 'Bachelor of Science in Computer Science', 'College of Sciences', 'erika.santos@student.edu'),
