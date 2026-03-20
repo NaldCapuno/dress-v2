@@ -153,7 +153,7 @@ def dean_update_violation_status(violation_id: int):
         data = request.get_json(silent=True) or {}
         status = str(data.get('status') or '').strip().lower()
         print(f"Dean status update: violation_id={violation_id}, status={status}, data={data}")
-        allowed = {"pending", "resolved"}
+        allowed = {"pending", "resolved", "dismissed"}
         if status not in allowed:
             return jsonify({'success': False, 'error': 'Invalid status'}), 400
         conn = get_connection() if get_connection else None
@@ -670,7 +670,7 @@ def guidance_get_violations():
 
 @violations_bp.route('/guidance/violation/<int:violation_id>/status', methods=['POST'])
 def guidance_update_violation_status(violation_id: int):
-    """Guidance can set pending or resolved."""
+    """Guidance can set pending, resolved, or dismissed."""
     # Import here to avoid circular imports
     from app import get_connection
     
@@ -678,7 +678,7 @@ def guidance_update_violation_status(violation_id: int):
         data = request.get_json(silent=True) or {}
         status = str(data.get('status') or '').strip().lower()
         print(f"Guidance status update: violation_id={violation_id}, status={status}, data={data}")
-        allowed = {"pending", "resolved"}
+        allowed = {"pending", "resolved", "dismissed"}
         if status not in allowed:
             return jsonify({'success': False, 'error': 'Invalid status'}), 400
         conn = get_connection() if get_connection else None
@@ -844,7 +844,7 @@ def guidance_trend():
 
 @violations_bp.route('/osas/violation/<int:violation_id>/status', methods=['POST'])
 def osas_update_violation_status(violation_id: int):
-    """OSAS can forward to dean, guidance, or resolve."""
+    """OSAS can forward to dean, guidance, or set resolved/dismissed."""
     # Import here to avoid circular imports
     from app import get_connection
     
@@ -852,7 +852,7 @@ def osas_update_violation_status(violation_id: int):
         data = request.get_json(silent=True) or {}
         status = str(data.get('status') or '').strip().lower()
         print(f"OSAS status update: violation_id={violation_id}, status={status}, data={data}")
-        allowed = {"pending", "resolved"}
+        allowed = {"pending", "resolved", "dismissed"}
         if status not in allowed:
             return jsonify({'success': False, 'error': 'Invalid status'}), 400
         conn = get_connection() if get_connection else None
@@ -1196,7 +1196,8 @@ def dean_generate_pdf_report():
                 f"SELECT COUNT(*) AS total, "
                 f"COUNT(DISTINCT v.student_id) AS unique_students, "
                 f"COUNT(CASE WHEN v.status = 'resolved' THEN 1 END) AS resolved, "
-                f"COUNT(CASE WHEN v.status != 'resolved' THEN 1 END) AS unresolved "
+                f"COUNT(CASE WHEN v.status = 'dismissed' THEN 1 END) AS dismissed, "
+                f"COUNT(CASE WHEN v.status = 'pending' THEN 1 END) AS unresolved "
                 f"FROM violations v LEFT JOIN students s ON v.student_id = s.student_id{where_sql}"
             )
             cur.execute(stats_query, params)
@@ -1269,6 +1270,7 @@ def dean_generate_pdf_report():
             ['Total Violations', str(stats.get('total', 0))],
             ['Unique Students', str(stats.get('unique_students', 0))],
             ['Resolved', str(stats.get('resolved', 0))],
+            ['Dismissed', str(stats.get('dismissed', 0))],
             ['Unresolved', str(stats.get('unresolved', 0))]
         ]
         stats_table = Table(stats_data, colWidths=[3*inch, 2*inch])
@@ -1338,7 +1340,7 @@ def dean_generate_pdf_report():
                     # Check for status patterns at the end of violation_type
                     # Patterns to look for (longest first to avoid partial matches)
                     status_patterns = [
-                        '_pending', '_resolved', 'pending', 'resolved'
+                        '_pending', '_resolved', '_dismissed', 'pending', 'resolved', 'dismissed'
                     ]
                     
                     violation_type_lower = violation_type.lower()
@@ -1523,7 +1525,8 @@ def osas_generate_pdf_report():
                 f"SELECT COUNT(*) AS total, "
                 f"COUNT(DISTINCT v.student_id) AS unique_students, "
                 f"COUNT(CASE WHEN v.status = 'resolved' THEN 1 END) AS resolved, "
-                f"COUNT(CASE WHEN v.status != 'resolved' THEN 1 END) AS unresolved "
+                f"COUNT(CASE WHEN v.status = 'dismissed' THEN 1 END) AS dismissed, "
+                f"COUNT(CASE WHEN v.status = 'pending' THEN 1 END) AS unresolved "
                 f"FROM violations v LEFT JOIN students s ON v.student_id = s.student_id{where_sql}"
             )
             cur.execute(stats_query, params)
@@ -1596,6 +1599,7 @@ def osas_generate_pdf_report():
             ['Total Violations', str(stats.get('total', 0))],
             ['Unique Students', str(stats.get('unique_students', 0))],
             ['Resolved', str(stats.get('resolved', 0))],
+            ['Dismissed', str(stats.get('dismissed', 0))],
             ['Unresolved', str(stats.get('unresolved', 0))]
         ]
         stats_table = Table(stats_data, colWidths=[3*inch, 2*inch])
@@ -1666,7 +1670,7 @@ def osas_generate_pdf_report():
                     # Check for status patterns at the end of violation_type
                     # Patterns to look for (longest first to avoid partial matches)
                     status_patterns = [
-                        '_pending', '_resolved', 'pending', 'resolved'
+                        '_pending', '_resolved', '_dismissed', 'pending', 'resolved', 'dismissed'
                     ]
                     
                     violation_type_lower = violation_type.lower()
@@ -1979,7 +1983,7 @@ def send_followup_emails():
                         """
                         SELECT COUNT(*) as strike_count
                         FROM violations
-                        WHERE student_id = %s AND status != 'resolved'
+                        WHERE student_id = %s AND status = 'pending'
                         ORDER BY timestamp ASC
                         """,
                         (student_id,)

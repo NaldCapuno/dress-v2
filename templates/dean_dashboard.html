@@ -2054,10 +2054,12 @@
             const total = data.total || 0;
             const byStatus = (data.by_status || []).reduce((acc, r) => { acc[String(r.label||'').toLowerCase()] = r.cnt||0; return acc; }, {});
             const resolved = byStatus['resolved'] || 0;
-            const unresolved = total - resolved;
+            const dismissed = byStatus['dismissed'] || 0;
+            const resolvedEffective = resolved + dismissed;
+            const unresolved = Math.max(0, total - resolvedEffective);
             document.getElementById('ov-total').textContent = total;
             document.getElementById('ov-unresolved').textContent = unresolved;
-            document.getElementById('ov-resolved').textContent = resolved;
+            document.getElementById('ov-resolved').textContent = resolvedEffective;
 
             const topPrograms = (data.by_program || []).slice(0,3);
             const list = document.getElementById('ov-top-programs');
@@ -2083,7 +2085,7 @@
             const trend = await fetchJSON(`/dean/trend?${params.toString()}&group_by=day`);
             trendBaseSeries = (trend.series || []).map(p => ({ label: normalizeDateLabel(p.label), cnt: p.cnt || 0 }));
             updateTrendChart();
-            renderPieChart('ov-resolve-pie', [ { label: 'Resolved', cnt: resolved }, { label: 'Unresolved', cnt: Math.max(0, total - resolved) } ]);
+            renderPieChart('ov-resolve-pie', [ { label: 'Resolved', cnt: resolvedEffective }, { label: 'Unresolved', cnt: Math.max(0, total - resolvedEffective) } ]);
             renderBarChart('ov-gender', data.by_gender || []);
         }
 

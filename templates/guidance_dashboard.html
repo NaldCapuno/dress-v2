@@ -146,11 +146,12 @@
             violationsData.forEach(v => {
                 const tr = document.createElement('tr');
                 const status = (v.status || '').toLowerCase();
-                const actionButton = status === 'resolved' ? '' : `
+                const actionButton = (status === 'resolved' || status === 'dismissed') ? '' : `
                     <div class="action-dropdown compact status-${v.status}">
                         <select onchange="updateStatus(${v.violation_id}, this.value)">
                             <option value="">Update...</option>
                             <option value="resolved">Resolved</option>
+                            <option value="dismissed">Dismissed</option>
                             <option value="pending">Pending</option>
                         </select>
                     </div>
@@ -617,14 +618,16 @@
             const total = data.total || 0;
             const byStatus = (data.by_status || []).reduce((acc, r) => { acc[String(r.label||'').toLowerCase()] = r.cnt||0; return acc; }, {});
             const resolved = byStatus['resolved'] || 0;
-            const unresolved = total - resolved;
+            const dismissed = byStatus['dismissed'] || 0;
+            const resolvedEffective = resolved + dismissed;
+            const unresolved = Math.max(0, total - resolvedEffective);
             const totalEl = document.getElementById('ov-total');
             const unresolvedEl = document.getElementById('ov-unresolved');
             const resolvedEl = document.getElementById('ov-resolved');
             const pending3dEl = document.getElementById('ov-pending-3d');
             if (totalEl) totalEl.textContent = total;
             if (unresolvedEl) unresolvedEl.textContent = unresolved;
-            if (resolvedEl) resolvedEl.textContent = resolved;
+            if (resolvedEl) resolvedEl.textContent = resolvedEffective;
             if (pending3dEl) pending3dEl.textContent = byStatus['pending'] || 0;
 
             // Top college/programs
@@ -677,7 +680,7 @@
             const trend = await fetchJSON(`/guidance/trend?${params.toString()}&group_by=day`);
             trendBaseSeries = (trend.series || []).map(p => ({ label: normalizeDateLabel(p.label), cnt: p.cnt || 0 }));
             updateTrendChart();
-            renderPieChart('ov-resolve-pie', [ { label: 'Resolved', cnt: resolved }, { label: 'Unresolved', cnt: Math.max(0, total - resolved) } ]);
+            renderPieChart('ov-resolve-pie', [ { label: 'Resolved', cnt: resolvedEffective }, { label: 'Unresolved', cnt: Math.max(0, total - resolvedEffective) } ]);
             renderBarChart('ov-gender', data.by_gender || []);
         }
 

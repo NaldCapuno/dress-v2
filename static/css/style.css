@@ -1790,6 +1790,11 @@ select.form-control {
     color: var(--success);
 }
 
+.status.dismissed {
+    background-color: rgba(239, 68, 68, 0.1);
+    color: var(--error);
+}
+
 /* Toolbar */
 .toolbar {
     display: flex;
@@ -2168,6 +2173,12 @@ select.form-control {
     border: 1px solid rgba(16, 185, 129, 0.2);
 }
 
+.status-indicator.dismissed {
+    background-color: rgba(239, 68, 68, 0.1);
+    color: var(--error);
+    border: 1px solid rgba(239, 68, 68, 0.2);
+}
+
 /* Enhanced action buttons */
 .action-buttons {
     display: flex;
@@ -2411,6 +2422,10 @@ select.form-control {
     border-left: 4px solid var(--success);
 }
 
+.action-dropdown.status-dismissed select {
+    border-left: 4px solid var(--error);
+}
+
 /* Enhanced dropdown with icons */
 .action-dropdown.with-icons select {
     padding-left: var(--space-10);
@@ -2441,6 +2456,10 @@ select.form-control {
 
 .action-dropdown.with-icons.status-resolved::before {
     background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='%2310b981' viewBox='0 0 24 24'%3E%3Cpath d='M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z'/%3E%3C/svg%3E");
+}
+
+.action-dropdown.with-icons.status-dismissed::before {
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='%23ef4444' viewBox='0 0 24 24'%3E%3Cpath d='M18.3 5.71L12 12l6.3 6.29-1.41 1.42L10.59 13.41 4.29 19.71 2.88 18.29 9.17 12 2.88 5.71 4.29 4.29l6.3 6.3 6.29-6.3 1.42 1.42z'/%3E%3C/svg%3E");
 }
 
 /* Compact dropdown for table cells */
