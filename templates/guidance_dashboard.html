@@ -83,6 +83,172 @@
             const year = date.getFullYear();
             return `${weekday}, ${day} ${month} ${year}`;
         }
+        function getProofFilename(imageProof) {
+            if (!imageProof) return '';
+            const normalized = String(imageProof).replace(/\\/g, '/');
+            const parts = normalized.split('/').filter(Boolean);
+            return parts.length ? parts[parts.length - 1] : '';
+        }
+        function openViolationProof(imageProof) {
+            const proofFilename = getProofFilename(imageProof);
+            if (!proofFilename) {
+                showToast('No proof image available for this violation.', 'error');
+                return;
+            }
+            const modal = document.getElementById('proof-image-modal');
+            const modalImage = document.getElementById('proof-image-preview');
+            if (!modal || !modalImage) {
+                showToast('Preview modal is not available.', 'error');
+                return;
+            }
+            modalImage.src = `/violation_proof/${encodeURIComponent(proofFilename)}`;
+            modalImage.alt = `Proof image: ${proofFilename}`;
+            modal.classList.add('visible');
+            modal.setAttribute('aria-hidden', 'false');
+            document.body.classList.add('modal-open');
+        }
+        function closeProofImageModal() {
+            const modal = document.getElementById('proof-image-modal');
+            const modalImage = document.getElementById('proof-image-preview');
+            if (!modal || !modalImage) return;
+            modal.classList.remove('visible');
+            modal.setAttribute('aria-hidden', 'true');
+            modalImage.src = '';
+            modalImage.alt = '';
+            document.body.classList.remove('modal-open');
+        }
+        function onProofModalBackdropClick(event) {
+            if (event.target && event.target.id === 'proof-image-modal') {
+                closeProofImageModal();
+            }
+        }
+        function onOverlayProofClick() {
+            const overlay = document.getElementById('guidance-actions-overlay');
+            if (!overlay) return;
+            const imageProof = overlay.getAttribute('data-image-proof') || '';
+            if (!imageProof) {
+                showToast('No proof image available for this violation.', 'error');
+                return;
+            }
+            openViolationProof(imageProof);
+        }
+        async function onOverlayStatusChange(selectEl) {
+            const overlay = document.getElementById('guidance-actions-overlay');
+            if (!overlay || !selectEl) return;
+            const violationId = overlay.getAttribute('data-violation-id');
+            const canUpdate = overlay.getAttribute('data-can-update') === 'true';
+            const selectedStatus = (selectEl.value || '').trim();
+            if (!violationId || !canUpdate || !selectedStatus) return;
+            selectEl.disabled = true;
+            await updateStatus(Number(violationId), selectedStatus);
+            selectEl.value = '';
+            selectEl.disabled = false;
+            if (typeof TableActionsOverlay !== 'undefined' && TableActionsOverlay?.hideOverlay) {
+                TableActionsOverlay.hideOverlay();
+            }
+        }
+        const TableActionsOverlay = (function() {
+            const HIDE_DELAY_MS = 1000;
+            let hideTimer = null;
+            let currentRow = null;
+            let table = null;
+            let tbody = null;
+            let overlay = null;
+            let container = null;
+            let wrap = null;
+
+            function hideOverlay() {
+                if (!overlay) return;
+                const focusedEl = document.activeElement;
+                if (focusedEl && overlay.contains(focusedEl) && typeof focusedEl.blur === 'function') {
+                    focusedEl.blur();
+                }
+                overlay.classList.remove('visible');
+                overlay.setAttribute('aria-hidden', 'true');
+                overlay.setAttribute('inert', '');
+                currentRow = null;
+            }
+
+            function setOverlayData(row) {
+                if (!overlay || !row) return;
+                const imageProof = row.getAttribute('data-image-proof') || '';
+                const violationId = row.getAttribute('data-violation-id') || '';
+                const updateLocked = row.getAttribute('data-update-locked') || 'false';
+                const canUpdate = row.getAttribute('data-can-update') === 'true';
+                overlay.setAttribute('data-image-proof', imageProof);
+                overlay.setAttribute('data-violation-id', violationId);
+                overlay.setAttribute('data-update-locked', updateLocked);
+                overlay.setAttribute('data-can-update', canUpdate ? 'true' : 'false');
+                const proofBtn = overlay.querySelector('.overlay-proof-btn');
+                const statusSelect = overlay.querySelector('.overlay-status-select');
+                if (proofBtn) {
+                    proofBtn.disabled = !imageProof;
+                    proofBtn.title = imageProof ? 'View proof image' : 'No proof image available';
+                }
+                if (statusSelect) {
+                    const locked = updateLocked === 'true';
+                    statusSelect.style.display = canUpdate ? 'inline-block' : 'none';
+                    statusSelect.disabled = locked || !canUpdate;
+                    statusSelect.value = '';
+                    statusSelect.title = locked ? 'Status locked for this record' : 'Update status';
+                }
+            }
+
+            function positionOverlay(row) {
+                if (!row || !overlay || !container) return;
+                const containerRect = container.getBoundingClientRect();
+                const rowRect = row.getBoundingClientRect();
+                const top = rowRect.top - containerRect.top;
+                overlay.style.top = `${top}px`;
+                overlay.style.height = `${rowRect.height}px`;
+                overlay.style.right = `8px`;
+                setOverlayData(row);
+                overlay.classList.add('visible');
+                overlay.setAttribute('aria-hidden', 'false');
+                overlay.removeAttribute('inert');
+            }
+
+            function init(options) {
+                table = document.querySelector(options.table);
+                overlay = document.querySelector(options.overlay);
+                container = document.querySelector(options.container);
+                wrap = document.querySelector(options.wrap);
+                if (!table || !overlay || !container || !wrap) return;
+                tbody = table.querySelector('tbody');
+                if (!tbody) return;
+
+                tbody.addEventListener('mouseover', (event) => {
+                    const row = event.target.closest('tr');
+                    if (!row) return;
+                    clearTimeout(hideTimer);
+                    currentRow = row;
+                    positionOverlay(row);
+                });
+
+                tbody.addEventListener('mouseleave', () => {
+                    hideTimer = setTimeout(hideOverlay, HIDE_DELAY_MS);
+                });
+
+                overlay.addEventListener('mouseenter', () => {
+                    clearTimeout(hideTimer);
+                });
+                overlay.addEventListener('mouseleave', () => {
+                    hideOverlay();
+                });
+
+                wrap.addEventListener('scroll', () => {
+                    if (currentRow) positionOverlay(currentRow);
+                });
+                window.addEventListener('scroll', () => {
+                    if (currentRow) positionOverlay(currentRow);
+                }, { passive: true });
+                window.addEventListener('resize', () => {
+                    if (currentRow) positionOverlay(currentRow);
+                });
+            }
+
+            return { init, hideOverlay };
+        })();
         let page = 1;
         let pageSize = 10;
         let violationsData = [];
@@ -145,17 +311,14 @@
             
             violationsData.forEach(v => {
                 const tr = document.createElement('tr');
+                tr.className = 'guidance-violation-row';
                 const status = (v.status || '').toLowerCase();
-                const actionButton = (status === 'resolved' || status === 'dismissed') ? '' : `
-                    <div class="action-dropdown compact status-${v.status}">
-                        <select onchange="updateStatus(${v.violation_id}, this.value)">
-                            <option value="">Update...</option>
-                            <option value="resolved">Resolved</option>
-                            <option value="dismissed">Dismissed</option>
-                            <option value="pending">Pending</option>
-                        </select>
-                    </div>
-                `;
+                const updateLocked = (status === 'resolved' || status === 'dismissed') ? 'true' : 'false';
+                const canUpdate = status === 'pending' ? 'true' : 'false';
+                tr.setAttribute('data-violation-id', String(v.violation_id || ''));
+                tr.setAttribute('data-image-proof', String(v.image_proof || ''));
+                tr.setAttribute('data-update-locked', updateLocked);
+                tr.setAttribute('data-can-update', canUpdate);
                 tr.innerHTML = `
                     <td>${formatTimestamp(v.timestamp)}</td>
                     <td>${v.student_id || ''}</td>
@@ -164,11 +327,11 @@
                     <td>${v.program || ''}</td>
                     <td>${v.gender || ''}</td>
                     <td>${v.violation_type || ''}</td>
-                    <td><span class="status ${v.status}">${v.status}</span></td>
-                    <td>${actionButton}</td>
+                    <td>${v.status ? `<span class="status ${v.status}">${v.status}</span>` : ''}</td>
                 `;
                 tbody.appendChild(tr);
             });
+            TableActionsOverlay.hideOverlay();
         }
         
         function getCellValue(row, column) {
@@ -749,6 +912,61 @@
             font-size: 0.875rem;
             white-space: nowrap;
         }
+        body.modal-open {
+            overflow: hidden;
+        }
+        .proof-image-modal {
+            position: fixed;
+            inset: 0;
+            display: none;
+            align-items: center;
+            justify-content: center;
+            background: rgba(0, 0, 0, 0.65);
+            z-index: 2000;
+            padding: 1rem;
+        }
+        .proof-image-modal.visible {
+            display: flex;
+        }
+        .proof-image-modal-content {
+            position: relative;
+            max-width: min(92vw, 1200px);
+            max-height: 90vh;
+            width: fit-content;
+            background: #111827;
+            border-radius: 12px;
+            padding: 0.75rem;
+            box-shadow: 0 16px 60px rgba(0, 0, 0, 0.45);
+        }
+        .proof-image-modal-content img {
+            display: block;
+            max-width: 100%;
+            max-height: calc(90vh - 1.5rem);
+            border-radius: 8px;
+            object-fit: contain;
+            background: #000;
+        }
+        .proof-image-close-btn {
+            position: absolute;
+            top: -12px;
+            right: -12px;
+            width: 32px;
+            height: 32px;
+            border: none;
+            border-radius: 999px;
+            background: #f25a04;
+            color: #fff;
+            cursor: pointer;
+            font-size: 18px;
+            line-height: 1;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            box-shadow: 0 6px 16px rgba(0, 0, 0, 0.3);
+        }
+        .proof-image-close-btn:hover {
+            background: #d9480f;
+        }
         .chart-wrapper {
             display: flex;
             flex-direction: column;
@@ -1115,9 +1333,9 @@
                         </div>
                     </div>
                 </div>
-                <div class="card-body">
-                    <div class="table-responsive">
-                        <table class="table table-9-cols">
+                <div class="card-body guidance-table-container">
+                    <div class="table-responsive guidance-table-wrap">
+                        <table class="table table-8-cols guidance-hover-actions-table">
                             <thead>
                                 <tr>
                                     <th data-sort="timestamp" onclick="sortViolations('timestamp')" class="table-header-sortable">Date <span class="sort-indicator"></span></th>
@@ -1128,11 +1346,21 @@
                                     <th data-sort="gender" onclick="sortViolations('gender')" class="table-header-sortable">Gender <span class="sort-indicator"></span></th>
                                     <th data-sort="violation_type" onclick="sortViolations('violation_type')" class="table-header-sortable">Type <span class="sort-indicator"></span></th>
                                     <th data-sort="status" onclick="sortViolations('status')" class="table-header-sortable">Status <span class="sort-indicator"></span></th>
-                                    <th>Action</th>
                                 </tr>
                             </thead>
                             <tbody id="violations-body"></tbody>
                         </table>
+                    </div>
+                    <div id="guidance-actions-overlay" class="guidance-actions-overlay" aria-hidden="true" data-image-proof="" data-violation-id="" data-update-locked="false" data-can-update="false">
+                        <button type="button" class="btn btn-secondary proof-icon-btn overlay-proof-btn" onclick="onOverlayProofClick()" title="View proof image" aria-label="View proof image">
+                            <i class="fas fa-eye"></i>
+                        </button>
+                        <select class="overlay-status-select" onchange="onOverlayStatusChange(this)" title="Update status" aria-label="Update status">
+                            <option value="">Update...</option>
+                            <option value="resolved">Resolved</option>
+                            <option value="dismissed">Dismissed</option>
+                            <option value="pending">Pending</option>
+                        </select>
                     </div>
                 </div>
             </div>
@@ -1206,10 +1434,27 @@
     
     <!-- Toast Notification Container -->
     <div id="toast-container" class="toast-container"></div>
+    <div id="proof-image-modal" class="proof-image-modal" aria-hidden="true" onclick="onProofModalBackdropClick(event)">
+        <div class="proof-image-modal-content" role="dialog" aria-modal="true" aria-label="Violation proof image preview">
+            <button type="button" class="proof-image-close-btn" onclick="closeProofImageModal()" aria-label="Close image preview">&times;</button>
+            <img id="proof-image-preview" src="" alt="">
+        </div>
+    </div>
 
     <script>
         // Sidebar-only navigation
         document.addEventListener('DOMContentLoaded', () => {
+            document.addEventListener('keydown', (event) => {
+                if (event.key === 'Escape') {
+                    closeProofImageModal();
+                }
+            });
+            TableActionsOverlay.init({
+                table: '#violations-section .guidance-hover-actions-table',
+                overlay: '#guidance-actions-overlay',
+                container: '#violations-section .guidance-table-container',
+                wrap: '#violations-section .guidance-table-wrap'
+            });
             const sideButtons = document.querySelectorAll('.sidebar .nav-item');
             function showSection(target){
                 sideButtons.forEach(b=>b.classList.toggle('active', b.dataset.target===target));

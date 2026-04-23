@@ -3267,33 +3267,145 @@ select.form-control {
     width: 11%; /* Status */
 }
 
-/* Guidance dashboard: 9 columns (Date, Student ID, Name, College, Program, Gender, Type, Status, Action) */
-#violations-section .table.table-9-cols th:nth-child(4),
-#violations-section .table.table-9-cols td:nth-child(4) {
+/* Guidance dashboard: 10 columns (Date, Student ID, Name, College, Program, Gender, Type, Status, Proof, Action) */
+#violations-section .table.table-10-cols th:nth-child(4),
+#violations-section .table.table-10-cols td:nth-child(4) {
     width: 12%; /* College */
 }
 
-#violations-section .table.table-9-cols th:nth-child(5),
-#violations-section .table.table-9-cols td:nth-child(5) {
+#violations-section .table.table-10-cols th:nth-child(5),
+#violations-section .table.table-10-cols td:nth-child(5) {
     width: 12%; /* Program */
 }
 
-#violations-section .table.table-9-cols th:nth-child(6),
-#violations-section .table.table-9-cols td:nth-child(6) {
+#violations-section .table.table-10-cols th:nth-child(6),
+#violations-section .table.table-10-cols td:nth-child(6) {
     width: 10%; /* Gender */
 }
 
-#violations-section .table.table-9-cols th:nth-child(7),
-#violations-section .table.table-9-cols td:nth-child(7) {
+#violations-section .table.table-10-cols th:nth-child(7),
+#violations-section .table.table-10-cols td:nth-child(7) {
     width: 11%; /* Type */
 }
 
-#violations-section .table.table-9-cols th:nth-child(8),
-#violations-section .table.table-9-cols td:nth-child(8) {
+#violations-section .table.table-10-cols th:nth-child(8),
+#violations-section .table.table-10-cols td:nth-child(8) {
     width: 12%; /* Status */
 }
 
-#violations-section .table.table-9-cols th:nth-child(9),
-#violations-section .table.table-9-cols td:nth-child(9) {
+#violations-section .table.table-10-cols th:nth-child(9),
+#violations-section .table.table-10-cols td:nth-child(9) {
+    width: 8%; /* Proof */
+}
+
+#violations-section .table.table-10-cols th:nth-child(10),
+#violations-section .table.table-10-cols td:nth-child(10) {
     width: 9%; /* Action */
+}
+
+#violations-section .proof-icon-btn {
+    min-width: 34px;
+    height: 32px;
+    padding: 0 9px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0;
+    border: none;
+    border-radius: 6px;
+    background: #e2e8f0;
+    color: #475569;
+    border: 1px solid rgba(148, 163, 184, 0.28);
+    box-shadow: none;
+    transition: all 0.15s ease;
+}
+
+#violations-section .proof-icon-btn:hover:not(:disabled) {
+    background: #cbd5e1;
+    color: #1d4ed8;
+    transform: none;
+}
+
+#violations-section .proof-icon-btn:focus-visible {
+    outline: 2px solid #2563eb;
+    outline-offset: 1px;
+}
+
+#violations-section .proof-icon-btn i {
+    pointer-events: none;
+    font-size: 14px;
+}
+
+/* Guidance violations: allow natural width with horizontal scrolling */
+#violations-section .table.guidance-hover-actions-table {
+    table-layout: auto;
+    width: max-content;
+    min-width: 1150px;
+}
+
+#violations-section .table.guidance-hover-actions-table th,
+#violations-section .table.guidance-hover-actions-table td {
+    white-space: nowrap;
+    overflow: visible;
+    text-overflow: clip;
+}
+
+#violations-section .guidance-violation-row {
+    position: relative;
+}
+
+#violations-section .guidance-table-container {
+    position: relative;
+}
+
+#violations-section .guidance-actions-overlay {
+    position: absolute;
+    right: 8px;
+    top: 0;
+    height: 42px;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 4px 10px 4px 14px;
+    border-radius: 0;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.14s ease-in-out, transform 0.14s ease-in-out;
+    z-index: 8;
+    border: none;
+    box-shadow: none;
+    backdrop-filter: none;
+    background: linear-gradient(to left, rgba(255, 255, 255, 0.98) 65%, rgba(255, 255, 255, 0));
+    transform: translateX(2px);
+}
+
+#violations-section .guidance-actions-overlay.visible {
+    opacity: 1;
+    pointer-events: auto;
+    transform: translateX(0);
+}
+
+#violations-section .overlay-status-select {
+    min-width: 120px;
+    height: 32px;
+    border: 1px solid #dbe3ef;
+    border-radius: 7px;
+    background: rgba(255, 255, 255, 0.9);
+    color: #1f2937;
+    font-size: 12px;
+    font-weight: 600;
+    padding: 4px 10px;
+    box-shadow: none;
+    transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+#violations-section .overlay-status-select:hover {
+    border-color: #93c5fd;
+}
+
+#violations-section .overlay-status-select:focus {
+    outline: 2px solid #2563eb;
+    outline-offset: 1px;
+    border-color: #2563eb;
+    box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.14);
 }
