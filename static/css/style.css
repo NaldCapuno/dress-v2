@@ -2054,6 +2054,45 @@ select.form-control {
     min-width: 600px;
 }
 
+/* Wide data tables: horizontal scroll in .table-responsive (guidance violations pattern) */
+.table.table-horizontal-scroll {
+    table-layout: auto;
+    width: max-content;
+    min-width: 100%;
+}
+
+.table.table-horizontal-scroll.table-8-cols {
+    min-width: 1150px;
+}
+
+.table.table-horizontal-scroll.table-7-cols {
+    min-width: 1000px;
+}
+
+.table.table-horizontal-scroll th,
+.table.table-horizontal-scroll td {
+    white-space: nowrap;
+    overflow: visible;
+    text-overflow: clip;
+}
+
+#violations-section .table.table-horizontal-scroll {
+    table-layout: auto;
+}
+
+#violations-section .table.table-horizontal-scroll th,
+#violations-section .table.table-horizontal-scroll td {
+    overflow: visible;
+    text-overflow: clip;
+}
+
+#add-students-section .table.table-horizontal-scroll th:nth-child(3),
+#add-students-section .table.table-horizontal-scroll td:nth-child(3) {
+    white-space: nowrap;
+    word-wrap: normal;
+    word-break: normal;
+}
+
 
 /* Chart containers */
 .chart-container {
@@ -3336,20 +3375,6 @@ select.form-control {
     font-size: 14px;
 }
 
-/* Guidance violations: allow natural width with horizontal scrolling */
-#violations-section .table.guidance-hover-actions-table {
-    table-layout: auto;
-    width: max-content;
-    min-width: 1150px;
-}
-
-#violations-section .table.guidance-hover-actions-table th,
-#violations-section .table.guidance-hover-actions-table td {
-    white-space: nowrap;
-    overflow: visible;
-    text-overflow: clip;
-}
-
 #violations-section .guidance-violation-row {
     position: relative;
 }
@@ -3408,4 +3433,82 @@ select.form-control {
     outline-offset: 1px;
     border-color: #2563eb;
     box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.14);
+}
+
+/* Dean students table: row hover overlay (same pattern as guidance violations) */
+#add-students-section .dean-student-row {
+    position: relative;
+}
+
+#add-students-section .dean-students-table-container {
+    position: relative;
+}
+
+#add-students-section .dean-students-actions-overlay {
+    position: absolute;
+    right: 8px;
+    top: 0;
+    height: 42px;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 4px 10px 4px 14px;
+    border-radius: 0;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.14s ease-in-out, transform 0.14s ease-in-out;
+    z-index: 8;
+    border: none;
+    box-shadow: none;
+    backdrop-filter: none;
+    background: linear-gradient(to left, rgba(255, 255, 255, 0.98) 65%, rgba(255, 255, 255, 0));
+    transform: translateX(2px);
+}
+
+#add-students-section .dean-students-actions-overlay.visible {
+    opacity: 1;
+    pointer-events: auto;
+    transform: translateX(0);
+}
+
+#add-students-section .dean-students-overlay-btn {
+    min-width: 34px;
+    height: 32px;
+    padding: 0 9px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0;
+    border-radius: 6px;
+    background: #e2e8f0;
+    color: #475569;
+    border: 1px solid rgba(148, 163, 184, 0.28);
+    box-shadow: none;
+    transition: all 0.15s ease;
+}
+
+#add-students-section .dean-students-overlay-btn i {
+    pointer-events: none;
+    font-size: 14px;
+}
+
+#add-students-section .dean-students-overlay-btn--delete {
+    color: #b91c1c;
+    border-color: rgba(248, 113, 113, 0.45);
+    background: #fef2f2;
+}
+
+#add-students-section .dean-students-overlay-btn:hover {
+    background: #cbd5e1;
+    color: #1d4ed8;
+}
+
+#add-students-section .dean-students-overlay-btn--delete:hover {
+    background: #fee2e2;
+    color: #991b1b;
+}
+
+#add-students-section .dean-students-overlay-btn:focus-visible {
+    outline: 2px solid #2563eb;
+    outline-offset: 1px;
 }

@@ -1056,8 +1056,8 @@
                     </div>
                 </div>
                 <div class="card-body">
-                    <div class="table-responsive">
-                        <table class="table table-7-cols">
+                    <div class="table-responsive guidance-table-wrap">
+                        <table class="table table-7-cols table-horizontal-scroll">
                             <thead>
                                 <tr>
                                     <th data-sort="timestamp" onclick="sortViolations('timestamp')" class="table-header-sortable">Date <span class="sort-indicator"></span></th>
@@ -1159,9 +1159,9 @@
                         </div>
                     </div>
                 </div>
-                <div class="card-body">
-                    <div class="table-responsive">
-                        <table class="table">
+                <div class="card-body dean-students-table-container">
+                    <div class="table-responsive guidance-table-wrap">
+                        <table class="table table-7-cols table-horizontal-scroll dean-students-hover-actions-table">
                             <thead>
                                 <tr>
                                     <th data-sort="student_id" onclick="sortStudents('student_id')" class="table-header-sortable">Student ID <span class="sort-indicator"></span></th>
@@ -1171,15 +1171,22 @@
                                     <th data-sort="year_level" onclick="sortStudents('year_level')" class="table-header-sortable">Year Level <span class="sort-indicator"></span></th>
                                     <th data-sort="program" onclick="sortStudents('program')" class="table-header-sortable">Program <span class="sort-indicator"></span></th>
                                     <th data-sort="rfid_uid" onclick="sortStudents('rfid_uid')" class="table-header-sortable">RFID UID <span class="sort-indicator"></span></th>
-                                    <th>Actions</th>
                                 </tr>
                             </thead>
                             <tbody id="students-table-body">
                                 <tr>
-                                    <td colspan="8" class="table-empty-message">Loading students...</td>
+                                    <td colspan="7" class="table-empty-message">Loading students...</td>
                                 </tr>
                             </tbody>
                         </table>
+                    </div>
+                    <div id="dean-students-actions-overlay" class="dean-students-actions-overlay" aria-hidden="true" data-student-id="" data-student-name="">
+                        <button type="button" class="btn btn-secondary dean-students-overlay-btn dean-students-overlay-btn--edit" onclick="onDeanStudentsOverlayEdit()" title="Edit student" aria-label="Edit student">
+                            <i class="fas fa-pen"></i>
+                        </button>
+                        <button type="button" class="btn btn-secondary dean-students-overlay-btn dean-students-overlay-btn--delete" onclick="onDeanStudentsOverlayDelete()" title="Delete student" aria-label="Delete student">
+                            <i class="fas fa-trash"></i>
+                        </button>
                     </div>
                 </div>
             </div>
@@ -1314,16 +1321,18 @@
                         There are <strong id="alert-count">0</strong> students with more than 3 days pending violation. Click to view.
                     </div>
                     <div id="alert-students" class="alert-table-wrapper hidden">
-                        <table class="table">
-                            <thead>
-                                <tr>
-                                    <th>Student ID</th>
-                                    <th>Name</th>
-                                    <th>Program</th>
-                                </tr>
-                            </thead>
-                            <tbody id="alert-students-body"></tbody>
-                        </table>
+                        <div class="table-responsive guidance-table-wrap">
+                            <table class="table table-horizontal-scroll">
+                                <thead>
+                                    <tr>
+                                        <th>Student ID</th>
+                                        <th>Name</th>
+                                        <th>Program</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="alert-students-body"></tbody>
+                            </table>
+                        </div>
                     </div>
                     <div id="no-notifications-message" class="text-muted" style="text-align: center; padding: 2rem;">
                         <p>No pending violations requiring attention.</p>
@@ -1399,6 +1408,115 @@
         </div>
 
     <script>
+        const StudentsTableActionsOverlay = (function() {
+            const HIDE_DELAY_MS = 1000;
+            let hideTimer = null;
+            let currentRow = null;
+            let table = null;
+            let tbody = null;
+            let overlay = null;
+            let container = null;
+            let wrap = null;
+
+            function hideOverlay() {
+                if (!overlay) return;
+                const focusedEl = document.activeElement;
+                if (focusedEl && overlay.contains(focusedEl) && typeof focusedEl.blur === 'function') {
+                    focusedEl.blur();
+                }
+                overlay.classList.remove('visible');
+                overlay.setAttribute('aria-hidden', 'true');
+                overlay.setAttribute('inert', '');
+                currentRow = null;
+            }
+
+            function setOverlayData(row) {
+                if (!overlay || !row) return;
+                const studentId = row.getAttribute('data-student-id') || '';
+                const studentName = row.getAttribute('data-student-name') || '';
+                overlay.setAttribute('data-student-id', studentId);
+                overlay.setAttribute('data-student-name', studentName);
+            }
+
+            function positionOverlay(row) {
+                if (!row || !overlay || !container) return;
+                const containerRect = container.getBoundingClientRect();
+                const rowRect = row.getBoundingClientRect();
+                const top = rowRect.top - containerRect.top;
+                overlay.style.top = `${top}px`;
+                overlay.style.height = `${rowRect.height}px`;
+                overlay.style.right = '8px';
+                setOverlayData(row);
+                overlay.classList.add('visible');
+                overlay.setAttribute('aria-hidden', 'false');
+                overlay.removeAttribute('inert');
+            }
+
+            function init(options) {
+                table = document.querySelector(options.table);
+                overlay = document.querySelector(options.overlay);
+                container = document.querySelector(options.container);
+                wrap = document.querySelector(options.wrap);
+                if (!table || !overlay || !container || !wrap) return;
+                tbody = table.querySelector('tbody');
+                if (!tbody) return;
+
+                tbody.addEventListener('mouseover', (event) => {
+                    const row = event.target.closest('tr');
+                    if (!row || !row.classList.contains('dean-student-row')) return;
+                    clearTimeout(hideTimer);
+                    currentRow = row;
+                    positionOverlay(row);
+                });
+
+                tbody.addEventListener('mouseleave', () => {
+                    hideTimer = setTimeout(hideOverlay, HIDE_DELAY_MS);
+                });
+
+                overlay.addEventListener('mouseenter', () => {
+                    clearTimeout(hideTimer);
+                });
+                overlay.addEventListener('mouseleave', () => {
+                    hideOverlay();
+                });
+
+                wrap.addEventListener('scroll', () => {
+                    if (currentRow) positionOverlay(currentRow);
+                });
+                window.addEventListener('scroll', () => {
+                    if (currentRow) positionOverlay(currentRow);
+                }, { passive: true });
+                window.addEventListener('resize', () => {
+                    if (currentRow) positionOverlay(currentRow);
+                });
+            }
+
+            return { init, hideOverlay };
+        })();
+
+        function onDeanStudentsOverlayEdit() {
+            const overlay = document.getElementById('dean-students-actions-overlay');
+            const studentId = overlay?.getAttribute('data-student-id');
+            if (typeof StudentsTableActionsOverlay !== 'undefined' && StudentsTableActionsOverlay?.hideOverlay) {
+                StudentsTableActionsOverlay.hideOverlay();
+            }
+            if (studentId && typeof window.editStudent === 'function') {
+                window.editStudent(studentId);
+            }
+        }
+
+        function onDeanStudentsOverlayDelete() {
+            const overlay = document.getElementById('dean-students-actions-overlay');
+            const studentId = overlay?.getAttribute('data-student-id');
+            const studentName = overlay?.getAttribute('data-student-name') || '';
+            if (typeof StudentsTableActionsOverlay !== 'undefined' && StudentsTableActionsOverlay?.hideOverlay) {
+                StudentsTableActionsOverlay.hideOverlay();
+            }
+            if (studentId && typeof window.deleteStudent === 'function') {
+                window.deleteStudent(studentId, studentName);
+            }
+        }
+
         // Sidebar-only navigation
         document.addEventListener('DOMContentLoaded', async () => {
             const sideButtons = document.querySelectorAll('.sidebar .nav-item');
@@ -1644,7 +1762,7 @@
                     if (!data.success) {
                         const tbody = document.getElementById('students-table-body');
                         if (tbody) {
-                            tbody.innerHTML = '<tr><td colspan="8" class="table-empty-message table-empty-message--error">Error loading students.</td></tr>';
+                            tbody.innerHTML = '<tr><td colspan="7" class="table-empty-message table-empty-message--error">Error loading students.</td></tr>';
                         }
                         return;
                     }
@@ -1660,7 +1778,7 @@
                     console.error('Error loading students:', e);
                     const tbody = document.getElementById('students-table-body');
                     if (tbody) {
-                        tbody.innerHTML = '<tr><td colspan="8" class="table-empty-message table-empty-message--error">Error loading students. Please try again.</td></tr>';
+                        tbody.innerHTML = '<tr><td colspan="7" class="table-empty-message table-empty-message--error">Error loading students. Please try again.</td></tr>';
                     }
                 }
             }
@@ -1679,6 +1797,9 @@
             function renderStudentsTable() {
                 const tbody = document.getElementById('students-table-body');
                 if (!tbody) return;
+                if (typeof StudentsTableActionsOverlay !== 'undefined' && StudentsTableActionsOverlay?.hideOverlay) {
+                    StudentsTableActionsOverlay.hideOverlay();
+                }
                 tbody.innerHTML = '';
                 
                 let filteredData = [...studentsData];
@@ -1747,12 +1868,18 @@
                 document.getElementById('students-page').textContent = studentsPage;
                 
                 if (paginatedData.length === 0) {
-                    tbody.innerHTML = '<tr><td colspan="8" class="table-empty-message">No students found.</td></tr>';
+                    tbody.innerHTML = '<tr><td colspan="7" class="table-empty-message">No students found.</td></tr>';
+                    if (typeof StudentsTableActionsOverlay !== 'undefined' && StudentsTableActionsOverlay?.hideOverlay) {
+                        StudentsTableActionsOverlay.hideOverlay();
+                    }
                     return;
                 }
                 
                 paginatedData.forEach(s => {
                     const tr = document.createElement('tr');
+                    tr.className = 'dean-student-row';
+                    tr.setAttribute('data-student-id', String(s.student_id || ''));
+                    tr.setAttribute('data-student-name', String(s.name || ''));
                     const gender = s.gender ? s.gender.charAt(0).toUpperCase() + s.gender.slice(1).toLowerCase() : '';
                     tr.innerHTML = `
                         <td>${s.student_id || ''}</td>
@@ -1762,10 +1889,6 @@
                         <td>${s.year_level || ''}</td>
                         <td>${s.program || ''}</td>
                         <td>${s.rfid_uid || ''}</td>
-                        <td>
-                            <button class="btn btn-secondary table-action-btn" onclick="editStudent('${s.student_id}')">Edit</button>
-                            <button class="btn btn-secondary table-action-btn table-action-btn--danger" onclick="deleteStudent('${s.student_id}', '${(s.name || '').replace(/'/g, "\\'")}')">Delete</button>
-                        </td>
                     `;
                     tbody.appendChild(tr);
                 });
@@ -2032,6 +2155,13 @@
                     }
                 });
             }
+
+            StudentsTableActionsOverlay.init({
+                table: '#add-students-section .dean-students-hover-actions-table',
+                overlay: '#dean-students-actions-overlay',
+                container: '#add-students-section .dean-students-table-container',
+                wrap: '#add-students-section .guidance-table-wrap'
+            });
             
             // Initial render
             renderOverview();
